@@ -4,9 +4,14 @@ use clap::{Parser, Subcommand};
 #[command(name = "inro", author = "Yangmoooo")]
 #[command(version, propagate_version = true)]
 #[command(about = "A personal toolbox for your favorite command-line tools.")]
-pub struct Args {
+pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
+
+    /// Enable verbose output for more details.
+    #[arg(short, long, global = true, action = clap::ArgAction::Count)]
+    // allows it to be used with any subcommand and makes it a counter. `-v` -> 2, `-vv` -> 2
+    pub verbose: u8,
 }
 
 #[derive(Subcommand, Debug)]
@@ -31,7 +36,7 @@ pub enum Command {
     #[command(about = "List all installed packages.")]
     List,
 
-    #[command(alias = "up")]
+    #[command(alias = "upgrade")]
     #[command(about = "Update packages.")]
     Update {
         /// Names of the packages to update
