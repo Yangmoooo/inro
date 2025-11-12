@@ -1,73 +1,35 @@
 mod cli;
+mod command;
+mod package;
+mod platform;
+mod reporter;
+
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::{CommandFactory, Parser};
+use once_cell::sync::Lazy;
 
-use cli::{Args, Command};
+use cli::{Cli, Command};
+use command::*;
+
+static VERBOSITY: Lazy<AtomicU8> = Lazy::new(AtomicU8::default);
 
 fn main() -> anyhow::Result<()> {
-    let args = Args::parse();
+    let cli = Cli::parse();
+    VERBOSITY.store(cli.verbose, Ordering::Relaxed);
 
-    match &args.command {
-        Some(command) => {
-            let mut failed_pkgs = Vec::new();
+    if let Some(command) = cli.command {
+        let command_handler: Box<dyn CommandHandler> = match command {
 
-            match command {
-                Command::Install { names } => {
-                    println!("Attempting to install {} package(s)...", names.len());
-                    for name in names {
-                        match handle_install(name) {
-                            Ok(_) => {}
-                            Err(e) => {
-                                eprintln!("Failed to install package '{name}': {e}");
-                                failed_pkgs.push(name);
-                            }
-                        }
-                    }
-                }
-                Command::Update { names } => {
-                    if names.is_empty() {
-                        println!("Updating all packages...");
-                        handle_update_all()?;
-                    } else {
-                        println!("Attempting to update {} package(s)...", names.len());
-                        for name in names {
-                            match handle_update_one(name) {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    eprintln!("Failed to update package '{name}': {e}");
-                                    failed_pkgs.push(name);
-                                }
-                            }
-                        }
-                    }
-                }
-                _ => println!("Not implemented!"),
-            }
+            Command::Install { names } => Box::new(InstallCommand { names }),
 
-            if !failed_pkgs.is_empty() {
-                eprintln!("\nSummary: The following packages failed to install: {failed_pkgs:?}");
-                anyhow::bail!("One or more packages failed to install.");
-            }
-        }
-        None => {
-            let _ = Args::command().print_help();
-        }
+            _ => anyhow::bail!("Not implemented yet!"),
+        };
+
+        command_handler.handle()?;
+    } else {
+        Cli::command().print_long_help()?;
     }
 
-    Ok(())
-}
-
-fn handle_install(name: &str) -> anyhow::Result<()> {
-    println!("Installing {name}...");
-    Ok(())
-}
-
-fn handle_update_all() -> anyhow::Result<()> {
-    println!("Updating all packages...");
-    Ok(())
-}
-
-fn handle_update_one(name: &str) -> anyhow::Result<()> {
-    println!("Updating {name}...");
     Ok(())
 }

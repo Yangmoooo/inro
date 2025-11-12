@@ -1,0 +1,16 @@
+pub mod install;
+
+use anyhow::Result;
+
+pub use install::InstallCommand;
+
+pub trait CommandHandler {
+    fn handle(&self) -> Result<()>;
+}
+
+pub fn unique(strs: &[String]) -> Vec<String> {
+    let mut vec = strs.to_owned();
+    vec.sort_unstable();
+    vec.dedup();
+    vec
+}
