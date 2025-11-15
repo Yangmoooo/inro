@@ -5,14 +5,14 @@ mod platform;
 mod reporter;
 
 use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::LazyLock;
 
 use clap::{CommandFactory, Parser};
-use once_cell::sync::Lazy;
 
 use cli::{Cli, Command};
 use command::*;
 
-static VERBOSITY: Lazy<AtomicU8> = Lazy::new(AtomicU8::default);
+static VERBOSITY: LazyLock<AtomicU8> = LazyLock::new(AtomicU8::default);
 
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
