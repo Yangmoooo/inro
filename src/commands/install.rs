@@ -1,7 +1,8 @@
 use anyhow::{Result, bail};
+use figment::{Figment, providers::{Format, Toml}};
 
 use super::CommandHandler;
-use crate::package::{PackageError, PackgeReceipt};
+use crate::package::{PackageConfig, PackageError, PackgeReceipt};
 use crate::{report, reporter::MsgType};
 
 pub struct InstallCommand {
@@ -16,6 +17,12 @@ impl CommandHandler for InstallCommand {
             "Starting installation of {} package(s)...",
             names.len()
         );
+
+        let pkgconf_file = "sources.default.toml";
+        let pkgconf: PackageConfig = Figment::new()
+            .merge(Toml::file(pkgconf_file))
+            .extract()?;
+        report!(MsgType::Info, "Loaded package config!\n{:#?}", pkgconf.pkgs);
 
         let mut success_receipts = Vec::new();
         let mut failed_packages = Vec::new();
@@ -58,7 +65,7 @@ fn do_install(name: &str) -> Result<PackgeReceipt, PackageError> {
     report!(MsgType::Detail, "Fetching from GitHub Releases...");
     Ok(PackgeReceipt {
         name: name.to_string(),
-        version: "v0.1.0".to_string(),
+        ver: "v0.1.0".to_string(),
         bins: vec![name.to_string()],
     })
 }

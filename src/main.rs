@@ -1,5 +1,5 @@
 mod cli;
-mod command;
+mod commands;
 mod package;
 mod platform;
 mod reporter;
@@ -10,7 +10,7 @@ use std::sync::LazyLock;
 use clap::{CommandFactory, Parser};
 
 use cli::{Cli, Command};
-use command::*;
+use commands::*;
 
 static VERBOSITY: LazyLock<AtomicU8> = LazyLock::new(AtomicU8::default);
 
