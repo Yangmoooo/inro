@@ -18,13 +18,15 @@ use colored::{ColoredString, Colorize};
 macro_rules! report {
     ($msg_type:expr, $fmt:literal $(, $($arg:expr),*)?) => {
         {
+            use std::sync::atomic::Ordering;
+            use $crate::reporter::{MsgType, report_impl};
+
             let should_print = match $msg_type {
-                $crate::reporter::MsgType::Detail => $crate::VERBOSITY.load(std::sync::atomic::Ordering::Relaxed) > 0,
+                MsgType::Detail => $crate::VERBOSITY.load(Ordering::Relaxed) > 0,
                 _ => true,
             };
-
             if should_print {
-                $crate::reporter::report_impl($msg_type, &format!($fmt $(, $($arg),*)?));
+                report_impl($msg_type, &format!($fmt $(, $($arg),*)?));
             }
         }
     };
