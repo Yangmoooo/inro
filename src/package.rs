@@ -1,8 +1,10 @@
-mod remotes;
+pub mod remotes;
 
 use std::collections::HashMap;
 
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
+use remotes::Remote;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct PackageConfig {
@@ -17,26 +19,6 @@ pub struct PackageInfo {
     pub remote: Remote,
     #[serde(default)]
     pub bin: Vec<BinConfig>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum Remote {
-    GitHub(GitHubSource),
-    // Direct(DirectSource),
-}
-
-impl Default for Remote {
-    fn default() -> Self {
-        Remote::GitHub(GitHubSource::default())
-    }
-}
-
-#[derive(Debug, Default, Deserialize)]
-pub struct GitHubSource {
-    pub repo: String,
-    #[serde(default)]
-    pub asset: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -56,22 +38,14 @@ pub struct PackgeReceipt {
 
 #[derive(thiserror::Error, Debug)]
 pub enum PackageError {
-    #[error("Package '{name}' not found in any sources")]
-    NotFound { name: String },
+    #[error("Package '{0}' not found in any sources")]
+    NotFound(String),
 
-    #[error("Failed to fetch from '{name}'")]
-    Remote {
-        name: String,
-        #[source]
-        source: remotes::Error,
-    },
+    #[error("Failed to fetch from remote: '{0}'")]
+    Remote(#[from] remotes::Error),
 
-    #[error("Download failed for '{url}'")]
-    Download {
-        url: String,
-        #[source]
-        source: reqwest::Error,
-    },
+    #[error("Download failed: '{0}'")]
+    Download(#[from] anyhow::Error),
 
     #[error("Checksum validation failed for downloaded file")]
     ChecksumMismatch,
@@ -83,8 +57,8 @@ pub enum PackageError {
         source: std::io::Error, // TODO replace from archive library
     },
 
-    #[error("Could not find the binary '{binary_name}' inside the extracted archive")]
-    BinaryNotFoundInArchive { binary_name: String },
+    #[error("Could not find the binary '{0}' inside the extracted archive")]
+    BinaryNotFoundInArchive(String),
 
     #[error("Filesystem IO error: {0}")]
     Io(#[from] std::io::Error),
