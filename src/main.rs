@@ -3,6 +3,7 @@ mod commands;
 mod package;
 mod platform;
 mod reporter;
+mod utils;
 
 use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::LazyLock;
