@@ -5,17 +5,18 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use super::{InstallCandidate, RemoteProvider, Result as RemoteResult};
-use crate::package::{PackageInfo, Remote};
+use crate::package::{RemoteType, ResolvedPackage};
 use crate::platform::PlatformInfo;
 use crate::report;
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
 const GITHUB_ASSETS_VALID_TYPES: &[&str] = &[
-    "application/octet-stream",
-    "application/x-msdownload",
-    "application/x-gtar",
-    "application/gzip",
-    "application/zip",
+    "application/octet-stream",           // bin
+    "application/x-msdownload",           // exe
+    "application/x-gtar",                 // tar.xz
+    "application/gzip",                   // tar.gz
+    "application/zip",                    // zip
+    "application/x-bzip1-compressed-tar", // tbz
 ];
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -117,7 +118,6 @@ impl Release {
             .collect();
 
         if matching_assets.is_empty() {
-            // TODO: hint to use `inro add`
             return Err(Error::NoMatchingAsset {
                 repo: self.repo.clone(),
                 tag: self.tag_name.clone(),
@@ -134,6 +134,7 @@ impl Release {
 pub struct Releases(Vec<Release>);
 
 impl Releases {
+    // TODO: add an option arg to search by tag name
     pub fn first_available(&self) -> Result<&Release> {
         let repo = &self
             .0
@@ -231,14 +232,14 @@ impl GitHubProvider {
 }
 
 impl RemoteProvider for GitHubProvider {
-    fn find_candidates(&self, pkg: &PackageInfo) -> RemoteResult<Vec<InstallCandidate>> {
+    fn find_candidates(&self, pkg: &ResolvedPackage) -> RemoteResult<Vec<InstallCandidate>> {
         let repo = match &pkg.remote {
-            Remote::GitHub(source) => &source.repo,
+            RemoteType::GitHub(source) => &source.repo,
         };
 
         let releases = self.fetch_releases(repo)?;
         let available_release = releases.first_available()?;
-        let Remote::GitHub(source) = &pkg.remote;
+        let RemoteType::GitHub(source) = &pkg.remote;
         let assets = available_release.find_assets(&source.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets

@@ -4,15 +4,12 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::package::PackageInfo;
+use crate::package::ResolvedPackage;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("An error occurred while fetching from GitHub")]
     GitHub(#[from] github::Error),
-
-    #[error("The source type '{0}' is not supported")]
-    UnsupportedSourceType(String),
 
     #[error("Filesystem IO error: {0}")]
     Io(#[from] std::io::Error),
@@ -20,20 +17,20 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
-pub enum Remote {
+pub enum RemoteType {
     GitHub(GitHubSource),
     // Direct(DirectSource),
 }
 
-impl Default for Remote {
+impl Default for RemoteType {
     fn default() -> Self {
-        Remote::GitHub(GitHubSource::default())
+        RemoteType::GitHub(GitHubSource::default())
     }
 }
 
-#[derive(Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize)]
 pub struct GitHubSource {
     pub repo: String,
     #[serde(default)]
@@ -48,5 +45,5 @@ pub struct InstallCandidate {
 }
 
 pub trait RemoteProvider {
-    fn find_candidates(&self, pkg: &PackageInfo) -> Result<Vec<InstallCandidate>>;
+    fn find_candidates(&self, pkg: &ResolvedPackage) -> Result<Vec<InstallCandidate>>;
 }
