@@ -1,0 +1,62 @@
+# Inro Configuration File
+# Location: ~/.config/inro/config.toml
+# All settings are optional. Uncomment and modify the ones you want to override.
+
+# =============================================================================
+# [install] - Settings related to installation paths and behavior
+# =============================================================================
+
+# The directory where executable symlinks will be created.
+# Inro will check this directory on startup and suggest adding it to your PATH if needed.
+# Environment variable override: INRO_BIN_DIR
+# Default: "~/.local/bin"
+#
+bin_dir = "~/bin"
+
+
+# =============================================================================
+# [sources] - Configuration for software sources
+# =============================================================================
+
+# A list of remote Git repositories containing source definitions (`.toml` files).
+# Inro will fetch and cache these sources when you run `inro source update`.
+# The "default" source is built-in but can be overridden here if you want to use a fork.
+#
+# remotes = [
+#   { name = "default", url = "https://github.com/Yangmoooo/inro-sources.git" },
+#   { name = "work", url = "https://internal-gitlab.com/team/inro-work-tools.git" }
+# ]
+
+
+# =============================================================================
+# [network] - Settings for network requests
+# =============================================================================
+
+# GitHub Personal Access Token (PAT) for authenticated API requests.
+# Using a token increases your API rate limit from 60 to 5000 requests per hour.
+# Highly recommended.
+# Environment variable overrides: INRO_GITHUB_TOKEN or GITHUB_TOKEN
+#
+# github_token = "ghp_..."
+
+# HTTP/SOCKS5 proxy to use for all network requests.
+# Environment variable overrides: HTTPS_PROXY or ALL_PROXY
+#
+# proxy = "http://user:password@proxy.example.com:8080"
+# proxy = "socks5://localhost:7890"
+# use_proxy = true
+
+# Request timeout in seconds.
+# Default: 30
+#
+# timeout_secs = 60
+
+
+# =============================================================================
+# [behavior] - General behavior and performance tuning
+# =============================================================================
+
+# Number of packages to download in parallel during a multi-package install/update.
+# Default: 4 (or number of CPU cores)
+#
+# parallel_downloads = 8

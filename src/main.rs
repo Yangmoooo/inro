@@ -1,12 +1,13 @@
 mod cli;
 mod commands;
+mod config;
 mod package;
 mod platform;
 mod reporter;
 mod utils;
 
-use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::LazyLock;
+use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::{CommandFactory, Parser};
 
@@ -21,7 +22,6 @@ fn main() -> anyhow::Result<()> {
 
     if let Some(command) = cli.command {
         let command_handler: Box<dyn CommandHandler> = match command {
-
             Command::Install { names } => Box::new(InstallCommand { names }),
 
             _ => anyhow::bail!("Not implemented yet!"),
