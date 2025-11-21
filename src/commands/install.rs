@@ -1,14 +1,20 @@
+use std::fs;
+use std::io;
 use std::path::Path;
+use std::path::PathBuf;
 
-use anyhow::{Result, bail};
+use anyhow::{Result, anyhow};
+use colored::Colorize;
 use figment::Figment;
 use figment::providers::{Format, Toml};
 use tempfile::TempDir;
+use walkdir::WalkDir;
 
 use super::CommandHandler;
+use crate::config::UserConfig;
 use crate::package::remotes::github::GitHubProvider;
-use crate::package::remotes::{Remote, RemoteProvider};
-use crate::package::{PackageConfig, PackageError, PackgeReceipt};
+use crate::package::remotes::{RemoteProvider, RemoteType};
+use crate::package::*;
 use crate::report;
 use crate::utils::*;
 
@@ -25,42 +31,98 @@ impl CommandHandler for InstallCommand {
             names.len()
         );
 
-        let install_dir = dirs::home_dir().expect("No home dir").join("bin");
+        // TODO: load config
+        let user_config_file = "config.default.toml";
+        let user_config: UserConfig = UserConfig::load(Path::new(user_config_file))
+            .map_err(|e| anyhow::anyhow!("Failed to load user config: {e}"))?;
+        report!(MsgType::Detail, "Loaded inro config.");
+        // println!("{:#?}", user_config);
 
-        let pkgconf_file = "sources.default.toml";
-        let pkgconf: PackageConfig = Figment::new().merge(Toml::file(pkgconf_file)).extract()?;
-        report!(MsgType::Info, "Loaded package config!\n{:#?}", pkgconf.pkgs);
+        // TODO: load sources
+        let pkg_config_file = "sources.default.toml";
+        let pkg_config: PackageConfig = Figment::new()
+            .merge(Toml::file(pkg_config_file))
+            .extract()?;
+        report!(MsgType::Detail, "Loaded package config.");
+        // println!("{:#?}", pkg_config.pkgs);
 
-        let mut success_receipts = Vec::new();
-        let mut failed_packages = Vec::new();
+        let mut successes = Vec::new();
+        let mut failures = Vec::new();
 
         for name in &names {
-            match do_install(name, &pkgconf, &install_dir) {
-                Ok(receipt) => success_receipts.push(receipt),
+            match do_install(name, &pkg_config, &user_config) {
+                Ok(receipt) => successes.push(receipt),
                 Err(e) => {
                     report!(MsgType::Error, "Failed to install '{name}': {e:?}");
-                    failed_packages.push(name.clone());
+                    failures.push((name.clone(), e.to_string()));
                 }
             }
         }
 
-        if !success_receipts.is_empty() {
-            let success_packages: Vec<_> = success_receipts.into_iter().map(|r| r.name).collect();
+        eprintln!();
+        let has_success = !successes.is_empty();
+        let has_failure = !failures.is_empty();
+
+        if has_success {
             report!(
-                MsgType::Info,
-                "Installed {} package(s): {success_packages:?}",
-                success_packages.len()
-            )
+                MsgType::Success,
+                "Successfully installed {} package(s):",
+                successes.len()
+            );
+
+            let max_name_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
+
+            for receipt in &successes {
+                let bin_str = if receipt.bin.len() == 1 {
+                    format!("bin: {}", receipt.bin[0])
+                } else {
+                    format!("bins: {}", receipt.bin.join(", "))
+                };
+                eprintln!(
+                    "  {} {:<width$} {} ({})",
+                    "+".green(),
+                    receipt.name.bold(),
+                    receipt.ver.dimmed(),
+                    bin_str.italic(),
+                    width = max_name_len
+                );
+            }
         }
 
-        if !failed_packages.is_empty() {
+        if has_failure {
+            if !successes.is_empty() {
+                eprintln!();
+            }
+
             report!(
                 MsgType::Error,
-                "\nDone with errors. Failed to install: {failed_packages:?}"
+                "Failed to install {} package(s):",
+                failures.len()
             );
-            bail!("One or more packages failed to install.");
-        } else {
-            report!(MsgType::Success, "\nAll packages installed successfully.")
+
+            let max_name_len = failures
+                .iter()
+                .map(|(name, _)| name.len())
+                .max()
+                .unwrap_or(0);
+            for (name, reason) in &failures {
+                eprintln!(
+                    "  {} {:width$} : {}",
+                    "•".red(),
+                    name.bold(),
+                    reason,
+                    width = max_name_len
+                );
+            }
+        }
+
+        if !has_success && !has_failure {
+            report!(MsgType::Warning, "Nothing was installed.");
+            return Ok(());
+        }
+
+        if has_failure {
+            std::process::exit(1);
         }
 
         Ok(())
@@ -69,30 +131,32 @@ impl CommandHandler for InstallCommand {
 
 fn do_install(
     name: &str,
-    config: &PackageConfig,
-    install_dir: &Path,
+    pkg_config: &PackageConfig,
+    user_config: &UserConfig,
 ) -> Result<PackgeReceipt, PackageError> {
     report!(MsgType::Step, "Processing package '{name}'...");
 
-    let pkg_def = config
+    // 1. get package definition
+    let pkg_info = pkg_config
         .pkgs
         .get(name)
         .ok_or(PackageError::NotFound(name.to_string()))?;
+    let pkg_info = pkg_info.resolve(name);
 
-    let provider: Box<dyn RemoteProvider> = match &pkg_def.remote {
-        Remote::GitHub(_) => {
+    // 2. initialize remote provider
+    let provider: Box<dyn RemoteProvider> = match &pkg_info.remote {
+        RemoteType::GitHub(_) => {
             let gh_provider = GitHubProvider::new()?;
             Box::new(gh_provider)
         } // Remote::Direct => ...
     };
 
+    // 3. find asset candidates
     report!(MsgType::Detail, "Fetching candidates from source...");
-
-    let candidates = provider.find_candidates(pkg_def)?;
+    let candidates = provider.find_candidates(&pkg_info)?;
     let candidate = candidates
         .first()
         .expect("Remote provider violated contract: returned empty candidate list");
-
     report!(
         MsgType::Detail,
         "Selected candidate: {} ({})",
@@ -100,32 +164,144 @@ fn do_install(
         candidate.version
     );
 
-    let temp_dir = TempDir::new().map_err(PackageError::Io)?;
-    let temp_path = temp_dir.path();
+    // 4. prepare install dir
+    let data_dir = dirs::data_local_dir().ok_or(PackageError::Io(io::Error::new(
+        io::ErrorKind::NotFound,
+        "Failed to get data local dir",
+    )))?;
+    let pkg_install_dir = data_dir
+        .join("inro")
+        .join("pkgs")
+        .join(name)
+        .join(&candidate.version);
 
+    if pkg_install_dir.exists() {
+        report!(MsgType::Warning, "Package already installed. Removing...");
+        fs::remove_dir_all(&pkg_install_dir)?;
+    }
+    fs::create_dir_all(&pkg_install_dir)?;
+
+    // 5. download to temp dir
+    let temp_dir = TempDir::new().map_err(PackageError::Io)?;
     report!(
         MsgType::Detail,
         "Downloading from {}...",
         candidate.download_url
     );
+    let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
 
-    let downloaded_file = download_file(&candidate.download_url, temp_path)?;
-
+    // 6. extract the asset
     report!(
         MsgType::Detail,
-        "Trying to extract file: {:?}...",
-        downloaded_file.file_name()
+        "Extracting file: {:?}...",
+        downloaded_file
+            .file_name()
+            .ok_or(anyhow!("Invalid asset file name"))?
+    );
+    extract_file(&downloaded_file, &pkg_install_dir).map_err(|e| PackageError::Extraction {
+        filename: candidate.asset_name.clone(),
+        source: e,
+    })?;
+    report!(
+        MsgType::Detail,
+        "Installed to {}.",
+        &pkg_install_dir.display()
     );
 
-    // TODO: extract the archive
+    // 7. link the bins
+    let bin_dir = user_config.bin_dir.clone();
+    if !bin_dir.exists() {
+        fs::create_dir_all(&bin_dir)?;
+    }
 
-    report!(MsgType::Detail, "Installing to {:?}...", install_dir);
+    let mut installed_bins = Vec::new();
 
-    // TODO: install the bins
+    for bin_info in pkg_info.bin.iter() {
+        // 7.1. find the binary in the install dir
+        let src_path = find_binary_in_dir(&pkg_install_dir, &bin_info.path)
+            .ok_or_else(|| PackageError::BinaryNotFoundInArchive(bin_info.path.clone()))?;
+        // 7.2. construct the destination path
+        let mut link_name = bin_info.link.clone();
+        if src_path.extension().and_then(|s| s.to_str()) == Some("exe")
+            && !link_name.ends_with(".exe")
+        {
+            link_name += ".exe";
+        }
+        let dst_path = bin_dir.join(link_name);
+        // 7.3. create the symlink
+        report!(
+            MsgType::Detail,
+            "Linking {} to {}...",
+            src_path.display(),
+            dst_path.display()
+        );
+        create_symlink(&src_path, &dst_path)?;
+        installed_bins.push(bin_info.link.clone());
+    }
 
     Ok(PackgeReceipt {
         name: name.to_string(),
         ver: candidate.version.clone(),
-        bins: vec![name.to_string()],
+        bin: installed_bins,
     })
+}
+
+fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
+    let walker = WalkDir::new(root).into_iter();
+
+    let search_name = bin_name.to_lowercase();
+    let search_name_exe = if search_name.ends_with(".exe") {
+        search_name.clone()
+    } else {
+        format!("{}.exe", search_name)
+    };
+
+    for entry in walker.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file()
+            && let Some(fname) = path.file_name().and_then(|s| s.to_str())
+        {
+            let fname_lower = fname.to_lowercase();
+            if fname_lower == search_name || fname_lower == search_name_exe {
+                return Some(path.to_path_buf());
+            }
+        }
+    }
+    None
+}
+
+fn create_symlink(original: &Path, link: &Path) -> Result<(), PackageError> {
+    if link.exists() || link.is_symlink() {
+        if link.is_dir() {
+            fs::remove_dir_all(link)?;
+        } else {
+            fs::remove_file(link)?;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(original, link)?;
+    }
+
+    #[cfg(windows)]
+    {
+        match std::os::windows::fs::symlink_file(original, link) {
+            Ok(_) => {}
+            Err(e) => {
+                // error code 1314: a required privilege is not held by the client
+                if let Some(os_err) = e.raw_os_error()
+                    && os_err == 1314
+                {
+                    return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "Creating symlinks on Windows requires Developer Mode or running as Administrator."
+                        ).into());
+                }
+                return Err(e.into());
+            }
+        }
+    }
+
+    Ok(())
 }
