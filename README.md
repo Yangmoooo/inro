@@ -13,8 +13,15 @@ On Windows, inro requires that your account is [allowed to create symbolic links
 
 ## Alternatives
 
+For a lightweight option, these are excellent choices:
+
 - [marcosnils/bin][marcosnils/bin]
 - [zyedidia/eget][zyedidia/eget]
+
+If you need more power, consider these candidates:
+
+- [jdx/mise][jdx/mise]
+- [Homebrew/homebrew-cask][Homebrew/homebrew-cask]
 
 When I started this project, I didn't really look into what was already out there. But so what? I enjoy reinventing the wheel, and I've also learned a lot from `bin`.
 If you need a more general-purpose binary manager, I recommend using `bin`. If you want to quickly build your personal toolbox and gain more control, why not give `inro` a try?
@@ -27,3 +34,5 @@ Copyright (c) Yangmoooo. Released under the MIT License. See [LICENSE][license] 
 [license]: LICENSE
 [marcosnils/bin]: https://github.com/marcosnils/bin
 [zyedidia/eget]: https://github.com/zyedidia/eget
+[jdx/mise]: https://github.com/jdx/mise
+[Homebrew/homebrew-cask]: https://github.com/Homebrew/homebrew-cask
