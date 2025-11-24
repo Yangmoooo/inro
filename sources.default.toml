@@ -66,3 +66,11 @@ repo = "tealdeer-rs/tealdeer"
 [tokei]
 [tokei.remote.github]
 repo = "XAMPPRocky/tokei"
+
+[uv]
+[uv.remote.github]
+repo = "astral-sh/uv"
+[[uv.bin]]
+path = "uv"
+[[uv.bin]]
+path = "uvx"
