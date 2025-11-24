@@ -12,7 +12,7 @@ pub struct PackageConfig {
     pub pkgs: HashMap<String, PackageInfo>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct PackageInfo {
     #[serde(default)]
     pub ver: Option<String>,
@@ -21,7 +21,7 @@ pub struct PackageInfo {
     pub bin: Vec<BinInfo>,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct BinInfo {
     #[serde(default)]
     pub path: Option<String>,
@@ -47,33 +47,39 @@ impl PackageInfo {
     /// Handles all defaults:
     /// - bin: [] -> [{ path: name, link: name }]
     /// - BinInfo: { path: None } -> { path: name }
-    pub fn resolve(&self, pkgname: &str) -> ResolvedPackage {
+    pub fn resolve(self, pkgname: &str) -> ResolvedPackage {
+        let normalize_name = |name: String| -> String {
+            if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
+                format!("{}.exe", name)
+            } else {
+                name
+            }
+        };
+
         let bin = if self.bin.is_empty() {
             // binary default name is the package name
+            let name = normalize_name(pkgname.to_string());
             vec![ResolvedBin {
-                path: pkgname.to_string(),
-                link: pkgname.to_string(),
+                path: name.clone(),
+                link: name,
             }]
         } else {
             // process each configured binary
             self.bin
-                .iter()
+                .into_iter()
                 .map(|b| {
-                    ResolvedBin {
-                        // path default is the package name
-                        path: b.path.clone().unwrap_or_else(|| pkgname.to_string()),
-                        // link default is the same as the path, or package name if path was None
-                        link: b.link.clone().unwrap_or_else(|| {
-                            b.path.clone().unwrap_or_else(|| pkgname.to_string())
-                        }),
-                    }
+                    let raw_path = b.path.unwrap_or_else(|| pkgname.to_string());
+                    let path = normalize_name(raw_path);
+                    let raw_link = b.link.unwrap_or_else(|| path.clone());
+                    let link = normalize_name(raw_link);
+                    ResolvedBin { path, link }
                 })
                 .collect()
         };
 
         ResolvedPackage {
-            ver: self.ver.clone(),
-            remote: self.remote.clone(),
+            ver: self.ver,
+            remote: self.remote,
             bin,
         }
     }

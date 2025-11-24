@@ -74,16 +74,16 @@ impl CommandHandler for InstallCommand {
 
             for receipt in &successes {
                 let bin_str = if receipt.bin.len() == 1 {
-                    format!("bin: {}", receipt.bin[0])
+                    format!("(bin: {})", receipt.bin[0])
                 } else {
-                    format!("bins: {}", receipt.bin.join(", "))
+                    format!("(bins: {})", receipt.bin.join(", "))
                 };
                 eprintln!(
-                    "  {} {:<width$} {} ({})",
+                    "  {} {:<width$} {} {}",
                     "+".green(),
                     receipt.name.bold(),
-                    receipt.ver.dimmed(),
-                    bin_str.italic(),
+                    receipt.ver.italic(),
+                    bin_str.dimmed(),
                     width = max_name_len
                 );
             }
@@ -141,7 +141,7 @@ fn do_install(
         .pkgs
         .get(name)
         .ok_or(PackageError::NotFound(name.to_string()))?;
-    let pkg_info = pkg_info.resolve(name);
+    let pkg_info = pkg_info.clone().resolve(name);
 
     // 2. initialize remote provider
     let provider: Box<dyn RemoteProvider> = match &pkg_info.remote {
@@ -221,13 +221,7 @@ fn do_install(
         let src_path = find_binary_in_dir(&pkg_install_dir, &bin_info.path)
             .ok_or_else(|| PackageError::BinaryNotFoundInArchive(bin_info.path.clone()))?;
         // 7.2. construct the destination path
-        let mut link_name = bin_info.link.clone();
-        if src_path.extension().and_then(|s| s.to_str()) == Some("exe")
-            && !link_name.ends_with(".exe")
-        {
-            link_name += ".exe";
-        }
-        let dst_path = bin_dir.join(link_name);
+        let dst_path = bin_dir.join(bin_info.link.clone());
         // 7.3. create the symlink
         report!(
             MsgType::Detail,
@@ -249,22 +243,13 @@ fn do_install(
 fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
 
-    let search_name = bin_name.to_lowercase();
-    let search_name_exe = if search_name.ends_with(".exe") {
-        search_name.clone()
-    } else {
-        format!("{}.exe", search_name)
-    };
-
     for entry in walker.filter_map(|e| e.ok()) {
         let path = entry.path();
         if path.is_file()
             && let Some(fname) = path.file_name().and_then(|s| s.to_str())
+            && fname.to_lowercase() == bin_name.to_lowercase()
         {
-            let fname_lower = fname.to_lowercase();
-            if fname_lower == search_name || fname_lower == search_name_exe {
-                return Some(path.to_path_buf());
-            }
+            return Some(path.to_path_buf());
         }
     }
     None
