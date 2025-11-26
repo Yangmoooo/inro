@@ -1,28 +1,18 @@
-pub mod remotes;
-
-use std::collections::HashMap;
-
 use serde::Deserialize;
 
-use remotes::RemoteType;
-
-#[derive(Debug, Default, Deserialize)]
-pub struct PackageConfig {
-    #[serde(flatten)]
-    pub pkgs: HashMap<String, PackageInfo>,
-}
+use crate::remotes::RemoteType;
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct PackageInfo {
+pub struct DanDef {
     #[serde(default)]
     pub ver: Option<String>,
     pub remote: RemoteType,
     #[serde(default)]
-    pub bin: Vec<BinInfo>,
+    pub bin: Vec<BinDef>,
 }
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct BinInfo {
+pub struct BinDef {
     #[serde(default)]
     pub path: Option<String>,
     #[serde(default)]
@@ -30,7 +20,7 @@ pub struct BinInfo {
 }
 
 #[derive(Debug)]
-pub struct ResolvedPackage {
+pub struct ResolvedDan {
     pub ver: Option<String>,
     pub remote: RemoteType,
     pub bin: Vec<ResolvedBin>,
@@ -42,12 +32,12 @@ pub struct ResolvedBin {
     pub link: String,
 }
 
-impl PackageInfo {
+impl DanDef {
     /// Resolves the configuration into a definitive set of installation parameters.
     /// Handles all defaults:
     /// - bin: [] -> [{ path: name, link: name }]
-    /// - BinInfo: { path: None } -> { path: name }
-    pub fn resolve(self, pkgname: &str) -> ResolvedPackage {
+    /// - BinDef: { path: None } -> { path: name }
+    pub fn resolve(self, dan_name: &str) -> ResolvedDan {
         let normalize_name = |name: String| -> String {
             if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
                 format!("{}.exe", name)
@@ -57,8 +47,8 @@ impl PackageInfo {
         };
 
         let bin = if self.bin.is_empty() {
-            // binary default name is the package name
-            let name = normalize_name(pkgname.to_string());
+            // binary default name is the dan name
+            let name = normalize_name(dan_name.to_string());
             vec![ResolvedBin {
                 path: name.clone(),
                 link: name,
@@ -68,7 +58,7 @@ impl PackageInfo {
             self.bin
                 .into_iter()
                 .map(|b| {
-                    let raw_path = b.path.unwrap_or_else(|| pkgname.to_string());
+                    let raw_path = b.path.unwrap_or_else(|| dan_name.to_string());
                     let path = normalize_name(raw_path);
                     let raw_link = b.link.unwrap_or_else(|| path.clone());
                     let link = normalize_name(raw_link);
@@ -77,7 +67,7 @@ impl PackageInfo {
                 .collect()
         };
 
-        ResolvedPackage {
+        ResolvedDan {
             ver: self.ver,
             remote: self.remote,
             bin,
@@ -85,20 +75,21 @@ impl PackageInfo {
     }
 }
 
+// TODO: need more attributes
 #[derive(Debug)]
-pub struct PackgeReceipt {
+pub struct DanReceipt {
     pub name: String,
     pub ver: String,
     pub bin: Vec<String>,
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum PackageError {
-    #[error("Package '{0}' not found in any sources")]
+pub enum DanError {
+    #[error("Package '{0}' not found in sources")]
     NotFound(String),
 
-    #[error("Failed to fetch from remote: '{0}'")]
-    Remote(#[from] remotes::Error),
+    #[error("Failed to fetch from the upstream: '{0}'")]
+    Remote(#[from] crate::remotes::Error),
 
     #[error("Download failed: '{0}'")]
     Download(#[from] anyhow::Error),
