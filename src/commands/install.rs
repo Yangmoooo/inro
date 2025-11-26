@@ -1,22 +1,20 @@
 use std::fs;
-use std::io;
-use std::path::Path;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use colored::Colorize;
-use figment::Figment;
-use figment::providers::{Format, Toml};
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
 use super::CommandHandler;
-use crate::config::UserConfig;
-use crate::package::remotes::github::GitHubProvider;
-use crate::package::remotes::{RemoteProvider, RemoteType};
-use crate::package::*;
+use crate::config::Config;
+use crate::dan::{DanError, DanReceipt};
+use crate::layout::InroLayout;
+use crate::registry::Registry;
+use crate::remotes::github::GitHubProvider;
+use crate::remotes::{self, RemoteProvider, RemoteType};
 use crate::report;
-use crate::utils::*;
+use crate::utils::{download_file, extract_file};
 
 pub struct InstallCommand {
     pub names: Vec<String>,
@@ -24,6 +22,8 @@ pub struct InstallCommand {
 
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
+        let layout = InroLayout::new()?;
+
         let names = super::unique(&self.names);
         report!(
             MsgType::Info,
@@ -31,26 +31,19 @@ impl CommandHandler for InstallCommand {
             names.len()
         );
 
-        // TODO: load config
-        let user_config_file = "config.default.toml";
-        let user_config: UserConfig = UserConfig::load(Path::new(user_config_file))
-            .map_err(|e| anyhow::anyhow!("Failed to load user config: {e}"))?;
+        let config: Config = Config::load(&layout)?;
         report!(MsgType::Detail, "Loaded inro config.");
-        // println!("{:#?}", user_config);
+        println!("{:#?}", config);
 
-        // TODO: load sources
-        let pkg_config_file = "sources.default.toml";
-        let pkg_config: PackageConfig = Figment::new()
-            .merge(Toml::file(pkg_config_file))
-            .extract()?;
-        report!(MsgType::Detail, "Loaded package config.");
-        // println!("{:#?}", pkg_config.pkgs);
+        let registry: Registry = Registry::load(&layout)?;
+        report!(MsgType::Detail, "Loaded sources.");
+        println!("{:#?}", registry.dans);
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
         for name in &names {
-            match do_install(name, &pkg_config, &user_config) {
+            match do_install(name, &registry, &config, &layout) {
                 Ok(receipt) => successes.push(receipt),
                 Err(e) => {
                     report!(MsgType::Error, "Failed to install '{name}': {e:?}");
@@ -131,29 +124,30 @@ impl CommandHandler for InstallCommand {
 
 fn do_install(
     name: &str,
-    pkg_config: &PackageConfig,
-    user_config: &UserConfig,
-) -> Result<PackgeReceipt, PackageError> {
+    registry: &Registry,
+    config: &Config,
+    layout: &InroLayout,
+) -> Result<DanReceipt, DanError> {
     report!(MsgType::Step, "Processing package '{name}'...");
 
     // 1. get package definition
-    let pkg_info = pkg_config
-        .pkgs
+    let dan_info = registry
+        .dans
         .get(name)
-        .ok_or(PackageError::NotFound(name.to_string()))?;
-    let pkg_info = pkg_info.clone().resolve(name);
+        .ok_or(DanError::NotFound(name.to_string()))?;
+    let dan_info = dan_info.clone().resolve(name);
 
     // 2. initialize remote provider
-    let provider: Box<dyn RemoteProvider> = match &pkg_info.remote {
+    let provider: Box<dyn RemoteProvider> = match &dan_info.remote {
         RemoteType::GitHub(_) => {
-            let gh_provider = GitHubProvider::new()?;
+            let gh_provider = GitHubProvider::new().map_err(remotes::Error::GitHub)?;
             Box::new(gh_provider)
         } // Remote::Direct => ...
     };
 
     // 3. find asset candidates
     report!(MsgType::Detail, "Fetching candidates from source...");
-    let candidates = provider.find_candidates(&pkg_info)?;
+    let candidates = provider.find_candidates(&dan_info)?;
     let candidate = candidates
         .first()
         .expect("Remote provider violated contract: returned empty candidate list");
@@ -164,31 +158,23 @@ fn do_install(
         candidate.version
     );
 
-    // 4. prepare install dir
-    let data_dir = dirs::data_local_dir().ok_or(PackageError::Io(io::Error::new(
-        io::ErrorKind::NotFound,
-        "Failed to get data local dir",
-    )))?;
-    let pkg_install_dir = data_dir
-        .join("inro")
-        .join("pkgs")
-        .join(name)
-        .join(&candidate.version);
-
-    if pkg_install_dir.exists() {
-        report!(MsgType::Warning, "Package already installed. Removing...");
-        fs::remove_dir_all(&pkg_install_dir)?;
-    }
-    fs::create_dir_all(&pkg_install_dir)?;
-
-    // 5. download to temp dir
-    let temp_dir = TempDir::new().map_err(PackageError::Io)?;
+    // 4. download to temp dir
+    let temp_dir = TempDir::new().map_err(DanError::Io)?;
     report!(
         MsgType::Detail,
         "Downloading from {}...",
         candidate.download_url
     );
     let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
+
+    // 5. prepare install dir
+    let dan_install_dir = layout.dans_dir.join(name).join(&candidate.version);
+
+    if dan_install_dir.exists() {
+        report!(MsgType::Warning, "Package already installed. Removing...");
+        fs::remove_dir_all(&dan_install_dir)?;
+    }
+    fs::create_dir_all(&dan_install_dir)?;
 
     // 6. extract the asset
     report!(
@@ -198,28 +184,28 @@ fn do_install(
             .file_name()
             .ok_or(anyhow!("Invalid asset file name"))?
     );
-    extract_file(&downloaded_file, &pkg_install_dir).map_err(|e| PackageError::Extraction {
+    extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
         filename: candidate.asset_name.clone(),
         source: e,
     })?;
     report!(
         MsgType::Detail,
         "Installed to {}.",
-        &pkg_install_dir.display()
+        &dan_install_dir.display()
     );
 
     // 7. link the bins
-    let bin_dir = user_config.bin_dir.clone();
+    let bin_dir = config.bin_dir.clone();
     if !bin_dir.exists() {
         fs::create_dir_all(&bin_dir)?;
     }
 
     let mut installed_bins = Vec::new();
 
-    for bin_info in pkg_info.bin.iter() {
+    for bin_info in dan_info.bin.iter() {
         // 7.1. find the binary in the install dir
-        let src_path = find_binary_in_dir(&pkg_install_dir, &bin_info.path)
-            .ok_or_else(|| PackageError::BinaryNotFoundInArchive(bin_info.path.clone()))?;
+        let src_path = find_binary_in_dir(&dan_install_dir, &bin_info.path)
+            .ok_or_else(|| DanError::BinaryNotFoundInArchive(bin_info.path.clone()))?;
         // 7.2. construct the destination path
         let dst_path = bin_dir.join(bin_info.link.clone());
         // 7.3. create the symlink
@@ -233,7 +219,7 @@ fn do_install(
         installed_bins.push(bin_info.link.clone());
     }
 
-    Ok(PackgeReceipt {
+    Ok(DanReceipt {
         name: name.to_string(),
         ver: candidate.version.clone(),
         bin: installed_bins,
@@ -255,7 +241,7 @@ fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     None
 }
 
-fn create_symlink(original: &Path, link: &Path) -> Result<(), PackageError> {
+fn create_symlink(original: &Path, link: &Path) -> Result<(), DanError> {
     if link.exists() || link.is_symlink() {
         if link.is_dir() {
             fs::remove_dir_all(link)?;

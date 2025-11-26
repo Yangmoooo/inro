@@ -1,8 +1,11 @@
 mod cli;
 mod commands;
 mod config;
-mod package;
+mod dan;
+mod layout;
 mod platform;
+mod registry;
+mod remotes;
 mod reporter;
 mod utils;
 
