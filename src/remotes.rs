@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::Deserialize;
 
-use crate::package::ResolvedPackage;
+use crate::dan::ResolvedDan;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -20,18 +20,18 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Clone, Debug, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteType {
-    GitHub(GitHubSource),
+    GitHub(GitHubAssetDef),
     // Direct(DirectSource),
 }
 
 impl Default for RemoteType {
     fn default() -> Self {
-        RemoteType::GitHub(GitHubSource::default())
+        RemoteType::GitHub(GitHubAssetDef::default())
     }
 }
 
 #[derive(Clone, Debug, Default, Deserialize)]
-pub struct GitHubSource {
+pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
     pub asset: HashMap<String, String>,
@@ -45,5 +45,5 @@ pub struct InstallCandidate {
 }
 
 pub trait RemoteProvider {
-    fn find_candidates(&self, pkg: &ResolvedPackage) -> Result<Vec<InstallCandidate>>;
+    fn find_candidates(&self, dan: &ResolvedDan) -> Result<Vec<InstallCandidate>>;
 }

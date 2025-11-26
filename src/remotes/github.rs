@@ -4,8 +4,8 @@ use std::env;
 use reqwest::blocking::Client;
 use serde::Deserialize;
 
-use super::{InstallCandidate, RemoteProvider, Result as RemoteResult};
-use crate::package::{RemoteType, ResolvedPackage};
+use super::{InstallCandidate, RemoteProvider, RemoteType};
+use crate::dan::ResolvedDan;
 use crate::platform::PlatformInfo;
 use crate::report;
 
@@ -169,7 +169,7 @@ pub struct GitHubProvider {
 }
 
 impl GitHubProvider {
-    pub fn new() -> RemoteResult<Self> {
+    pub fn new() -> Result<Self> {
         let client = Client::builder()
             .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
             .build()
@@ -232,15 +232,15 @@ impl GitHubProvider {
 }
 
 impl RemoteProvider for GitHubProvider {
-    fn find_candidates(&self, pkg: &ResolvedPackage) -> RemoteResult<Vec<InstallCandidate>> {
-        let repo = match &pkg.remote {
-            RemoteType::GitHub(source) => &source.repo,
+    fn find_candidates(&self, dan: &ResolvedDan) -> super::Result<Vec<InstallCandidate>> {
+        let repo = match &dan.remote {
+            RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
         let releases = self.fetch_releases(repo)?;
         let available_release = releases.first_available()?;
-        let RemoteType::GitHub(source) = &pkg.remote;
-        let assets = available_release.find_assets(&source.asset)?;
+        let RemoteType::GitHub(asset_def) = &dan.remote;
+        let assets = available_release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
