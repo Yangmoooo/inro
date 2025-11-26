@@ -1,71 +1,73 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
-use figment::{
-    Figment,
-    providers::{Env, Format, Serialized, Toml},
-};
+use figment::Figment;
+use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
-const INRO_REMOTE_SOURCES: &str = "https://github.com/Yangmoooo/inro-sources.git";
+use crate::layout::InroLayout;
 
-// config about package at package.rs, not here
+const INRO_DEFAULT_REGISTRY: &str = "https://github.com/Yangmoooo/inro-sources.git";
 
 #[derive(Debug, Deserialize, Serialize)]
-pub struct UserConfig {
-    // Install
+pub struct Config {
+    // install
     pub bin_dir: PathBuf,
 
-    // Sources
-    pub remotes: Vec<RemoteSources>,
+    // sources
+    pub upstreams: Vec<UpstreamDef>,
 
-    // Network
+    // network
     pub github_token: Option<String>,
     pub proxy: Option<String>,
+    pub use_proxy: bool,
     pub timeout_secs: u64,
 
-    // Behavior
+    // behavior
     pub parallel_downloads: usize,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone)]
-pub struct RemoteSources {
+pub struct UpstreamDef {
     pub name: String,
+    pub priority: u8,
     pub url: String,
 }
 
-impl Default for UserConfig {
+impl Default for Config {
     fn default() -> Self {
         Self {
-            // Install defaults
-            bin_dir: dirs::home_dir()
-                .unwrap_or_else(|| PathBuf::from("."))
-                .join(".local/bin"),
+            // install defaults
+            bin_dir: dirs::home_dir().unwrap_or_default(),
 
-            // Sources defaults
-            remotes: vec![RemoteSources {
+            // sources defaults
+            upstreams: vec![UpstreamDef {
                 name: "default".to_string(),
-                url: INRO_REMOTE_SOURCES.to_string(),
+                priority: 0,
+                url: INRO_DEFAULT_REGISTRY.to_string(),
             }],
 
-            // Network defaults
+            // network defaults
             github_token: None,
             proxy: None,
+            use_proxy: false,
             timeout_secs: 30,
 
-            // Behavior defaults
+            // behavior defaults
             parallel_downloads: 4,
         }
     }
 }
 
-impl UserConfig {
-    pub fn load(config_path: &Path) -> Result<Self> {
-        let mut figment = Figment::new()
-            // layer 1: hard-coded defaults
-            .merge(Serialized::defaults(UserConfig::default()))
-            // layer 2: user-defined config file
-            .merge(Toml::file(config_path));
+impl Config {
+    pub fn load(layout: &InroLayout) -> Result<Self> {
+        // layer 1: hard-coded defaults
+        let mut figment = Figment::new().merge(Serialized::defaults(Config::default()));
+
+        // layer 2: user-defined config file
+        if layout.config_path.exists() {
+            figment = figment.merge(Toml::file(&layout.config_path));
+        }
 
         // layer 3: universal env vars
         // HTTPS_PROXY | ALL_PROXY -> network.proxy
@@ -83,27 +85,26 @@ impl UserConfig {
         // INRO_TIMEOUT_SECS -> timeout_secs
         figment = figment.merge(Env::prefixed("INRO_"));
 
-        let mut config: UserConfig = figment.extract()?;
-        config.expand_paths();
+        let mut config: Config = figment.extract()?;
+        config.expand_paths(&layout.home_dir);
 
         Ok(config)
     }
 
-    fn expand_paths(&mut self) {
-        self.bin_dir = expand_path(&self.bin_dir);
+    fn expand_paths(&mut self, home: &Path) {
+        self.bin_dir = expand_path(&self.bin_dir, home);
     }
 }
 
-fn expand_path(path: &Path) -> PathBuf {
+fn expand_path(home: &Path, path: &Path) -> PathBuf {
     if !path.starts_with("~") {
         return path.to_path_buf();
     }
     let path_str = path.to_string_lossy();
-    let home = dirs::home_dir().expect("Could not determine home directory");
 
     // ~
     if path_str == "~" {
-        return home;
+        return home.to_path_buf();
     }
     // ~/foo or ~\foo
     if path_str.starts_with("~/") || path_str.starts_with("~\\") {
