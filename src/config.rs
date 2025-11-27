@@ -38,7 +38,11 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             // install defaults
-            bin_dir: dirs::home_dir().unwrap_or_default(),
+            bin_dir: dirs::home_dir()
+                // handled in layout::InroLayout::new
+                .expect("Layout violated contract: home directory could not be found")
+                .join(".local")
+                .join("bin"),
 
             // sources defaults
             upstreams: vec![UpstreamDef {
@@ -96,7 +100,7 @@ impl Config {
     }
 }
 
-fn expand_path(home: &Path, path: &Path) -> PathBuf {
+fn expand_path(path: &Path, home: &Path) -> PathBuf {
     if !path.starts_with("~") {
         return path.to_path_buf();
     }

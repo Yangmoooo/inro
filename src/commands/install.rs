@@ -150,6 +150,7 @@ fn do_install(
     let candidates = provider.find_candidates(&dan_info)?;
     let candidate = candidates
         .first()
+        // handled in remotes::github::Release::find_assets with NoMatchingAsset
         .expect("Remote provider violated contract: returned empty candidate list");
     report!(
         MsgType::Detail,
