@@ -1,8 +1,8 @@
-# inro (印籠)
+# Inro ([印籠][inro])
 
-A minimalist, configuration-driven tool for installing and managing your favorite standalone binaries.
+A minimalist, configuration-driven tool for installing and managing your favorite command-line tools.
 
-inro fetches binaries from sources like GitHub Releases and installs them into your home directory, requiring no admin rights. It's perfect for quickly bootstrapping your personal toolbox on any system.
+Inro fetches apps from sources like GitHub Releases and installs them into your home directory, requiring no admin rights. It's perfect for quickly bootstrapping your personal toolbox on any system.
 
 ## Notice
 
@@ -13,26 +13,30 @@ On Windows, inro requires that your account is [allowed to create symbolic links
 
 ## Alternatives
 
-For a lightweight option, these are excellent choices:
+When I started this project, I didn't really look into existing solutions. But so what? I enjoy reinventing the wheel, and it was a great learning opportunity for me.
+
+For a general-purpose binary manager/installer, recommend:
 
 - [marcosnils/bin][marcosnils/bin]
 - [zyedidia/eget][zyedidia/eget]
 
-If you need more power, consider these candidates:
+For powerful features like environment management and so on, consider:
 
 - [jdx/mise][jdx/mise]
-- [Homebrew/homebrew-cask][Homebrew/homebrew-cask]
+- [x-cmd/x-cmd][x-cmd/x-cmd]
 
-When I started this project, I didn't really look into what was already out there. But so what? I enjoy reinventing the wheel, and I've also learned a lot from `bin`.
-If you need a more general-purpose binary manager, I recommend using `bin`. If you want to quickly build your personal toolbox and gain more control, why not give `inro` a try?
+If you want a balanced middle ground, give `inro` a try. It's lightweight, focused, and non-intrusive, making it ideal for building a personal toolbox without the overhead.
+
+A huge thanks to these projects—I've learned so much from them.
 
 ## License
 
 Copyright (c) Yangmoooo. Released under the MIT License. See [LICENSE][license] for details.
 
+[inro]: https://en.wiktionary.org/wiki/%E5%8D%B0%E7%B1%A0
 [windows-symlinks]: https://learn.microsoft.com/en-us/windows/security/threat-protection/security-policy-settings/create-symbolic-links
 [license]: LICENSE
 [marcosnils/bin]: https://github.com/marcosnils/bin
 [zyedidia/eget]: https://github.com/zyedidia/eget
 [jdx/mise]: https://github.com/jdx/mise
-[Homebrew/homebrew-cask]: https://github.com/Homebrew/homebrew-cask
+[x-cmd/x-cmd]: https://github.com/x-cmd/x-cmd
