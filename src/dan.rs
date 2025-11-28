@@ -1,5 +1,8 @@
+use std::fs::File;
 use std::path::PathBuf;
+use std::collections::HashMap;
 
+use anyhow::Context;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -75,6 +78,24 @@ impl DanDef {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+pub struct DanState {
+    // none means installed but not linked
+    pub current_version: Option<String>,
+
+    // key: version
+    pub versions: HashMap<String, DanReceipt>,
+}
+
+impl DanState {
+    pub fn default() -> Self {
+        Self {
+            current_version: None,
+            versions: HashMap::new(),
+        }
+    }
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DanReceipt {
     /// Package name, e.g. 'ripgrep'
@@ -84,7 +105,7 @@ pub struct DanReceipt {
     pub version: String,
 
     /// Remote info
-    pub remote_type: RemoteType,
+    pub remote: RemoteType,
 
     /// Installation time
     pub installed_at: DateTime<Utc>,
@@ -94,6 +115,16 @@ pub struct DanReceipt {
 
     /// Binaries installed details
     pub binaries: Vec<InstalledBinary>,
+}
+
+impl DanReceipt {
+    pub fn save_to_install_dir(&self) -> anyhow::Result<()> {
+        let receipt_path = self.install_dir.join("receipt.json");
+        let receipt_file = File::create(&receipt_path)
+            .with_context(|| format!("Failed to create receipt backup: {:?}", receipt_path))?;
+        serde_json::to_writer_pretty(receipt_file, self)?;
+        Ok(())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]

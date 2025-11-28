@@ -11,6 +11,7 @@ use super::CommandHandler;
 use crate::config::Config;
 use crate::dan::{DanError, DanReceipt, InstalledBinary};
 use crate::layout::InroLayout;
+use crate::manifest::Manifest;
 use crate::registry::Registry;
 use crate::remotes::github::GitHubProvider;
 use crate::remotes::{self, RemoteProvider, RemoteType};
@@ -30,6 +31,7 @@ impl CommandHandler for InstallCommand {
             names.len()
         );
 
+        // prepare
         let layout = InroLayout::new()?;
         let config = Config::load(&layout)?;
         report!(MsgType::Detail, "Loaded inro config.");
@@ -38,10 +40,19 @@ impl CommandHandler for InstallCommand {
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
+        let manifest_path = &layout.manifest_path;
+        let mut manifest = Manifest::load(manifest_path)?;
 
+        // install one by one
         for name in &names {
             match do_install(name, &registry, &config, &layout) {
-                Ok(receipt) => successes.push(receipt),
+                Ok(receipt) => {
+                    if let Err(e) = receipt.save_to_install_dir() {
+                        report!(MsgType::Warning, "Failed to save backup receipt: {e:?}");
+                    }
+                    manifest.add(receipt.clone());
+                    successes.push(receipt);
+                }
                 Err(e) => {
                     report!(MsgType::Error, "Failed to install '{name}': {e:?}");
                     failures.push((name.clone(), e.to_string()));
@@ -49,6 +60,11 @@ impl CommandHandler for InstallCommand {
             }
         }
 
+        // save manifest
+        manifest.save(manifest_path)?;
+        report!(MsgType::Detail, "Manifest updated.");
+
+        // summary
         eprintln!();
         let has_success = !successes.is_empty();
         let has_failure = !failures.is_empty();
@@ -233,7 +249,7 @@ fn do_install(
     Ok(DanReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
-        remote_type: dan_info.remote,
+        remote: dan_info.remote,
         installed_at: Utc::now(),
         install_dir: dan_install_dir,
         binaries: installed_bins_info,

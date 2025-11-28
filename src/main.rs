@@ -3,6 +3,7 @@ mod commands;
 mod config;
 mod dan;
 mod layout;
+mod manifest;
 mod platform;
 mod registry;
 mod remotes;
