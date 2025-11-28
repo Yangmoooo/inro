@@ -21,3 +21,4 @@ xz2 = "0.1"
 zip = "6"
 bzip2 = "0.6"
 walkdir = "2.5"
+chrono = { version = "0.4", features = ["serde"] }
