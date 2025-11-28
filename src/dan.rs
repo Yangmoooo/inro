@@ -1,4 +1,7 @@
-use serde::Deserialize;
+use std::path::PathBuf;
+
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::remotes::RemoteType;
 
@@ -14,7 +17,7 @@ pub struct DanDef {
 #[derive(Clone, Debug, Deserialize)]
 pub struct BinDef {
     #[serde(default)]
-    pub path: Option<String>,
+    pub name: Option<String>,
     #[serde(default)]
     pub link: Option<String>,
 }
@@ -28,15 +31,12 @@ pub struct ResolvedDan {
 
 #[derive(Debug)]
 pub struct ResolvedBin {
-    pub path: String,
+    pub name: String,
     pub link: String,
 }
 
 impl DanDef {
     /// Resolves the configuration into a definitive set of installation parameters.
-    /// Handles all defaults:
-    /// - bin: [] -> [{ path: name, link: name }]
-    /// - BinDef: { path: None } -> { path: name }
     pub fn resolve(self, dan_name: &str) -> ResolvedDan {
         let normalize_name = |name: String| -> String {
             if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
@@ -50,7 +50,7 @@ impl DanDef {
             // binary default name is the dan name
             let name = normalize_name(dan_name.to_string());
             vec![ResolvedBin {
-                path: name.clone(),
+                name: name.clone(),
                 link: name,
             }]
         } else {
@@ -58,11 +58,11 @@ impl DanDef {
             self.bin
                 .into_iter()
                 .map(|b| {
-                    let raw_path = b.path.unwrap_or_else(|| dan_name.to_string());
-                    let path = normalize_name(raw_path);
-                    let raw_link = b.link.unwrap_or_else(|| path.clone());
+                    let raw_name = b.name.unwrap_or_else(|| dan_name.to_string());
+                    let name = normalize_name(raw_name);
+                    let raw_link = b.link.unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
-                    ResolvedBin { path, link }
+                    ResolvedBin { name, link }
                 })
                 .collect()
         };
@@ -75,12 +75,37 @@ impl DanDef {
     }
 }
 
-// TODO: need more attributes
-#[derive(Debug)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct DanReceipt {
+    /// Package name, e.g. 'ripgrep'
     pub name: String,
-    pub ver: String,
-    pub bin: Vec<String>,
+
+    /// Package version, actually the tag name
+    pub version: String,
+
+    /// Remote info
+    pub remote_type: RemoteType,
+
+    /// Installation time
+    pub installed_at: DateTime<Utc>,
+
+    /// Installation directory, actually where the binary is extracted to
+    pub install_dir: PathBuf,
+
+    /// Binaries installed details
+    pub binaries: Vec<InstalledBinary>,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct InstalledBinary {
+    /// Binary file name, e.g. 'rg' or 'rg.exe'
+    pub name: String,
+
+    /// Binary file path, e.g. '.../packages/ripgrep/13.0.0/rg'
+    pub source_path: PathBuf,
+
+    /// Binary symlink path, e.g. '~/.local/bin/rg'
+    pub link_path: PathBuf,
 }
 
 #[derive(thiserror::Error, Debug)]

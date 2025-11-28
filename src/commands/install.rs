@@ -2,13 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
+use chrono::Utc;
 use colored::Colorize;
 use tempfile::TempDir;
 use walkdir::WalkDir;
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::dan::{DanError, DanReceipt};
+use crate::dan::{DanError, DanReceipt, InstalledBinary};
 use crate::layout::InroLayout;
 use crate::registry::Registry;
 use crate::remotes::github::GitHubProvider;
@@ -22,8 +23,6 @@ pub struct InstallCommand {
 
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
-        let layout = InroLayout::new()?;
-
         let names = super::unique(&self.names);
         report!(
             MsgType::Info,
@@ -31,13 +30,11 @@ impl CommandHandler for InstallCommand {
             names.len()
         );
 
-        let config: Config = Config::load(&layout)?;
+        let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
         report!(MsgType::Detail, "Loaded inro config.");
-        println!("{:#?}", config);
-
-        let registry: Registry = Registry::load(&layout)?;
+        let registry = Registry::load(&layout)?;
         report!(MsgType::Detail, "Loaded sources.");
-        println!("{:#?}", registry.dans);
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -66,17 +63,25 @@ impl CommandHandler for InstallCommand {
             let max_name_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
 
             for receipt in &successes {
-                let bin_str = if receipt.bin.len() == 1 {
-                    format!("(bin: {})", receipt.bin[0])
+                let bin_name = if receipt.binaries.len() == 1 {
+                    format!("(bin: {})", receipt.binaries[0].name)
                 } else {
-                    format!("(bins: {})", receipt.bin.join(", "))
+                    format!(
+                        "(bins: {})",
+                        receipt
+                            .binaries
+                            .iter()
+                            .map(|b| b.name.as_str())
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
                 };
                 eprintln!(
                     "  {} {:<width$} {} {}",
                     "+".green(),
                     receipt.name.bold(),
-                    receipt.ver.italic(),
-                    bin_str.dimmed(),
+                    receipt.version.italic(),
+                    bin_name.dimmed(),
                     width = max_name_len
                 );
             }
@@ -201,12 +206,12 @@ fn do_install(
         fs::create_dir_all(&bin_dir)?;
     }
 
-    let mut installed_bins = Vec::new();
+    let mut installed_bins_info = Vec::new();
 
     for bin_info in dan_info.bin.iter() {
         // 7.1. find the binary in the install dir
-        let src_path = find_binary_in_dir(&dan_install_dir, &bin_info.path)
-            .ok_or_else(|| DanError::BinaryNotFoundInArchive(bin_info.path.clone()))?;
+        let src_path = find_binary_in_dir(&dan_install_dir, &bin_info.name)
+            .ok_or_else(|| DanError::BinaryNotFoundInArchive(bin_info.name.clone()))?;
         // 7.2. construct the destination path
         let dst_path = bin_dir.join(bin_info.link.clone());
         // 7.3. create the symlink
@@ -217,13 +222,21 @@ fn do_install(
             dst_path.display()
         );
         create_symlink(&src_path, &dst_path)?;
-        installed_bins.push(bin_info.link.clone());
+
+        installed_bins_info.push(InstalledBinary {
+            name: bin_info.name.clone(),
+            source_path: src_path,
+            link_path: dst_path,
+        });
     }
 
     Ok(DanReceipt {
         name: name.to_string(),
-        ver: candidate.version.clone(),
-        bin: installed_bins,
+        version: candidate.version.clone(),
+        remote_type: dan_info.remote,
+        installed_at: Utc::now(),
+        install_dir: dan_install_dir,
+        binaries: installed_bins_info,
     })
 }
 

@@ -2,7 +2,7 @@ pub mod github;
 
 use std::collections::HashMap;
 
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::dan::ResolvedDan;
 
@@ -17,7 +17,7 @@ pub enum Error {
 
 pub type Result<T> = std::result::Result<T, Error>;
 
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RemoteType {
     GitHub(GitHubAssetDef),
@@ -30,7 +30,7 @@ impl Default for RemoteType {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize)]
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
 pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
