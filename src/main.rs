@@ -28,6 +28,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(command) = cli.command {
         let command_handler: Box<dyn CommandHandler> = match command {
             Command::Install { names } => Box::new(InstallCommand { names, layout }),
+            Command::Uninstall { names } => Box::new(UninstallCommand { names, layout }),
             Command::List => Box::new(ListCommand { layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),

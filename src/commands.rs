@@ -1,10 +1,12 @@
 pub mod install;
 pub mod list;
+pub mod uninstall;
 
 use anyhow::Result;
 
 pub use install::InstallCommand;
 pub use list::ListCommand;
+pub use uninstall::UninstallCommand;
 
 pub trait CommandHandler {
     fn handle(&self) -> Result<()>;

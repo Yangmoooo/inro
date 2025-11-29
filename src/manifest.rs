@@ -72,6 +72,7 @@ impl Manifest {
             state.current_version = None;
         }
         let receipt = state.versions.remove(version);
+        // after removing, if there are other versions, need to use manually
         if state.versions.is_empty() {
             self.dans.remove(name);
         }
@@ -79,7 +80,7 @@ impl Manifest {
     }
 
     /// remove a package, all versions
-    pub fn remove_package(&mut self, name: &str) -> Option<Vec<DanReceipt>> {
+    pub fn remove_dan(&mut self, name: &str) -> Option<Vec<DanReceipt>> {
         let state = self.dans.remove(name)?;
         let receipts = state.versions.into_values().collect();
         Some(receipts)
