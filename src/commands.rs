@@ -1,8 +1,10 @@
 pub mod install;
+pub mod list;
 
 use anyhow::Result;
 
 pub use install::InstallCommand;
+pub use list::ListCommand;
 
 pub trait CommandHandler {
     fn handle(&self) -> Result<()>;

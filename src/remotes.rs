@@ -1,6 +1,7 @@
 pub mod github;
 
 use std::collections::HashMap;
+use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
@@ -27,6 +28,15 @@ pub enum RemoteType {
 impl Default for RemoteType {
     fn default() -> Self {
         RemoteType::GitHub(GitHubAssetDef::default())
+    }
+}
+
+impl fmt::Display for RemoteType {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            RemoteType::GitHub(def) => write!(f, "github:{}", def.repo),
+            // RemoteType::Direct(def) => write!(f, "direct:{}", def.url),
+        }
     }
 }
 
