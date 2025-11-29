@@ -23,10 +23,11 @@ static VERBOSITY: LazyLock<AtomicU8> = LazyLock::new(AtomicU8::default);
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     VERBOSITY.store(cli.verbose, Ordering::Relaxed);
+    let layout = layout::InroLayout::new()?;
 
     if let Some(command) = cli.command {
         let command_handler: Box<dyn CommandHandler> = match command {
-            Command::Install { names } => Box::new(InstallCommand { names }),
+            Command::Install { names } => Box::new(InstallCommand { names, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

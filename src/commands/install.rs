@@ -20,6 +20,7 @@ use crate::utils::{download_file, extract_file};
 
 pub struct InstallCommand {
     pub names: Vec<String>,
+    pub layout: InroLayout,
 }
 
 impl CommandHandler for InstallCommand {
@@ -32,20 +33,19 @@ impl CommandHandler for InstallCommand {
         );
 
         // prepare
-        let layout = InroLayout::new()?;
-        let config = Config::load(&layout)?;
+        let config = Config::load(&self.layout)?;
         report!(MsgType::Detail, "Loaded inro config.");
-        let registry = Registry::load(&layout)?;
+        let registry = Registry::load(&self.layout)?;
         report!(MsgType::Detail, "Loaded sources.");
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
-        let manifest_path = &layout.manifest_path;
+        let manifest_path = &self.layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;
 
         // install one by one
         for name in &names {
-            match do_install(name, &registry, &config, &layout) {
+            match do_install(name, &registry, &config, &self.layout) {
                 Ok(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
                         report!(MsgType::Warning, "Failed to save backup receipt: {e:?}");
