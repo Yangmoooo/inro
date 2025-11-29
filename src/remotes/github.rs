@@ -228,16 +228,16 @@ impl GitHubProvider {
         if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
             report!(
                 MsgType::Detail,
-                "Using INRO_GITHUB_TOKEN for authentication."
+                "Using INRO_GITHUB_TOKEN for authentication"
             );
             request_builder = request_builder.bearer_auth(token);
         } else if let Ok(token) = env::var("GITHUB_TOKEN") {
-            report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication.");
+            report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else {
             report!(
                 MsgType::Warning,
-                "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable."
+                "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
             );
         }
 

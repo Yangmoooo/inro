@@ -34,9 +34,9 @@ impl CommandHandler for InstallCommand {
 
         // prepare
         let config = Config::load(&self.layout)?;
-        report!(MsgType::Detail, "Loaded inro config.");
+        report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&self.layout)?;
-        report!(MsgType::Detail, "Loaded sources.");
+        report!(MsgType::Detail, "Loaded sources");
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -62,7 +62,7 @@ impl CommandHandler for InstallCommand {
 
         // save manifest
         manifest.save(manifest_path)?;
-        report!(MsgType::Detail, "Manifest updated.");
+        report!(MsgType::Detail, "Manifest updated");
 
         // summary
         eprintln!();
@@ -131,7 +131,7 @@ impl CommandHandler for InstallCommand {
         }
 
         if !has_success && !has_failure {
-            report!(MsgType::Warning, "Nothing was installed.");
+            report!(MsgType::Warning, "Nothing was installed");
             return Ok(());
         }
 
@@ -201,10 +201,11 @@ fn do_install(
     // 6. extract the asset
     report!(
         MsgType::Detail,
-        "Extracting file: {:?}...",
+        "Extracting file: {}...",
         downloaded_file
             .file_name()
             .ok_or(anyhow!("Invalid asset file name"))?
+            .display()
     );
     extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
         filename: candidate.asset_name.clone(),
@@ -212,7 +213,7 @@ fn do_install(
     })?;
     report!(
         MsgType::Detail,
-        "Installed to {}.",
+        "Installed to {}",
         &dan_install_dir.display()
     );
 
@@ -233,7 +234,7 @@ fn do_install(
         // 7.3. create the symlink
         report!(
             MsgType::Detail,
-            "Linking {} to {}...",
+            "Linked {} to {}",
             src_path.display(),
             dst_path.display()
         );
