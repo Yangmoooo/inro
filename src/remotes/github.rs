@@ -103,7 +103,7 @@ impl Release {
         let os_aliases = platform.os_aliases();
         let arch_aliases = platform.arch_aliases();
 
-        let matching_assets: Vec<&Asset> = self
+        let mut candidates: Vec<(&Asset, i32)> = self
             .assets
             .iter()
             .filter(|asset| {
@@ -115,9 +115,13 @@ impl Release {
                 let arch_match = arch_aliases.iter().any(|&alias| name_lower.contains(alias));
                 os_match && arch_match
             })
+            .map(|asset| {
+                let score = calculate_heuristic_score(asset, &platform);
+                (asset, score)
+            })
             .collect();
 
-        if matching_assets.is_empty() {
+        if candidates.is_empty() {
             return Err(Error::NoMatchingAsset {
                 repo: self.repo.clone(),
                 tag: self.tag_name.clone(),
@@ -125,8 +129,42 @@ impl Release {
             });
         }
 
-        Ok(matching_assets)
+        candidates.sort_by(|a, b| b.1.cmp(&a.1));
+        let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
+        Ok(sorted_assets)
     }
+}
+
+fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
+    let name = asset.name.to_lowercase();
+    let mut score = 0;
+
+    if platform.os == "windows" {
+        if name.contains("msvc") {
+            score += 10;
+        } else if name.contains("gnu") {
+            score -= 5;
+        }
+    }
+
+    if platform.os == "linux" {
+        if name.contains("musl") {
+            score += 5;
+        } else if name.contains("gnu") {
+            score += 0;
+        }
+
+        if name.contains(".tar.gz") {
+            score += 2;
+        }
+    }
+
+    // generic
+    if name.contains("setup") || name.contains("install") {
+        score -= 100;
+    }
+
+    score
 }
 
 #[derive(Deserialize, Debug, Clone)]
