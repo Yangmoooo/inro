@@ -10,13 +10,12 @@ use crate::platform::PlatformInfo;
 use crate::report;
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
-const GITHUB_ASSETS_VALID_TYPES: &[&str] = &[
-    "application/octet-stream",           // bin
-    "application/x-msdownload",           // exe
-    "application/x-gtar",                 // tar.xz
-    "application/gzip",                   // tar.gz
-    "application/zip",                    // zip
-    "application/x-bzip1-compressed-tar", // tbz
+const SUPPORTED_EXTENSIONS: &[&str] = &[
+    ".tar.gz", ".tgz", //
+    ".tar.xz", ".txz", //
+    ".tar.bz2", ".tbz", //
+    ".zip", //
+    ".exe", //
 ];
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -66,7 +65,7 @@ pub struct Release {
 #[derive(Deserialize, Debug, Clone)]
 pub struct Asset {
     pub name: String,
-    pub content_type: String,
+    // pub content_type: String,
     pub browser_download_url: String,
 }
 
@@ -74,6 +73,19 @@ impl Release {
     pub fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
+
+        let is_supported = |name: &str| {
+            // check allow list
+            if SUPPORTED_EXTENSIONS.iter().any(|ext| name.ends_with(ext)) {
+                return true;
+            }
+            // if not extension, regarded as linux bare binary
+            // but may be a LICENSE and so on, this will be processed in the next step
+            if !name.contains('.') {
+                return true;
+            }
+            false
+        };
 
         // if the platform-specific asset is configured, use its name
         if let Some(keyword) = asset_map.get(&platform_key) {
@@ -85,8 +97,7 @@ impl Release {
                 .assets
                 .iter()
                 .filter(|asset| {
-                    asset.name.contains(keyword)
-                        && GITHUB_ASSETS_VALID_TYPES.contains(&asset.content_type.as_str())
+                    asset.name.contains(keyword) && is_supported(&asset.name.to_lowercase())
                 })
                 .collect();
             if matching_assets.is_empty() {
@@ -107,13 +118,10 @@ impl Release {
             .assets
             .iter()
             .filter(|asset| {
-                if !GITHUB_ASSETS_VALID_TYPES.contains(&asset.content_type.as_str()) {
-                    return false;
-                }
                 let name_lower = asset.name.to_lowercase();
                 let os_match = os_aliases.iter().any(|&alias| name_lower.contains(alias));
                 let arch_match = arch_aliases.iter().any(|&alias| name_lower.contains(alias));
-                os_match && arch_match
+                os_match && arch_match && is_supported(&name_lower)
             })
             .map(|asset| {
                 let score = calculate_heuristic_score(asset, &platform);
@@ -143,7 +151,13 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
         if name.contains("msvc") {
             score += 10;
         } else if name.contains("gnu") {
-            score -= 5;
+            score += 0;
+        }
+
+        if [".zip"].iter().any(|ext| name.ends_with(ext)) {
+            score += 3;
+        } else if name.ends_with(".exe") {
+            score += 2;
         }
     }
 
@@ -154,7 +168,10 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
             score += 0;
         }
 
-        if name.contains(".tar.gz") {
+        if [".tar.gz", ".tgz", ".tar.xz", ".txz"]
+            .iter()
+            .any(|ext| name.ends_with(ext))
+        {
             score += 2;
         }
     }
