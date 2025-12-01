@@ -23,8 +23,8 @@ bin_dir = "~/bin"
 # The "default" upstream is built-in but can be overridden here if you want to use a fork.
 #
 # upstreams = [
-#   { name = "default", priority = 0, url = "https://github.com/Yangmoooo/inro-registry.git" },
-#   { name = "work", priority = 10, url = "https://internal-gitlab.com/team/inro-work-tools.git" }
+#   { name = "default", priority = 0, url = "https://raw.githubusercontent.com/Yangmoooo/inro-registry/main/default.toml" },
+#   { name = "work", priority = 10, url = "https://internal-gitlab.com/team/my-tools/main/work.toml" }
 # ]
 
 
@@ -38,6 +38,8 @@ bin_dir = "~/bin"
 # Environment variable overrides: INRO_GITHUB_TOKEN or GITHUB_TOKEN
 #
 # github_token = "ghp_..."
+
+### BELOW IS NOT IMPLEMENTED YET!!!
 
 # HTTP/SOCKS5 proxy to use for all network requests.
 # Environment variable overrides: HTTPS_PROXY or ALL_PROXY
