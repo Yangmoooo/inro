@@ -89,7 +89,7 @@ impl FileType {
     }
 }
 
-pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<()> {
+pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
     let file_type = FileType::detect(file_path)?;
     let file = File::open(file_path).context("Failed to open asset file")?;
     let reader = BufReader::new(file);
@@ -139,7 +139,7 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<()> {
         }
     }
 
-    Ok(())
+    Ok(file_type)
 }
 
 pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {

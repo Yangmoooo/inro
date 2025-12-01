@@ -209,19 +209,21 @@ fn do_install(
     );
 
     // 6.1 extract
-    extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
+    let file_type = extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
         filename: candidate.asset_name.clone(),
         source: e,
     })?;
-    // 6.2 if there is only one directory, flatten it
+    // 6.2 if asset is a single bin, rename it to the name of the package
+    if let FileType::Pe | FileType::Elf = file_type {
+        rename_single_file(&dan_install_dir, &dan_info.bin[0].name)?;
+    }
+    // 6.3 if there is only one directory, flatten it
     if let Err(e) = flatten_single_directory(&dan_install_dir) {
         report!(
             MsgType::Warning,
             "Failed to flatten directory structure: {e}"
         );
     }
-    // 6.3 if there is a single file, rename it to the name of the package
-    rename_single_file(&dan_install_dir, &dan_info.bin[0].name)?;
 
     report!(
         MsgType::Detail,
