@@ -192,3 +192,7 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 
     Ok(())
 }
+
+pub fn sanitize_version(raw_version: &str) -> String {
+    raw_version.replace(['/', '\\', ':'], "-")
+}

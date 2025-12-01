@@ -190,7 +190,8 @@ fn do_install(
     let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
 
     // 5. prepare install dir
-    let dan_install_dir = layout.dans_dir.join(name).join(&candidate.version);
+    let safe_version = sanitize_version(&candidate.version);
+    let dan_install_dir = layout.dans_dir.join(name).join(safe_version);
 
     if dan_install_dir.exists() {
         report!(MsgType::Warning, "Package already installed. Removing...");
@@ -209,10 +210,11 @@ fn do_install(
     );
 
     // 6.1 extract
-    let file_type = extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
-        filename: candidate.asset_name.clone(),
-        source: e,
-    })?;
+    let file_type =
+        extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
+            filename: candidate.asset_name.clone(),
+            source: e,
+        })?;
     // 6.2 if asset is a single bin, rename it to the name of the package
     if let FileType::Pe | FileType::Elf = file_type {
         rename_single_file(&dan_install_dir, &dan_info.bin[0].name)?;
