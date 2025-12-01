@@ -8,15 +8,9 @@ use super::{InstallCandidate, RemoteProvider, RemoteType};
 use crate::dan::ResolvedDan;
 use crate::platform::PlatformInfo;
 use crate::report;
+use crate::utils::{is_ignored_format, is_supported_format};
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
-const SUPPORTED_EXTENSIONS: &[&str] = &[
-    ".tar.gz", ".tgz", //
-    ".tar.xz", ".txz", //
-    ".tar.bz2", ".tbz", //
-    ".zip", //
-    ".exe", //
-];
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -74,19 +68,6 @@ impl Release {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
 
-        let is_supported = |name: &str| {
-            // check allow list
-            if SUPPORTED_EXTENSIONS.iter().any(|ext| name.ends_with(ext)) {
-                return true;
-            }
-            // if not extension, regarded as linux bare binary
-            // but may be a LICENSE and so on, this will be processed in the next step
-            if !name.contains('.') {
-                return true;
-            }
-            false
-        };
-
         // if the platform-specific asset is configured, use its name
         if let Some(keyword) = asset_map.get(&platform_key) {
             report!(
@@ -97,7 +78,7 @@ impl Release {
                 .assets
                 .iter()
                 .filter(|asset| {
-                    asset.name.contains(keyword) && is_supported(&asset.name.to_lowercase())
+                    asset.name.contains(keyword) && !is_ignored_format(&asset.name.to_lowercase())
                 })
                 .collect();
             if matching_assets.is_empty() {
@@ -121,7 +102,7 @@ impl Release {
                 let name_lower = asset.name.to_lowercase();
                 let os_match = os_aliases.iter().any(|&alias| name_lower.contains(alias));
                 let arch_match = arch_aliases.iter().any(|&alias| name_lower.contains(alias));
-                os_match && arch_match && is_supported(&name_lower)
+                os_match && arch_match && is_supported_format(&name_lower)
             })
             .map(|asset| {
                 let score = calculate_heuristic_score(asset, &platform);

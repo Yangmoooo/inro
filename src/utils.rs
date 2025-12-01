@@ -26,6 +26,46 @@ pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     Ok(dest_path)
 }
 
+const BLOCK_EXTENSIONS: &[&str] = &[
+    ".sha256", // checksum
+    ".sha256sum",
+    ".md5",
+    ".asc",
+    ".sig",
+    ".txt", // plain
+    ".md",
+    ".xml", // data
+    ".json",
+    ".yml",
+    ".yaml",
+    ".toml",
+    ".deb", // installer
+    ".rpm",
+    ".msi",
+    ".pkg",
+    ".dmg",
+];
+const ALLOW_EXTENSIONS: &[&str] = &[
+    ".tar.gz", ".tgz", //
+    ".tar.xz", ".txz", //
+    ".tar.bz2", ".tbz", //
+    ".zip", //
+    ".exe", //
+];
+
+pub fn is_ignored_format(name: &str) -> bool {
+    BLOCK_EXTENSIONS.iter().any(|ext| name.ends_with(ext))
+}
+pub fn is_supported_format(name: &str) -> bool {
+    if ALLOW_EXTENSIONS.iter().any(|ext| name.ends_with(ext)) {
+        return true;
+    }
+    if !name.contains(".") {
+        return true;
+    }
+    false // a elf like xxx-v0.1.0-linux-x86_64 need to be specified in registry
+}
+
 #[derive(Debug)]
 pub enum FileType {
     // archive
