@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{self, Read, copy, BufReader};
+use std::io::{self, BufReader, Read, copy};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -17,7 +17,8 @@ pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     let mut dest_file = File::create(&dest_path)
         .with_context(|| format!("Failed to create destination file: {}", dest_path.display()))?;
 
-    let content = response.bytes()
+    let content = response
+        .bytes()
         .context("Failed to read response body bytes")?;
     copy(&mut content.as_ref(), &mut dest_file)
         .context("Failed to write downloaded content to disk")?;
@@ -97,24 +98,34 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<()> {
         FileType::TarGz => {
             let tar = flate2::read::GzDecoder::new(reader);
             let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.gz archive")?;
+            archive
+                .unpack(dest_dir)
+                .context("Failed to extract tar.gz archive")?;
         }
         FileType::TarXz => {
             let tar = xz2::read::XzDecoder::new(reader);
             let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.xz archive")?;
+            archive
+                .unpack(dest_dir)
+                .context("Failed to extract tar.xz archive")?;
         }
         FileType::TarBz2 => {
             let tar = bzip2::read::BzDecoder::new(reader);
             let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.bz2 archive")?;
+            archive
+                .unpack(dest_dir)
+                .context("Failed to extract tar.bz2 archive")?;
         }
         FileType::Zip => {
             let mut archive = zip::ZipArchive::new(reader)?;
-            archive.extract(dest_dir).context("Failed to extract zip archive")?;
+            archive
+                .extract(dest_dir)
+                .context("Failed to extract zip archive")?;
         }
         FileType::Pe | FileType::Elf => {
-            let file_name = file_path.file_name().ok_or(anyhow!("Binary file name invalid"))?;
+            let file_name = file_path
+                .file_name()
+                .ok_or(anyhow!("Binary file name invalid"))?;
             let dest_file_path = dest_dir.join(file_name);
             fs::copy(file_path, &dest_file_path)?;
 
@@ -127,6 +138,36 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<()> {
             }
         }
     }
+
+    Ok(())
+}
+
+pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(|e| e.ok()).collect();
+
+    if entries.len() != 1 {
+        return Ok(());
+    }
+
+    let entry = &entries[0];
+    let entry_path = entry.path();
+
+    if !entry_path.is_dir() {
+        return Ok(());
+    }
+
+    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(|e| e.ok()).collect();
+
+    for sub_entry in sub_entries {
+        let sub_path = sub_entry.path();
+        let file_name = sub_entry.file_name();
+        let target_path = root_dir.join(file_name);
+
+        fs::rename(&sub_path, &target_path)
+            .with_context(|| format!("Failed to move {sub_path:?} to {target_path:?}"))?;
+    }
+
+    fs::remove_dir(&entry_path)?;
 
     Ok(())
 }

@@ -16,7 +16,7 @@ use crate::registry::Registry;
 use crate::remotes::github::GitHubProvider;
 use crate::remotes::{self, RemoteProvider, RemoteType};
 use crate::report;
-use crate::utils::{download_file, extract_file};
+use crate::utils::{download_file, extract_file, flatten_single_directory};
 
 pub struct InstallCommand {
     pub names: Vec<String>,
@@ -207,10 +207,18 @@ fn do_install(
             .ok_or(anyhow!("Invalid asset file name"))?
             .display()
     );
+
     extract_file(&downloaded_file, &dan_install_dir).map_err(|e| DanError::Extraction {
         filename: candidate.asset_name.clone(),
         source: e,
     })?;
+    if let Err(e) = flatten_single_directory(&dan_install_dir) {
+        report!(
+            MsgType::Warning,
+            "Failed to flatten directory structure: {e}"
+        );
+    }
+
     report!(
         MsgType::Detail,
         "Installed to {}",
