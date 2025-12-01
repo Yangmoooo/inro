@@ -1,11 +1,13 @@
 pub mod install;
 pub mod list;
+pub mod source;
 pub mod uninstall;
 
 use anyhow::Result;
 
 pub use install::InstallCommand;
 pub use list::ListCommand;
+pub use source::SourceCommand;
 pub use uninstall::UninstallCommand;
 
 pub trait CommandHandler {

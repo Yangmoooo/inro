@@ -7,7 +7,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::layout::InroLayout;
 
-const INRO_DEFAULT_REGISTRY: &str = "https://github.com/Yangmoooo/inro-registry.git";
+const INRO_DEFAULT_REGISTRY: &str =
+    "https://raw.githubusercontent.com/Yangmoooo/inro-registry/main/default.toml";
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {

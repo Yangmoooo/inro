@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
             Command::Install { names } => Box::new(InstallCommand { names, layout }),
             Command::Uninstall { names } => Box::new(UninstallCommand { names, layout }),
             Command::List => Box::new(ListCommand { layout }),
+            Command::Source { command } => Box::new(SourceCommand { command, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

@@ -36,6 +36,12 @@ pub enum Command {
     #[command(about = "List all installed packages.")]
     List,
 
+    #[command(about = "Manage sources.")]
+    Source {
+        #[command(subcommand)]
+        command: SourceSubCommand,
+    },
+
     #[command(alias = "upgrade")]
     #[command(about = "Update packages.")]
     Update {
@@ -47,4 +53,14 @@ pub enum Command {
     #[command(name = "self-update")]
     #[command(about = "Update inro itself to the latest version.")]
     SelfUpdate,
+}
+
+#[derive(Subcommand, Debug)]
+pub enum SourceSubCommand {
+    #[command(about = "Update local cache of remote sources.")]
+    Update,
+
+    #[command(alias = "ls")]
+    #[command(about = "List configured sources.")]
+    List,
 }
