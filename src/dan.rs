@@ -133,7 +133,7 @@ pub struct InstalledBinary {
     pub name: String,
 
     /// Binary file path, e.g. '.../packages/ripgrep/13.0.0/rg'
-    pub source_path: PathBuf,
+    pub bin_path: PathBuf,
 
     /// Binary symlink path, e.g. '~/.local/bin/rg'
     pub link_path: PathBuf,
@@ -141,7 +141,7 @@ pub struct InstalledBinary {
 
 #[derive(thiserror::Error, Debug)]
 pub enum DanError {
-    #[error("Package '{0}' not found in sources")]
+    #[error("Package '{0}' not found in registry")]
     NotFound(String),
 
     #[error("Failed to fetch from the upstream: '{0}'")]

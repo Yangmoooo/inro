@@ -57,7 +57,7 @@ impl Registry {
 
         let registry: Registry = figment.extract()?;
         if registry.dans.is_empty() {
-            return Err(anyhow!("No package definitions found in sources"));
+            return Err(anyhow!("No package definitions found in registry"));
         }
 
         Ok(registry)

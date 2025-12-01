@@ -36,7 +36,7 @@ impl CommandHandler for InstallCommand {
         let config = Config::load(&self.layout)?;
         report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&self.layout)?;
-        report!(MsgType::Detail, "Loaded sources");
+        report!(MsgType::Detail, "Loaded inro registry");
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -167,7 +167,7 @@ fn do_install(
     };
 
     // 3. find asset candidates
-    report!(MsgType::Detail, "Fetching candidates from source...");
+    report!(MsgType::Detail, "Fetching candidates from remote...");
     let candidates = provider.find_candidates(&dan_info)?;
     let candidate = candidates
         .first()
@@ -242,7 +242,7 @@ fn do_install(
 
         installed_bins_info.push(InstalledBinary {
             name: bin_info.name.clone(),
-            source_path: src_path,
+            bin_path: src_path,
             link_path: dst_path,
         });
     }

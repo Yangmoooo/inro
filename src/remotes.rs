@@ -22,7 +22,7 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[serde(rename_all = "lowercase")]
 pub enum RemoteType {
     GitHub(GitHubAssetDef),
-    // Direct(DirectSource),
+    // Direct(DirectDef),
 }
 
 impl Default for RemoteType {

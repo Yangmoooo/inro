@@ -17,7 +17,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     #[command(alias = "i")]
-    #[command(about = "Install packages from the source.")]
+    #[command(about = "Install packages from the sources.")]
     Install {
         /// Names of the packages to install
         #[arg(num_args = 1..)]
