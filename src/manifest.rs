@@ -36,8 +36,8 @@ impl Manifest {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let file = File::open(path)
-            .with_context(|| format!("Failed to open manifest file: {path:?}"))?;
+        let file =
+            File::open(path).with_context(|| format!("Failed to open manifest file: {path:?}"))?;
         let reader = BufReader::new(file);
         let manifest = serde_json::from_reader(reader)
             .with_context(|| format!("Failed to parse manifest JSON: {path:?}"))?;
@@ -80,13 +80,15 @@ impl Manifest {
     }
 
     /// remove a package, all versions
+    #[allow(dead_code)]
     pub fn remove_dan(&mut self, name: &str) -> Option<Vec<DanReceipt>> {
         let state = self.dans.remove(name)?;
         let receipts = state.versions.into_values().collect();
         Some(receipts)
     }
 
-    pub fn get_current_receipt(&self, name: &str) -> Option<&DanReceipt> {
+    #[allow(dead_code)]
+    pub fn _get_current_receipt(&self, name: &str) -> Option<&DanReceipt> {
         let state = self.dans.get(name)?;
         let version = state.current_version.as_ref()?;
         state.versions.get(version)

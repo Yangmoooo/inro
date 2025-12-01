@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::path::PathBuf;
-use std::collections::HashMap;
 
 use anyhow::Context;
 use chrono::{DateTime, Utc};
@@ -27,6 +27,7 @@ pub struct BinDef {
 
 #[derive(Debug)]
 pub struct ResolvedDan {
+    #[allow(dead_code)]
     pub ver: Option<String>,
     pub remote: RemoteType,
     pub bin: Vec<ResolvedBin>,
@@ -151,6 +152,7 @@ pub enum DanError {
     Download(#[from] anyhow::Error),
 
     #[error("Checksum validation failed for downloaded file")]
+    #[allow(dead_code)]
     ChecksumMismatch,
 
     #[error("Failed to extract archive '{filename}'")]
