@@ -119,7 +119,7 @@ pub struct DanReceipt {
 
 impl DanReceipt {
     pub fn save_to_install_dir(&self) -> anyhow::Result<()> {
-        let receipt_path = self.install_dir.join("receipt.json");
+        let receipt_path = self.install_dir.join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path)
             .with_context(|| format!("Failed to create receipt backup: {:?}", receipt_path))?;
         serde_json::to_writer_pretty(receipt_file, self)?;

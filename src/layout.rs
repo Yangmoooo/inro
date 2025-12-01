@@ -22,7 +22,7 @@ impl InroLayout {
             .ok_or_else(|| anyhow!("Could not determine data local directory"))?;
 
         let config_path = config_dir.join("inro").join("config.toml");
-        let manifest_path = data_local_dir.join("inro").join("inro.json");
+        let manifest_path = data_local_dir.join("inro").join("inro-manifest.json");
 
         let dans_dir = data_local_dir.join("inro").join("packages");
         let upstream_registry_dir = data_local_dir.join("inro").join("sources.list.d");
