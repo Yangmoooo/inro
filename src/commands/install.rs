@@ -180,16 +180,7 @@ fn do_install(
         candidate.version
     );
 
-    // 4. download to temp dir
-    let temp_dir = TempDir::new().map_err(DanError::Io)?;
-    report!(
-        MsgType::Detail,
-        "Downloading from {}...",
-        candidate.download_url
-    );
-    let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
-
-    // 5. prepare install dir
+    // 4. prepare install dir
     let safe_version = sanitize_version(&candidate.version);
     let dan_install_dir = layout.dans_dir.join(name).join(safe_version);
 
@@ -198,6 +189,15 @@ fn do_install(
         fs::remove_dir_all(&dan_install_dir)?;
     }
     fs::create_dir_all(&dan_install_dir)?;
+
+    // 5. download to temp dir
+    let temp_dir = TempDir::new().map_err(DanError::Io)?;
+    report!(
+        MsgType::Detail,
+        "Downloading from {}...",
+        candidate.download_url
+    );
+    let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
 
     // 6. extract the asset
     report!(

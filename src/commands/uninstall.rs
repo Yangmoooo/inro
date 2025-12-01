@@ -140,7 +140,7 @@ fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallR
         Some(v) => v.clone(),
         None => {
             // TODO: installed but no active version
-            anyhow::bail!("No active version to uninstall.");
+            anyhow::bail!("No active version to uninstall");
         }
     };
 

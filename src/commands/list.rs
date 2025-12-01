@@ -15,7 +15,7 @@ impl CommandHandler for ListCommand {
         let manifest = Manifest::load(&self.layout.manifest_path)?;
 
         if manifest.dans.is_empty() {
-            report!(MsgType::Warning, "No packages installed.");
+            report!(MsgType::Warning, "No packages installed");
             return Ok(());
         }
 
