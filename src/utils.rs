@@ -171,3 +171,24 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
 
     Ok(())
 }
+
+pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(|e| e.ok()).collect();
+
+    if entries.len() != 1 {
+        return Ok(());
+    }
+
+    let entry = &entries[0];
+    let entry_path = entry.path();
+
+    if !entry_path.is_file() {
+        return Ok(());
+    }
+
+    let target_path = root_dir.join(target_name);
+    fs::rename(&entry_path, &target_path)
+        .with_context(|| format!("Failed to move {entry_path:?} to {target_path:?}"))?;
+
+    Ok(())
+}
