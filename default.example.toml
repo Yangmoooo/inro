@@ -9,17 +9,18 @@ repo = "example/example"
 
 # platform-specific asset file names
 [example.remote.github.asset]
-"linux-x86_64"   = "example-x86_64-unknown-linux-musl.tar.gz"
+"linux-x86_64" = "example-x86_64-unknown-linux-musl.tar.gz"
 "windows-x86_64" = "example-x86_64-pc-windows-msvc.zip"
 
 # binaries
 [[example.bin]]
 # name of the binary inside the asset, defaults to the name of the package
 name = "example"
-# name to link the binary, defaults to the name of the package
+# name to link the binary, defaults to the bin.name
 link = "example"
 
 
+### packages
 
 [btop]
 [btop.remote.github]
@@ -29,22 +30,12 @@ repo = "aristocratos/btop"
 [eza.remote.github]
 repo = "eza-community/eza"
 
-[fastfetch]
-[fastfetch.remote.github]
-repo = "fastfetch-cli/fastfetch"
-
-[fx]
-[fx.remote.github]
-repo = "antonmedv/fx"
-
-[fzf]
-[fzf.remote.github]
-repo = "junegunn/fzf"
-
-[jq]
-[jq.remote.github]
-repo = "jqlang/jq"
-# jq provides a single binary, although it's jq-{os}-{arch}, bin is unnecessary
+[onefetch]
+[onefetch.remote.github]
+repo = "o2sh/onefetch"
+[onefetch.remote.github.asset]
+"linux-x86_64" = "onefetch-linux"
+"windows-x86_64" = "onefetch-win"
 
 [ripgrep]
 [ripgrep.remote.github]
@@ -52,15 +43,9 @@ repo = "BurntSushi/ripgrep"
 [[ripgrep.bin]]
 name = "rg"
 
-[fd]
-[fd.remote.github]
-repo = "sharkdp/fd"
-
 [tldr]
 [tldr.remote.github]
 repo = "tealdeer-rs/tealdeer"
-[tldr.remote.github.asset]
-"linux-x86_64" = "linux-x86_64-musl"
 
 [tokei]
 [tokei.remote.github]
