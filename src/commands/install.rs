@@ -36,7 +36,12 @@ impl CommandHandler for InstallCommand {
         let config = Config::load(&self.layout)?;
         report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&self.layout)?;
-        report!(MsgType::Detail, "Loaded inro registry");
+        if registry.dans.is_empty() {
+            report!(MsgType::Warning, "Registry is empty. Run 'inro source update' to fetch packages");
+            return Ok(());
+        } else {
+            report!(MsgType::Detail, "Loaded inro registry");
+        }
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
