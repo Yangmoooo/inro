@@ -5,7 +5,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use super::{InstallCandidate, RemoteProvider, RemoteType};
-use crate::dan::ResolvedDan;
+use crate::dan::DanDef;
 use crate::platform::PlatformInfo;
 use crate::report;
 use crate::utils::{is_ignored_format, is_supported_format};
@@ -36,6 +36,9 @@ pub enum Error {
     #[error("No available release found for '{0}' (non-draft, non-prerelease, with assets)")]
     NoAvailableRelease(String),
 
+    #[error("Release with tag '{tag}' not found in repo '{repo}'")]
+    NoReleaseFound { repo: String, tag: String },
+
     #[error(
         "In release tag '{tag}' for repo '{repo}', no asset was found matching the keyword '{keyword}'"
     )]
@@ -47,24 +50,28 @@ pub enum Error {
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct Release {
+struct Release {
     #[serde(default)]
-    pub repo: String,
-    pub tag_name: String,
-    pub prerelease: bool,
-    pub draft: bool,
-    pub assets: Vec<Asset>,
+    repo: String,
+    tag_name: String,
+    prerelease: bool,
+    draft: bool,
+    assets: Vec<Asset>,
 }
 
 #[derive(Deserialize, Debug, Clone)]
-pub struct Asset {
-    pub name: String,
+struct Asset {
+    name: String,
     // pub content_type: String,
-    pub browser_download_url: String,
+    browser_download_url: String,
 }
 
 impl Release {
-    pub fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
+    fn is_available(&self) -> bool {
+        !self.draft && !self.prerelease && !self.assets.is_empty()
+    }
+
+    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
 
@@ -167,20 +174,38 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(transparent)]
-pub struct Releases(Vec<Release>);
+struct Releases(Vec<Release>);
 
 impl Releases {
-    // TODO: add an option arg to search by tag name
-    pub fn first_available(&self) -> Result<&Release> {
-        let repo = &self
-            .0
-            .first()
-            .map(|r| r.repo.clone())
-            .unwrap_or_else(|| "Unknown".to_string());
-        self.0
-            .iter()
-            .find(|r| !r.draft && !r.prerelease && !r.assets.is_empty())
-            .ok_or(Error::NoAvailableRelease(repo.to_string()))
+    fn list_available(&self) -> Vec<&Release> {
+        self.0.iter().filter(|r| r.is_available()).collect()
+    }
+
+    fn first_available(&self) -> Result<&Release> {
+        let available = self.list_available();
+        available.first().copied().ok_or_else(|| {
+            let repo = self
+                .0
+                .first()
+                .map(|r| r.repo.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
+            Error::NoAvailableRelease(repo)
+        })
+    }
+
+    #[allow(dead_code)]
+    fn get_by_tag(&self, tag: &str) -> Result<&Release> {
+        self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
+            let repo = self
+                .0
+                .first()
+                .map(|r| r.repo.clone())
+                .unwrap_or_else(|| "Unknown".to_string());
+            Error::NoReleaseFound {
+                repo,
+                tag: tag.to_string(),
+            }
+        })
     }
 }
 
@@ -213,7 +238,7 @@ impl GitHubProvider {
         Ok(Self { client })
     }
 
-    pub fn fetch_releases(&self, repo: &str) -> Result<Releases> {
+    fn fetch_releases(&self, repo: &str) -> Result<Releases> {
         let api_url = format!("https://api.github.com/repos/{}/releases", repo);
 
         let mut request_builder = self
@@ -268,7 +293,7 @@ impl GitHubProvider {
 }
 
 impl RemoteProvider for GitHubProvider {
-    fn find_candidates(&self, dan: &ResolvedDan) -> super::Result<Vec<InstallCandidate>> {
+    fn find_candidates(&self, dan: &DanDef) -> super::Result<Vec<InstallCandidate>> {
         let repo = match &dan.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -287,5 +312,24 @@ impl RemoteProvider for GitHubProvider {
             })
             .collect();
         Ok(candidates)
+    }
+
+    fn list_versions(&self, dan: &DanDef) -> super::Result<Vec<String>> {
+        let repo = match &dan.remote {
+            RemoteType::GitHub(asset_def) => &asset_def.repo,
+        };
+
+        // get available releases
+        let releases = self.fetch_releases(repo)?;
+
+        // get tag_names
+        let versions = releases
+            .list_available()
+            .iter()
+            .map(|r| r.tag_name.clone())
+            .take(10)
+            .collect();
+
+        Ok(versions)
     }
 }
