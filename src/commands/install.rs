@@ -13,8 +13,7 @@ use crate::dan::{DanError, DanReceipt, InstalledBinary};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::registry::Registry;
-use crate::remotes::github::GitHubProvider;
-use crate::remotes::{self, RemoteProvider, RemoteType};
+use crate::remotes::create_provider;
 use crate::report;
 use crate::utils::*;
 
@@ -37,7 +36,10 @@ impl CommandHandler for InstallCommand {
         report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&self.layout)?;
         if registry.dans.is_empty() {
-            report!(MsgType::Warning, "Registry is empty. Run 'inro source update' to fetch packages");
+            report!(
+                MsgType::Warning,
+                "Registry is empty. Run 'inro source update' to fetch packages"
+            );
             return Ok(());
         } else {
             report!(MsgType::Detail, "Loaded inro registry");
@@ -157,23 +159,17 @@ fn do_install(
     report!(MsgType::Step, "Processing package '{name}'...");
 
     // 1. get package definition
-    let dan_info = registry
+    let dan_def = registry
         .dans
         .get(name)
         .ok_or(DanError::NotFound(name.to_string()))?;
-    let dan_info = dan_info.clone().resolve(name);
 
     // 2. initialize remote provider
-    let provider: Box<dyn RemoteProvider> = match &dan_info.remote {
-        RemoteType::GitHub(_) => {
-            let gh_provider = GitHubProvider::new().map_err(remotes::Error::GitHub)?;
-            Box::new(gh_provider)
-        } // Remote::Direct => ...
-    };
+    let provider = create_provider(&dan_def.remote)?;
 
     // 3. find asset candidates
     report!(MsgType::Detail, "Fetching candidates from remote...");
-    let candidates = provider.find_candidates(&dan_info)?;
+    let candidates = provider.find_candidates(dan_def)?;
     let candidate = candidates
         .first()
         // handled in remotes::github::Release::find_assets with NoMatchingAsset
@@ -205,6 +201,7 @@ fn do_install(
     let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
 
     // 6. extract the asset
+    let dan = dan_def.clone().resolve(name);
     report!(
         MsgType::Detail,
         "Extracting file: {}...",
@@ -222,7 +219,7 @@ fn do_install(
         })?;
     // 6.2 if asset is a single bin, rename it to the name of the package
     if let FileType::Pe | FileType::Elf = file_type {
-        rename_single_file(&dan_install_dir, &dan_info.bin[0].name)?;
+        rename_single_file(&dan_install_dir, &dan.bin[0].name)?;
     }
     // 6.3 if there is only one directory, flatten it
     if let Err(e) = flatten_single_directory(&dan_install_dir) {
@@ -246,7 +243,7 @@ fn do_install(
 
     let mut installed_bins_info = Vec::new();
 
-    for bin_info in dan_info.bin.iter() {
+    for bin_info in dan.bin.iter() {
         // 7.1. find the binary in the install dir
         let src_path = find_binary_in_dir(&dan_install_dir, &bin_info.name)
             .ok_or_else(|| DanError::BinaryNotFoundInArchive(bin_info.name.clone()))?;
@@ -271,7 +268,7 @@ fn do_install(
     Ok(DanReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
-        remote: dan_info.remote,
+        remote: dan.remote,
         installed_at: Utc::now(),
         install_dir: dan_install_dir,
         binaries: installed_bins_info,

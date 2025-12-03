@@ -5,7 +5,7 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::dan::ResolvedDan;
+use crate::dan::DanDef;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -55,5 +55,15 @@ pub struct InstallCandidate {
 }
 
 pub trait RemoteProvider {
-    fn find_candidates(&self, dan: &ResolvedDan) -> Result<Vec<InstallCandidate>>;
+    fn find_candidates(&self, dan: &DanDef) -> Result<Vec<InstallCandidate>>;
+    fn list_versions(&self, dan: &DanDef) -> Result<Vec<String>>;
+}
+
+pub fn create_provider(remote: &RemoteType) -> Result<Box<dyn RemoteProvider>> {
+    match remote {
+        RemoteType::GitHub(_) => {
+            let gh_provider = github::GitHubProvider::new().map_err(Error::GitHub)?;
+            Ok(Box::new(gh_provider))
+        } // RemoteType::Direct(_) => { ... }
+    }
 }
