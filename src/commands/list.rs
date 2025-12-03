@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use anyhow::Result;
 use colored::Colorize;
 
@@ -10,6 +12,13 @@ pub struct ListCommand {
     pub layout: InroLayout,
 }
 
+struct ListResult {
+    name: String,
+    ver_display: String,
+    remote_str: String,
+    extra_ver: String,
+}
+
 impl CommandHandler for ListCommand {
     fn handle(&self) -> Result<()> {
         let manifest = Manifest::load(&self.layout.manifest_path)?;
@@ -19,10 +28,9 @@ impl CommandHandler for ListCommand {
             return Ok(());
         }
 
-        // prepare
-        let mut rows = Vec::new();
-        let mut max_name_len = 4; // "Name" length
-        let mut max_ver_len = 7; // "Version" length
+        let mut results = Vec::new();
+        let mut max_name_len = 4;
+        let mut max_ver_len = 7;
 
         let mut sorted_dans: Vec<_> = manifest.dans.iter().collect();
         sorted_dans.sort_by_key(|(name, _)| *name);
@@ -42,51 +50,44 @@ impl CommandHandler for ListCommand {
             };
 
             // get source info, actually remote display from current version receipt
-            let source_display = if let Some(ver) = &state.current_version {
-                state
-                    .versions
-                    .get(ver)
-                    .map(|r| r.remote.to_string())
-                    .unwrap_or_default()
-            } else {
-                String::new()
-            };
+            let remote_str = state
+                .current_version
+                .as_ref()
+                .and_then(|v| state.versions.get(v))
+                .map(|r| r.remote.to_string())
+                .unwrap_or_default();
 
-            max_name_len = max_name_len.max(name.len());
-            max_ver_len = max_ver_len.max(ver_display.len());
+            max_name_len = max(max_name_len, name.len());
+            max_ver_len = max(max_ver_len, ver_display.len());
 
-            rows.push((name, ver_display, source_display, extra_ver));
+            results.push(ListResult {
+                name: name.to_string(),
+                ver_display,
+                remote_str,
+                extra_ver,
+            });
         }
 
         // print header
         println!(
-            "{}  {}  {}",
-            pad_str("Name", max_name_len).bold(),
-            pad_str("Version", max_ver_len).bold(),
-            "Source".bold()
+            "{:<max_name_len$}  {:<max_ver_len$}  {}",
+            "Name".bold(),
+            "Version".bold(),
+            "Source".bold(),
         );
-        println!(
-            "{}  {}  {}",
-            "-".repeat(max_name_len),
-            "-".repeat(max_ver_len),
-            "-".repeat(10)
-        );
+        println!("{:-<max_name_len$}  {:-<max_ver_len$}  {:-<30}", "", "", "",);
 
         // print rows
-        for (name, ver, source, extra) in rows {
+        for res in results {
             println!(
-                "{}  {}  {} {}",
-                pad_str(name, max_name_len).green(),
-                pad_str(&ver, max_ver_len),
-                source,
-                extra.dimmed()
+                "{:<max_name_len$}  {:<max_ver_len$}  {} {}",
+                res.name.green(),
+                res.ver_display,
+                res.remote_str,
+                res.extra_ver.dimmed(),
             );
         }
 
         Ok(())
     }
-}
-
-fn pad_str(s: &str, width: usize) -> String {
-    format!("{:<width$}", s, width = width)
 }
