@@ -31,6 +31,7 @@ fn main() -> anyhow::Result<()> {
             Command::Uninstall { names } => Box::new(UninstallCommand { names, layout }),
             Command::List => Box::new(ListCommand { layout }),
             Command::Source { command } => Box::new(SourceCommand { command, layout }),
+            Command::Search { query } => Box::new(SearchCommand { query, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

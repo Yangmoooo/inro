@@ -17,7 +17,7 @@ pub struct Cli {
 #[derive(Subcommand, Debug)]
 pub enum Command {
     #[command(alias = "i")]
-    #[command(about = "Install packages from the sources.")]
+    #[command(about = "Install packages from the sources")]
     Install {
         /// Names of the packages to install
         #[arg(num_args = 1..)]
@@ -25,7 +25,7 @@ pub enum Command {
     },
 
     #[command(aliases = ["rm", "remove"])]
-    #[command(about = "Uninstall packages.")]
+    #[command(about = "Uninstall packages")]
     Uninstall {
         /// Names of the packages to uninstall
         #[arg(num_args = 1..)]
@@ -33,17 +33,24 @@ pub enum Command {
     },
 
     #[command(alias = "ls")]
-    #[command(about = "List all installed packages.")]
+    #[command(about = "List all installed packages")]
     List,
 
-    #[command(about = "Manage sources.")]
+    #[command(about = "Manage sources")]
     Source {
         #[command(subcommand)]
         command: SourceSubCommand,
     },
 
+    #[command(alias = "s")]
+    #[command(about = "Search packages")]
+    Search {
+        /// Search query
+        query: String,
+    },
+
     #[command(alias = "upgrade")]
-    #[command(about = "Update packages.")]
+    #[command(about = "Update packages")]
     Update {
         /// Names of the packages to update
         #[arg(num_args = 0..)]
@@ -51,16 +58,16 @@ pub enum Command {
     },
 
     #[command(name = "self-update")]
-    #[command(about = "Update inro itself to the latest version.")]
+    #[command(about = "Update inro itself to the latest version")]
     SelfUpdate,
 }
 
 #[derive(Subcommand, Debug)]
 pub enum SourceSubCommand {
-    #[command(about = "Update local cache of remote sources.")]
+    #[command(about = "Update local cache of remote sources")]
     Update,
 
     #[command(alias = "ls")]
-    #[command(about = "List configured sources.")]
+    #[command(about = "List configured sources")]
     List,
 }
