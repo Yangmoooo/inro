@@ -4,6 +4,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
 
+pub fn unique(strs: &[String]) -> Vec<String> {
+    let mut vec = strs.to_owned();
+    vec.sort_unstable();
+    vec.dedup();
+    vec
+}
+
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     let response = reqwest::blocking::get(url)
         .with_context(|| format!("Failed to download from URL: {}", url))?;

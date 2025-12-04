@@ -8,6 +8,7 @@ use crate::dan::DanReceipt;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::report;
+use crate::utils::unique;
 
 pub struct UninstallCommand {
     pub names: Vec<String>,
@@ -22,7 +23,7 @@ struct UninstallReceipt {
 
 impl CommandHandler for UninstallCommand {
     fn handle(&self) -> Result<()> {
-        let names = super::unique(&self.names);
+        let names = unique(&self.names);
         report!(
             MsgType::Info,
             "Starting uninstallation of {} package(s)...",
@@ -139,7 +140,7 @@ fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallR
     let version = match &state.current_version {
         Some(v) => v.clone(),
         None => {
-            // TODO: installed but no active version
+            // MARK: installed but no active version
             anyhow::bail!("No active version to uninstall");
         }
     };

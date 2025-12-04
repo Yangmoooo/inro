@@ -1,3 +1,4 @@
+pub mod info;
 pub mod install;
 pub mod list;
 pub mod search;
@@ -6,6 +7,7 @@ pub mod uninstall;
 
 use anyhow::Result;
 
+pub use info::InfoCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;
 pub use search::SearchCommand;
@@ -14,11 +16,4 @@ pub use uninstall::UninstallCommand;
 
 pub trait CommandHandler {
     fn handle(&self) -> Result<()>;
-}
-
-pub fn unique(strs: &[String]) -> Vec<String> {
-    let mut vec = strs.to_owned();
-    vec.sort_unstable();
-    vec.dedup();
-    vec
 }

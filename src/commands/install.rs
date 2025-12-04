@@ -24,7 +24,7 @@ pub struct InstallCommand {
 
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
-        let names = super::unique(&self.names);
+        let names = unique(&self.names);
         report!(
             MsgType::Info,
             "Starting installation of {} package(s)...",
