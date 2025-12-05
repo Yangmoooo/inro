@@ -56,6 +56,7 @@ struct Release {
     #[serde(default)]
     repo: String,
     tag_name: String,
+    html_url: String,
     prerelease: bool,
     draft: bool,
     created_at: DateTime<Utc>,
@@ -335,7 +336,8 @@ impl RemoteProvider for GitHubProvider {
             .map(|r| {
                 let date = r.published_at.unwrap_or(r.created_at);
                 VersionInfo {
-                    tag_name: r.tag_name.clone(),
+                    tag: r.tag_name.clone(),
+                    url: r.html_url.clone(),
                     published_at: date,
                     prerelease: r.prerelease,
                 }

@@ -57,7 +57,8 @@ pub struct InstallCandidate {
 
 #[derive(Debug, Clone)]
 pub struct VersionInfo {
-    pub tag_name: String,
+    pub tag: String,
+    pub url: String,
     pub published_at: DateTime<Utc>,
     pub prerelease: bool,
 }
