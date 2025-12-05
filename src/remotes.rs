@@ -4,6 +4,7 @@ use std::collections::HashMap;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
+use chrono::{DateTime, Utc};
 
 use crate::dan::DanDef;
 
@@ -54,9 +55,16 @@ pub struct InstallCandidate {
     pub download_url: String,
 }
 
+#[derive(Debug, Clone)]
+pub struct VersionInfo {
+    pub tag_name: String,
+    pub published_at: DateTime<Utc>,
+    pub prerelease: bool,
+}
+
 pub trait RemoteProvider {
     fn find_candidates(&self, dan: &DanDef) -> Result<Vec<InstallCandidate>>;
-    fn list_versions(&self, dan: &DanDef) -> Result<Vec<String>>;
+    fn list_versions(&self, dan: &DanDef) -> Result<Vec<VersionInfo>>;
 }
 
 pub fn create_provider(remote: &RemoteType) -> Result<Box<dyn RemoteProvider>> {

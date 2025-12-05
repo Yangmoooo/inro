@@ -1,12 +1,14 @@
 use std::collections::HashMap;
 use std::env;
 
+use chrono::{DateTime, Utc};
 use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use super::{InstallCandidate, RemoteProvider, RemoteType};
 use crate::dan::DanDef;
 use crate::platform::PlatformInfo;
+use crate::remotes::VersionInfo;
 use crate::report;
 use crate::utils::{is_ignored_format, is_supported_format};
 
@@ -56,6 +58,8 @@ struct Release {
     tag_name: String,
     prerelease: bool,
     draft: bool,
+    created_at: DateTime<Utc>,
+    published_at: Option<DateTime<Utc>>,
     assets: Vec<Asset>,
 }
 
@@ -67,8 +71,12 @@ struct Asset {
 }
 
 impl Release {
-    fn is_available(&self) -> bool {
+    fn is_suitable(&self) -> bool {
         !self.draft && !self.prerelease && !self.assets.is_empty()
+    }
+
+    fn is_available(&self) -> bool {
+        !self.draft && !self.assets.is_empty()
     }
 
     fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
@@ -177,13 +185,13 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 struct Releases(Vec<Release>);
 
 impl Releases {
-    fn list_available(&self) -> Vec<&Release> {
-        self.0.iter().filter(|r| r.is_available()).collect()
+    fn list_suitable(&self) -> Vec<&Release> {
+        self.0.iter().filter(|r| r.is_suitable()).collect()
     }
 
-    fn first_available(&self) -> Result<&Release> {
-        let available = self.list_available();
-        available.first().copied().ok_or_else(|| {
+    fn first_suitable(&self) -> Result<&Release> {
+        let suitable = self.list_suitable();
+        suitable.first().copied().ok_or_else(|| {
             let repo = self
                 .0
                 .first()
@@ -299,14 +307,14 @@ impl RemoteProvider for GitHubProvider {
         };
 
         let releases = self.fetch_releases(repo)?;
-        let available_release = releases.first_available()?;
+        let suitable_release = releases.first_suitable()?;
         let RemoteType::GitHub(asset_def) = &dan.remote;
-        let assets = available_release.find_assets(&asset_def.asset)?;
+        let assets = suitable_release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
             .map(|asset| InstallCandidate {
-                version: available_release.tag_name.clone(),
+                version: suitable_release.tag_name.clone(),
                 asset_name: asset.name.clone(),
                 download_url: asset.browser_download_url.clone(),
             })
@@ -314,19 +322,24 @@ impl RemoteProvider for GitHubProvider {
         Ok(candidates)
     }
 
-    fn list_versions(&self, dan: &DanDef) -> super::Result<Vec<String>> {
+    fn list_versions(&self, dan: &DanDef) -> super::Result<Vec<VersionInfo>> {
         let repo = match &dan.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
-        // get available releases
         let releases = self.fetch_releases(repo)?;
-
-        // get tag_names
         let versions = releases
-            .list_available()
+            .0
             .iter()
-            .map(|r| r.tag_name.clone())
+            .filter(|r| r.is_available())
+            .map(|r| {
+                let date = r.published_at.unwrap_or(r.created_at);
+                VersionInfo {
+                    tag_name: r.tag_name.clone(),
+                    published_at: date,
+                    prerelease: r.prerelease,
+                }
+            })
             .take(10)
             .collect();
 
