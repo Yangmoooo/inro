@@ -342,7 +342,6 @@ impl RemoteProvider for GitHubProvider {
                     prerelease: r.prerelease,
                 }
             })
-            .take(10)
             .collect();
 
         Ok(versions)
