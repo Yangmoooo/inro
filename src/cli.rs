@@ -49,6 +49,12 @@ pub enum Command {
         query: String,
     },
 
+    #[command(about = "Get info about a package")]
+    Info {
+        /// Package name to get info
+        name: String,
+    },
+
     #[command(alias = "upgrade")]
     #[command(about = "Update packages")]
     Update {

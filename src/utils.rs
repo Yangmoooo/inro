@@ -3,6 +3,9 @@ use std::io::{self, BufReader, Read, copy};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
+use chrono::{DateTime, Local, Utc};
+use chrono_humanize::HumanTime;
+use supports_hyperlinks::supports_hyperlinks;
 
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
@@ -242,4 +245,21 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 
 pub fn sanitize_version(raw_version: &str) -> String {
     raw_version.replace(['/', '\\', ':'], "-")
+}
+
+pub fn format_date(dt: &DateTime<Utc>) -> String {
+    let local_dt: DateTime<Local> = DateTime::from(*dt);
+    let abs_time = local_dt.format("%Y-%m-%d").to_string();
+    let rel_time = HumanTime::from(*dt).to_string();
+
+    // "202x-xx-xx (x days ago)"
+    format!("{abs_time}, {rel_time}")
+}
+
+pub fn terminal_link(text: &str, url: &str) -> String {
+    if supports_hyperlinks() {
+        format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, text)
+    } else {
+        text.to_string()
+    }
 }

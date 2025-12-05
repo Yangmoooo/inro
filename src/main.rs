@@ -32,6 +32,7 @@ fn main() -> anyhow::Result<()> {
             Command::List => Box::new(ListCommand { layout }),
             Command::Source { command } => Box::new(SourceCommand { command, layout }),
             Command::Search { query } => Box::new(SearchCommand { query, layout }),
+            Command::Info { name } => Box::new(InfoCommand { name, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };
