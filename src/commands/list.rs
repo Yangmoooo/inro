@@ -46,7 +46,7 @@ impl CommandHandler for ListCommand {
                         (v.clone(), String::new())
                     }
                 }
-                None => ("(none)".dimmed().to_string(), String::new()),
+                None => ("(none)".to_string(), String::new()),
             };
 
             // get source info, actually remote display from current version receipt
@@ -54,6 +54,7 @@ impl CommandHandler for ListCommand {
                 .current_version
                 .as_ref()
                 .and_then(|v| state.versions.get(v))
+                .or_else(|| state.versions.values().next())
                 .map(|r| r.remote.to_string())
                 .unwrap_or_default();
 
