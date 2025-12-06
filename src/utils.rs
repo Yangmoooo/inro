@@ -6,6 +6,7 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
 use chrono_humanize::HumanTime;
 use supports_hyperlinks::supports_hyperlinks;
+use walkdir::WalkDir;
 
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
@@ -239,6 +240,57 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
     let target_path = root_dir.join(target_name);
     fs::rename(&entry_path, &target_path)
         .with_context(|| format!("Failed to move {entry_path:?} to {target_path:?}"))?;
+
+    Ok(())
+}
+
+pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
+    let walker = WalkDir::new(root).into_iter();
+
+    for entry in walker.filter_map(|e| e.ok()) {
+        let path = entry.path();
+        if path.is_file()
+            && let Some(fname) = path.file_name().and_then(|s| s.to_str())
+            && fname.to_lowercase() == bin_name.to_lowercase()
+        {
+            return Some(path.to_path_buf());
+        }
+    }
+    None
+}
+
+pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
+    if link.exists() || link.is_symlink() {
+        if link.is_dir() {
+            fs::remove_dir_all(link)?;
+        } else {
+            fs::remove_file(link)?;
+        }
+    }
+
+    #[cfg(unix)]
+    {
+        std::os::unix::fs::symlink(original, link)?;
+    }
+
+    #[cfg(windows)]
+    {
+        match std::os::windows::fs::symlink_file(original, link) {
+            Ok(_) => {}
+            Err(e) => {
+                // error code 1314: a required privilege is not held by the client
+                if let Some(os_err) = e.raw_os_error()
+                    && os_err == 1314
+                {
+                    return Err(std::io::Error::new(
+                            std::io::ErrorKind::PermissionDenied,
+                            "Creating symlinks on Windows requires Developer Mode or running as Administrator."
+                        ).into());
+                }
+                return Err(e.into());
+            }
+        }
+    }
 
     Ok(())
 }

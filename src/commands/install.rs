@@ -1,11 +1,9 @@
 use std::fs;
-use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 use chrono::Utc;
 use colored::Colorize;
 use tempfile::TempDir;
-use walkdir::WalkDir;
 
 use super::CommandHandler;
 use crate::config::Config;
@@ -273,55 +271,4 @@ fn do_install(
         install_dir: dan_install_dir,
         binaries: installed_bins_info,
     })
-}
-
-fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
-    let walker = WalkDir::new(root).into_iter();
-
-    for entry in walker.filter_map(|e| e.ok()) {
-        let path = entry.path();
-        if path.is_file()
-            && let Some(fname) = path.file_name().and_then(|s| s.to_str())
-            && fname.to_lowercase() == bin_name.to_lowercase()
-        {
-            return Some(path.to_path_buf());
-        }
-    }
-    None
-}
-
-fn create_symlink(original: &Path, link: &Path) -> Result<(), DanError> {
-    if link.exists() || link.is_symlink() {
-        if link.is_dir() {
-            fs::remove_dir_all(link)?;
-        } else {
-            fs::remove_file(link)?;
-        }
-    }
-
-    #[cfg(unix)]
-    {
-        std::os::unix::fs::symlink(original, link)?;
-    }
-
-    #[cfg(windows)]
-    {
-        match std::os::windows::fs::symlink_file(original, link) {
-            Ok(_) => {}
-            Err(e) => {
-                // error code 1314: a required privilege is not held by the client
-                if let Some(os_err) = e.raw_os_error()
-                    && os_err == 1314
-                {
-                    return Err(std::io::Error::new(
-                            std::io::ErrorKind::PermissionDenied,
-                            "Creating symlinks on Windows requires Developer Mode or running as Administrator."
-                        ).into());
-                }
-                return Err(e.into());
-            }
-        }
-    }
-
-    Ok(())
 }
