@@ -33,6 +33,11 @@ fn main() -> anyhow::Result<()> {
             Command::Source { command } => Box::new(SourceCommand { command, layout }),
             Command::Search { query } => Box::new(SearchCommand { query, layout }),
             Command::Info { name } => Box::new(InfoCommand { name, layout }),
+            Command::Use { name, version } => Box::new(UseCommand {
+                name,
+                version,
+                layout,
+            }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

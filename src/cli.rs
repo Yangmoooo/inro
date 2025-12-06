@@ -55,6 +55,14 @@ pub enum Command {
         name: String,
     },
 
+    #[command(about = "Use a specific version of a package")]
+    Use {
+        /// Package name to use
+        name: String,
+        /// Version to use
+        version: String,
+    },
+
     #[command(alias = "upgrade")]
     #[command(about = "Update packages")]
     Update {

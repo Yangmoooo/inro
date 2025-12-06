@@ -1,12 +1,13 @@
 use std::collections::HashMap;
-use std::fs::File;
-use std::path::PathBuf;
+use std::fs::{self, File};
+use std::path::{Path, PathBuf};
 
-use anyhow::Context;
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
 use crate::remotes::RemoteType;
+use crate::utils::create_symlink;
 
 #[derive(Clone, Debug, Deserialize)]
 pub struct DanDef {
@@ -119,11 +120,36 @@ pub struct DanReceipt {
 }
 
 impl DanReceipt {
-    pub fn save_to_install_dir(&self) -> anyhow::Result<()> {
+    pub fn save_to_install_dir(&self) -> Result<()> {
         let receipt_path = self.install_dir.join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path)
             .with_context(|| format!("Failed to create receipt backup: {:?}", receipt_path))?;
         serde_json::to_writer_pretty(receipt_file, self)?;
+        Ok(())
+    }
+
+    pub fn relink(&mut self, target_dir: &Path) -> Result<()> {
+        if !target_dir.exists() {
+            let _ = fs::create_dir_all(target_dir)
+                .with_context(|| "Failed to create bin dir: {target_dir:?}");
+        }
+
+        for bin in &mut self.binaries {
+            // clean up
+            // if the old entry is still at there and its parent dir is not the target_dir
+            // thats say the config bin_dir is changed, remove the old link
+            if let Some(parent) = bin.link_path.parent()
+                && parent != target_dir
+                && bin.link_path.exists()
+            {
+                let _ = fs::remove_file(&bin.link_path);
+            }
+
+            // create new and update
+            let target = target_dir.join(&bin.name);
+            create_symlink(&bin.bin_path, &target)?;
+            bin.link_path = target;
+        }
         Ok(())
     }
 }
