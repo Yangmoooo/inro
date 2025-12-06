@@ -38,6 +38,7 @@ fn main() -> anyhow::Result<()> {
                 version,
                 layout,
             }),
+            Command::Unlink { name } => Box::new(UnlinkCommand { name, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

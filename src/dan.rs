@@ -131,7 +131,7 @@ impl DanReceipt {
     pub fn relink(&mut self, target_dir: &Path) -> Result<()> {
         if !target_dir.exists() {
             let _ = fs::create_dir_all(target_dir)
-                .with_context(|| "Failed to create bin dir: {target_dir:?}");
+                .with_context(|| format!("Failed to create bin dir: {target_dir:?}"));
         }
 
         for bin in &mut self.binaries {
@@ -149,6 +149,16 @@ impl DanReceipt {
             let target = target_dir.join(&bin.name);
             create_symlink(&bin.bin_path, &target)?;
             bin.link_path = target;
+        }
+        Ok(())
+    }
+
+    pub fn unlink(&self) -> Result<()> {
+        for bin in &self.binaries {
+            if bin.link_path.exists() || bin.link_path.is_symlink() {
+                let _ = fs::remove_file(&bin.link_path)
+                    .with_context(|| format!("Failed to remove link: {:?}", bin.link_path));
+            }
         }
         Ok(())
     }

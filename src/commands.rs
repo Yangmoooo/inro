@@ -4,6 +4,7 @@ pub mod list;
 pub mod search;
 pub mod source;
 pub mod uninstall;
+pub mod unlink;
 pub mod usecmd;
 
 use anyhow::Result;
@@ -14,6 +15,7 @@ pub use list::ListCommand;
 pub use search::SearchCommand;
 pub use source::SourceCommand;
 pub use uninstall::UninstallCommand;
+pub use unlink::UnlinkCommand;
 pub use usecmd::UseCommand;
 
 pub trait CommandHandler {

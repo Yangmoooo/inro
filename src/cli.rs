@@ -63,6 +63,11 @@ pub enum Command {
         version: String,
     },
 
+    #[command(about = "Unlink a package")]
+    Unlink {
+        name: String,
+    },
+
     #[command(alias = "upgrade")]
     #[command(about = "Update packages")]
     Update {

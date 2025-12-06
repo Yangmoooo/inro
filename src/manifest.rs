@@ -79,6 +79,12 @@ impl Manifest {
         receipt
     }
 
+    pub fn unlink_dan(&mut self, name: &str) -> Option<DanReceipt> {
+        let state = self.dans.get_mut(name)?;
+        let current_ver = state.current_version.take()?;
+        state.versions.get(&current_ver).cloned()
+    }
+
     /// remove a package, all versions
     #[allow(dead_code)]
     pub fn remove_dan(&mut self, name: &str) -> Option<Vec<DanReceipt>> {
