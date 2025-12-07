@@ -63,7 +63,7 @@ impl CommandHandler for UseCommand {
                 "Available versions: {}",
                 available
                     .into_iter()
-                    .map(|s| s.as_str())
+                    .map(std::string::String::as_str)
                     .collect::<Vec<_>>()
                     .join(", ")
             );

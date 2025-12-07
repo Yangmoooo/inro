@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, copy};
 use std::path::{Path, PathBuf};
+use std::result;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
@@ -17,7 +18,7 @@ pub fn unique(strs: &[String]) -> Vec<String> {
 
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     let response = reqwest::blocking::get(url)
-        .with_context(|| format!("Failed to download from URL: {}", url))?;
+        .with_context(|| format!("Failed to download from URL: {url}"))?;
 
     let file_name = Path::new(url)
         .file_name()
@@ -71,7 +72,7 @@ pub fn is_supported_format(name: &str) -> bool {
     if ALLOW_EXTENSIONS.iter().any(|ext| name.ends_with(ext)) {
         return true;
     }
-    if !name.contains(".") {
+    if !name.contains('.') {
         return true;
     }
     false // a elf like xxx-v0.1.0-linux-x86_64 need to be specified in registry
@@ -194,7 +195,7 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
 }
 
 pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(|e| e.ok()).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -207,7 +208,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(|e| e.ok()).collect();
+    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(result::Result::ok).collect();
 
     for sub_entry in sub_entries {
         let sub_path = sub_entry.path();
@@ -215,7 +216,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
         let target_path = root_dir.join(file_name);
 
         fs::rename(&sub_path, &target_path)
-            .with_context(|| format!("Failed to move {sub_path:?} to {target_path:?}"))?;
+            .with_context(|| format!("Failed to move {} to {}", sub_path.display(), target_path.display()))?;
     }
 
     fs::remove_dir(&entry_path)?;
@@ -224,7 +225,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
 }
 
 pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(|e| e.ok()).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -239,7 +240,7 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 
     let target_path = root_dir.join(target_name);
     fs::rename(&entry_path, &target_path)
-        .with_context(|| format!("Failed to move {entry_path:?} to {target_path:?}"))?;
+        .with_context(|| format!("Failed to move {} to {}", entry_path.display(), target_path.display()))?;
 
     Ok(())
 }
@@ -247,7 +248,7 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
 
-    for entry in walker.filter_map(|e| e.ok()) {
+    for entry in walker.filter_map(result::Result::ok) {
         let path = entry.path();
         if path.is_file()
             && let Some(fname) = path.file_name().and_then(|s| s.to_str())
@@ -276,7 +277,7 @@ pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
     #[cfg(windows)]
     {
         match std::os::windows::fs::symlink_file(original, link) {
-            Ok(_) => {}
+            Ok(()) => {}
             Err(e) => {
                 // error code 1314: a required privilege is not held by the client
                 if let Some(os_err) = e.raw_os_error()
@@ -310,7 +311,7 @@ pub fn format_date(dt: &DateTime<Utc>) -> String {
 
 pub fn terminal_link(text: &str, url: &str) -> String {
     if supports_hyperlinks() {
-        format!("\x1b]8;;{}\x1b\\{}\x1b]8;;\x1b\\", url, text)
+        format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
     } else {
         text.to_string()
     }

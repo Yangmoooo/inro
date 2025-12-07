@@ -62,7 +62,7 @@ impl CommandHandler for ListCommand {
             max_ver_len = max(max_ver_len, ver_display.len());
 
             results.push(ListResult {
-                name: name.to_string(),
+                name: name.clone(),
                 ver_display,
                 remote_str,
                 extra_ver,

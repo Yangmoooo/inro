@@ -67,14 +67,14 @@ impl CommandHandler for InfoCommand {
                     .map(|ver| {
                         let is_current = state.current_version.as_ref() == Some(ver);
                         if is_current {
-                            format!("{}*", ver).green().bold().to_string()
+                            format!("{ver}*").green().bold().to_string()
                         } else {
-                            ver.to_string()
+                            (*ver).clone()
                         }
                     })
                     .collect::<Vec<_>>()
                     .join(", ");
-                println!("  {}", versions_str);
+                println!("  {versions_str}");
             }
         } else {
             println!("{}", "Not Installed".dimmed());

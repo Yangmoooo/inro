@@ -39,9 +39,8 @@ impl CommandHandler for InstallCommand {
                 "Registry is empty. Run 'inro source update' to fetch packages"
             );
             return Ok(());
-        } else {
-            report!(MsgType::Detail, "Loaded inro registry");
         }
+        report!(MsgType::Detail, "Loaded inro registry");
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -241,7 +240,7 @@ fn do_install(
 
     let mut installed_bins_info = Vec::new();
 
-    for bin_info in dan.bin.iter() {
+    for bin_info in &dan.bin {
         // 7.1. find the binary in the install dir
         let src_path = find_binary_in_dir(&dan_install_dir, &bin_info.name)
             .ok_or_else(|| DanError::BinaryNotFoundInArchive(bin_info.name.clone()))?;

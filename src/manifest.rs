@@ -37,10 +37,10 @@ impl Manifest {
             return Ok(Self::default());
         }
         let file =
-            File::open(path).with_context(|| format!("Failed to open manifest file: {path:?}"))?;
+            File::open(path).with_context(|| format!("Failed to open manifest file: {}", path.display()))?;
         let reader = BufReader::new(file);
         let manifest = serde_json::from_reader(reader)
-            .with_context(|| format!("Failed to parse manifest JSON: {path:?}"))?;
+            .with_context(|| format!("Failed to parse manifest JSON: {}", path.display()))?;
         Ok(manifest)
     }
 
@@ -52,7 +52,7 @@ impl Manifest {
         let file = File::create(&temp_path)?;
         serde_json::to_writer_pretty(file, self)?;
         fs::rename(&temp_path, path)
-            .with_context(|| format!("Failed to save manifest to {path:?}"))?;
+            .with_context(|| format!("Failed to save manifest to {}", path.display()))?;
         Ok(())
     }
 

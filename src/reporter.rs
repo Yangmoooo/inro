@@ -46,26 +46,26 @@ pub enum MsgType {
 pub fn report_impl(msg_type: MsgType, msg_content: &str) {
     match msg_type {
         MsgType::Info => print_raw(msg_content),
-        MsgType::Success => print_with_prefix("✔".green(), msg_content),
-        MsgType::Error => print_with_prefix("✖".red(), msg_content),
-        MsgType::Warning => print_with_prefix("⚠".yellow(), msg_content),
-        MsgType::Step => print_with_prefix("==>".bold().cyan(), msg_content),
-        MsgType::Detail => print_with_prefix("  ->".normal(), msg_content),
+        MsgType::Success => print_with_prefix(&"✔".green(), msg_content),
+        MsgType::Error => print_with_prefix(&"✖".red(), msg_content),
+        MsgType::Warning => print_with_prefix(&"⚠".yellow(), msg_content),
+        MsgType::Step => print_with_prefix(&"==>".bold().cyan(), msg_content),
+        MsgType::Detail => print_with_prefix(&"  ->".normal(), msg_content),
     }
 }
 
 fn print_raw(message: &str) {
-    writeln!(io::stderr(), "{}", message).ok();
+    writeln!(io::stderr(), "{message}").ok();
 }
 
 // Make report! can start with '\n'
-fn print_with_prefix(prefix: ColoredString, message: &str) {
+fn print_with_prefix(prefix: &ColoredString, message: &str) {
     let mut stderr = io::stderr();
 
     if let Some(stripped_message) = message.strip_prefix('\n') {
         writeln!(stderr).ok();
-        writeln!(stderr, "{} {}", prefix, stripped_message).ok();
+        writeln!(stderr, "{prefix} {stripped_message}").ok();
     } else {
-        writeln!(stderr, "{} {}", prefix, message).ok();
+        writeln!(stderr, "{prefix} {message}").ok();
     }
 }

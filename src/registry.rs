@@ -6,7 +6,7 @@ use figment::Figment;
 use figment::providers::{Format, Toml};
 use serde::Deserialize;
 
-use crate::dan::*;
+use crate::dan::DanDef;
 use crate::layout::InroLayout;
 
 #[derive(Debug, Default, Deserialize)]

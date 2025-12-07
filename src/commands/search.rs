@@ -50,7 +50,7 @@ impl CommandHandler for SearchCommand {
                 let link_name = &bin.link;
                 if link_name.to_lowercase().contains(&query) {
                     bin_match = true;
-                    bin_parts.push(link_name.to_string());
+                    bin_parts.push(link_name.clone());
                 } else {
                     bin_parts.push(link_name.dimmed().to_string());
                 }
@@ -60,8 +60,7 @@ impl CommandHandler for SearchCommand {
                 let is_installed = manifest
                     .as_ref()
                     .and_then(|m| m.dans.get(name))
-                    .map(|state| state.current_version.is_some())
-                    .unwrap_or(false);
+                    .is_some_and(|state| state.current_version.is_some());
                 let remote_str = resolved.remote.to_string();
 
                 max_name_len = max(max_name_len, name.len());
