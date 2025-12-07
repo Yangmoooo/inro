@@ -195,7 +195,8 @@ impl Releases {
         suitable.first().copied().ok_or_else(|| {
             let repo = self
                 .0
-                .first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
+                .first()
+                .map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
             Error::NoAvailableRelease(repo)
         })
     }
@@ -205,7 +206,8 @@ impl Releases {
         self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
             let repo = self
                 .0
-                .first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
+                .first()
+                .map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
             Error::NoReleaseFound {
                 repo,
                 tag: tag.to_string(),

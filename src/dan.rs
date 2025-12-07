@@ -122,8 +122,12 @@ pub struct DanReceipt {
 impl DanReceipt {
     pub fn save_to_install_dir(&self) -> Result<()> {
         let receipt_path = self.install_dir.join("inro-receipt.json");
-        let receipt_file = File::create(&receipt_path)
-            .with_context(|| format!("Failed to create receipt backup: {}", receipt_path.display()))?;
+        let receipt_file = File::create(&receipt_path).with_context(|| {
+            format!(
+                "Failed to create receipt backup: {}",
+                receipt_path.display()
+            )
+        })?;
         serde_json::to_writer_pretty(receipt_file, self)?;
         Ok(())
     }
@@ -156,8 +160,9 @@ impl DanReceipt {
     pub fn unlink(&self) -> Result<()> {
         for bin in &self.binaries {
             if bin.link_path.exists() || bin.link_path.is_symlink() {
-                fs::remove_file(&bin.link_path)
-                    .with_context(|| format!("Failed to remove link: {}", bin.link_path.display()))?;
+                fs::remove_file(&bin.link_path).with_context(|| {
+                    format!("Failed to remove link: {}", bin.link_path.display())
+                })?;
             }
         }
         Ok(())

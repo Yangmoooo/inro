@@ -195,7 +195,9 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
 }
 
 pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?
+        .filter_map(result::Result::ok)
+        .collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -208,15 +210,22 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(result::Result::ok).collect();
+    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?
+        .filter_map(result::Result::ok)
+        .collect();
 
     for sub_entry in sub_entries {
         let sub_path = sub_entry.path();
         let file_name = sub_entry.file_name();
         let target_path = root_dir.join(file_name);
 
-        fs::rename(&sub_path, &target_path)
-            .with_context(|| format!("Failed to move {} to {}", sub_path.display(), target_path.display()))?;
+        fs::rename(&sub_path, &target_path).with_context(|| {
+            format!(
+                "Failed to move {} to {}",
+                sub_path.display(),
+                target_path.display()
+            )
+        })?;
     }
 
     fs::remove_dir(&entry_path)?;
@@ -225,7 +234,9 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
 }
 
 pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?
+        .filter_map(result::Result::ok)
+        .collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -239,8 +250,13 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
     }
 
     let target_path = root_dir.join(target_name);
-    fs::rename(&entry_path, &target_path)
-        .with_context(|| format!("Failed to move {} to {}", entry_path.display(), target_path.display()))?;
+    fs::rename(&entry_path, &target_path).with_context(|| {
+        format!(
+            "Failed to move {} to {}",
+            entry_path.display(),
+            target_path.display()
+        )
+    })?;
 
     Ok(())
 }

@@ -3,8 +3,8 @@ pub mod github;
 use std::collections::HashMap;
 use std::fmt;
 
-use serde::{Deserialize, Serialize};
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 
 use crate::dan::DanDef;
 

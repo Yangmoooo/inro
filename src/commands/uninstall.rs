@@ -131,7 +131,9 @@ impl CommandHandler for UninstallCommand {
 
 fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallReceipt>> {
     // check if installed
-    let Some(state) = manifest.dans.get(name) else { return Ok(None) };
+    let Some(state) = manifest.dans.get(name) else {
+        return Ok(None);
+    };
 
     // determine version
     let version = match &state.current_version {
@@ -164,16 +166,21 @@ fn cleanup_files(receipt: &DanReceipt) -> Result<()> {
     // remove symbolic link
     for bin in &receipt.binaries {
         if bin.link_path.exists() || bin.link_path.is_symlink() {
-            fs::remove_file(&bin.link_path)
-                .with_context(|| format!("Failed to remove symlink: {}", bin.link_path.display()))?;
+            fs::remove_file(&bin.link_path).with_context(|| {
+                format!("Failed to remove symlink: {}", bin.link_path.display())
+            })?;
             report!(MsgType::Detail, "Removed link: {}", bin.link_path.display());
         }
     }
 
     // remove data install dir
     if receipt.install_dir.exists() {
-        fs::remove_dir_all(&receipt.install_dir)
-            .with_context(|| format!("Failed to remove data dir: {}", receipt.install_dir.display()))?;
+        fs::remove_dir_all(&receipt.install_dir).with_context(|| {
+            format!(
+                "Failed to remove data dir: {}",
+                receipt.install_dir.display()
+            )
+        })?;
         report!(
             MsgType::Detail,
             "Removed data: {}",

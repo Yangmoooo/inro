@@ -65,6 +65,7 @@ pub enum Command {
 
     #[command(about = "Unlink a package")]
     Unlink {
+        /// Package name to unlink
         name: String,
     },
 

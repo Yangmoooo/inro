@@ -36,8 +36,8 @@ impl Manifest {
         if !path.exists() {
             return Ok(Self::default());
         }
-        let file =
-            File::open(path).with_context(|| format!("Failed to open manifest file: {}", path.display()))?;
+        let file = File::open(path)
+            .with_context(|| format!("Failed to open manifest file: {}", path.display()))?;
         let reader = BufReader::new(file);
         let manifest = serde_json::from_reader(reader)
             .with_context(|| format!("Failed to parse manifest JSON: {}", path.display()))?;
