@@ -54,9 +54,7 @@ pub fn report_impl(msg_type: MsgType, msg_content: &str) {
     }
 }
 
-fn print_raw(message: &str) {
-    writeln!(io::stderr(), "{message}").ok();
-}
+fn print_raw(message: &str) { writeln!(io::stderr(), "{message}").ok(); }
 
 // Make report! can start with '\n'
 fn print_with_prefix(prefix: &ColoredString, message: &str) {

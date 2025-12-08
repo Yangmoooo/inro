@@ -19,11 +19,7 @@ pub struct InstallCommand {
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
         let names = unique(&self.names);
-        report!(
-            MsgType::Info,
-            "Starting installation of {} package(s)...",
-            names.len()
-        );
+        report!(MsgType::Info, "Starting installation of {} package(s)...", names.len());
 
         // prepare
         let config = Config::load(&self.layout)?;
@@ -44,10 +40,7 @@ impl CommandHandler for InstallCommand {
 
         // install one by one
         for name in &names {
-            let dan_def = registry
-                .dans
-                .get(name)
-                .ok_or(DanError::NotFound(name.to_string()))?;
+            let dan_def = registry.dans.get(name).ok_or(DanError::NotFound(name.to_string()))?;
             let candidate = find_best_candidate(dan_def)?;
             let dan = dan_def.clone().resolve(name);
 
@@ -76,11 +69,7 @@ impl CommandHandler for InstallCommand {
         let has_failure = !failures.is_empty();
 
         if has_success {
-            report!(
-                MsgType::Success,
-                "Successfully installed {} package(s):",
-                successes.len()
-            );
+            report!(MsgType::Success, "Successfully installed {} package(s):", successes.len());
 
             let max_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
 
@@ -113,11 +102,7 @@ impl CommandHandler for InstallCommand {
                 eprintln!();
             }
 
-            report!(
-                MsgType::Error,
-                "Failed to install {} package(s):",
-                failures.len()
-            );
+            report!(MsgType::Error, "Failed to install {} package(s):", failures.len());
 
             let max_len = failures.iter().map(|t| t.0.len()).max().unwrap_or(0);
             for (name, err) in &failures {

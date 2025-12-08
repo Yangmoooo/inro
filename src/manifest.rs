@@ -4,7 +4,6 @@ use std::io::BufReader;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-
 use serde::{Deserialize, Serialize};
 
 use crate::dan::{DanReceipt, DanState};
@@ -18,17 +17,10 @@ pub struct Manifest {
     pub dans: HashMap<String, DanState>,
 }
 
-fn default_schema_version() -> u32 {
-    1
-}
+fn default_schema_version() -> u32 { 1 }
 
 impl Default for Manifest {
-    fn default() -> Self {
-        Self {
-            schema_version: default_schema_version(),
-            dans: HashMap::new(),
-        }
-    }
+    fn default() -> Self { Self { schema_version: default_schema_version(), dans: HashMap::new() } }
 }
 
 impl Manifest {

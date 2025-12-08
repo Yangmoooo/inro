@@ -15,12 +15,7 @@ impl CommandHandler for UnlinkCommand {
         let mut manifest = Manifest::load(&self.layout.manifest_path)?;
 
         if let Some(receipt) = manifest.unlink_dan(&self.name) {
-            report!(
-                MsgType::Step,
-                "Unlinking '{}' ({}) ...",
-                self.name,
-                receipt.version
-            );
+            report!(MsgType::Step, "Unlinking '{}' ({}) ...", self.name, receipt.version);
 
             if let Err(e) = receipt.unlink() {
                 report!(MsgType::Warning, "Failed to remove symlinks: {e}");
@@ -28,11 +23,7 @@ impl CommandHandler for UnlinkCommand {
 
             manifest.save(&self.layout.manifest_path)?;
 
-            report!(
-                MsgType::Success,
-                "Unlinked '{}'. Package remains installed",
-                self.name
-            );
+            report!(MsgType::Success, "Unlinked '{}'. Package remains installed", self.name);
         } else if let Some(state) = manifest.dans.get(&self.name) {
             if state.current_version.is_none() {
                 report!(

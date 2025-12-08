@@ -61,12 +61,7 @@ impl CommandHandler for ListCommand {
             max_name_len = max(max_name_len, name.len());
             max_ver_len = max(max_ver_len, ver_display.len());
 
-            results.push(ListEntry {
-                name: name.clone(),
-                ver_display,
-                remote_str,
-                extra_ver,
-            });
+            results.push(ListEntry { name: name.clone(), ver_display, remote_str, extra_ver });
         }
 
         // print header

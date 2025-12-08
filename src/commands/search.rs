@@ -76,11 +76,7 @@ impl CommandHandler for SearchCommand {
         }
 
         if results.is_empty() {
-            report!(
-                MsgType::Warning,
-                "No packages found matching '{}'",
-                self.query
-            );
+            report!(MsgType::Warning, "No packages found matching '{}'", self.query);
             return Ok(());
         }
 
@@ -94,18 +90,11 @@ impl CommandHandler for SearchCommand {
             "Source".bold(),
             "Binaries".bold(),
         );
-        println!(
-            "---  {:-<max_name_len$}  {:-<max_source_len$}  {:-<10}",
-            "", "", "",
-        );
+        println!("---  {:-<max_name_len$}  {:-<max_source_len$}  {:-<10}", "", "", "",);
 
         // print rows
         for res in results {
-            let status_icon = if res.is_installed {
-                "i".green().bold()
-            } else {
-                " ".normal()
-            };
+            let status_icon = if res.is_installed { "i".green().bold() } else { " ".normal() };
 
             println!(
                 "[{}]  {:<max_name_len$}  {:<max_source_len$}  {}",

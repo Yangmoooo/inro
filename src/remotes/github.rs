@@ -44,11 +44,7 @@ pub enum Error {
     #[error(
         "In release tag '{tag}' for repo '{repo}', no asset was found matching the keyword '{keyword}'"
     )]
-    NoMatchingAsset {
-        repo: String,
-        tag: String,
-        keyword: String,
-    },
+    NoMatchingAsset { repo: String, tag: String, keyword: String },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -72,13 +68,9 @@ struct Asset {
 }
 
 impl Release {
-    fn is_suitable(&self) -> bool {
-        !self.draft && !self.prerelease && !self.assets.is_empty()
-    }
+    fn is_suitable(&self) -> bool { !self.draft && !self.prerelease && !self.assets.is_empty() }
 
-    fn is_available(&self) -> bool {
-        !self.draft && !self.assets.is_empty()
-    }
+    fn is_available(&self) -> bool { !self.draft && !self.assets.is_empty() }
 
     fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
         let platform = PlatformInfo::current();
@@ -165,10 +157,7 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
             score += 0;
         }
 
-        if [".tar.gz", ".tgz", ".tar.xz", ".txz"]
-            .iter()
-            .any(|ext| name.ends_with(ext))
-        {
+        if [".tar.gz", ".tgz", ".tar.xz", ".txz"].iter().any(|ext| name.ends_with(ext)) {
             score += 2;
         }
     }
@@ -186,17 +175,12 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 struct Releases(Vec<Release>);
 
 impl Releases {
-    fn list_suitable(&self) -> Vec<&Release> {
-        self.0.iter().filter(|r| r.is_suitable()).collect()
-    }
+    fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
 
     fn first_suitable(&self) -> Result<&Release> {
         let suitable = self.list_suitable();
         suitable.first().copied().ok_or_else(|| {
-            let repo = self
-                .0
-                .first()
-                .map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
+            let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
             Error::NoAvailableRelease(repo)
         })
     }
@@ -204,22 +188,14 @@ impl Releases {
     #[allow(dead_code)]
     fn get_by_tag(&self, tag: &str) -> Result<&Release> {
         self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
-            let repo = self
-                .0
-                .first()
-                .map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
-            Error::NoReleaseFound {
-                repo,
-                tag: tag.to_string(),
-            }
+            let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
+            Error::NoReleaseFound { repo, tag: tag.to_string() }
         })
     }
 }
 
 impl From<Vec<Release>> for Releases {
-    fn from(releases: Vec<Release>) -> Self {
-        Self(releases)
-    }
+    fn from(releases: Vec<Release>) -> Self { Self(releases) }
 }
 
 impl FromIterator<Release> for Releases {
@@ -256,10 +232,7 @@ impl GitHubProvider {
             .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
 
         if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
-            report!(
-                MsgType::Detail,
-                "Using INRO_GITHUB_TOKEN for authentication"
-            );
+            report!(MsgType::Detail, "Using INRO_GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else if let Ok(token) = env::var("GITHUB_TOKEN") {
             report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication");
@@ -271,26 +244,17 @@ impl GitHubProvider {
             );
         }
 
-        report!(
-            MsgType::Detail,
-            "Fetching releases from GitHub repository '{repo}'..."
-        );
+        report!(MsgType::Detail, "Fetching releases from GitHub repository '{repo}'...");
 
-        let response = request_builder.send().map_err(|e| Error::RequestFailed {
-            repo: repo.to_string(),
-            source: e,
-        })?;
+        let response = request_builder
+            .send()
+            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
         let response = response
             .error_for_status()
-            .map_err(|e| Error::RequestFailed {
-                repo: repo.to_string(),
-                source: e,
-            })?;
+            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
 
-        let mut release_vec: Vec<Release> = response.json().map_err(|e| Error::JsonParse {
-            repo: repo.to_string(),
-            source: e,
-        })?;
+        let mut release_vec: Vec<Release> =
+            response.json().map_err(|e| Error::JsonParse { repo: repo.to_string(), source: e })?;
         for release in &mut release_vec {
             release.repo = repo.to_string();
         }

@@ -24,11 +24,7 @@ struct UninstallReceipt {
 impl CommandHandler for UninstallCommand {
     fn handle(&self) -> Result<()> {
         let names = unique(&self.names);
-        report!(
-            MsgType::Info,
-            "Starting uninstallation of {} package(s)...",
-            names.len()
-        );
+        report!(MsgType::Info, "Starting uninstallation of {} package(s)...", names.len());
 
         let manifest_path = &self.layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;
@@ -67,20 +63,12 @@ impl CommandHandler for UninstallCommand {
         let has_failure = !failures.is_empty();
 
         if has_success {
-            report!(
-                MsgType::Success,
-                "Successfully uninstalled {} package(s):",
-                successes.len()
-            );
+            report!(MsgType::Success, "Successfully uninstalled {} package(s):", successes.len());
 
             let max_name_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
 
             for receipt in &successes {
-                let status_note = if receipt.fully_removed {
-                    "(fully removed)"
-                } else {
-                    ""
-                };
+                let status_note = if receipt.fully_removed { "(fully removed)" } else { "" };
 
                 eprintln!(
                     "  {} {:<width$} {} {}",
@@ -98,11 +86,7 @@ impl CommandHandler for UninstallCommand {
                 eprintln!();
             }
 
-            report!(
-                MsgType::Error,
-                "Failed to uninstall {} package(s):",
-                failures.len()
-            );
+            report!(MsgType::Error, "Failed to uninstall {} package(s):", failures.len());
 
             let max_name_len = failures.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
             for (name, reason) in &failures {
@@ -152,11 +136,7 @@ fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallR
         cleanup_files(&receipt)?;
 
         let fully_removed = !manifest.dans.contains_key(name);
-        Ok(Some(UninstallReceipt {
-            name: name.to_string(),
-            version,
-            fully_removed,
-        }))
+        Ok(Some(UninstallReceipt { name: name.to_string(), version, fully_removed }))
     } else {
         anyhow::bail!("Version not found in manifest");
     }
@@ -176,16 +156,9 @@ fn cleanup_files(receipt: &DanReceipt) -> Result<()> {
     // remove data install dir
     if receipt.install_dir.exists() {
         fs::remove_dir_all(&receipt.install_dir).with_context(|| {
-            format!(
-                "Failed to remove data dir: {}",
-                receipt.install_dir.display()
-            )
+            format!("Failed to remove data dir: {}", receipt.install_dir.display())
         })?;
-        report!(
-            MsgType::Detail,
-            "Removed data: {}",
-            receipt.install_dir.display()
-        );
+        report!(MsgType::Detail, "Removed data: {}", receipt.install_dir.display());
     }
 
     // if package dir is empty, remove it

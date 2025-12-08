@@ -31,12 +31,7 @@ impl CommandHandler for InfoCommand {
         println!("{:<width$}{}", "Name:".bold(), self.name.green());
         println!("{:<width$}{}", "Source:".bold(), resolved.remote);
 
-        let bins_str = resolved
-            .bin
-            .iter()
-            .map(|b| b.link.as_str())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let bins_str = resolved.bin.iter().map(|b| b.link.as_str()).collect::<Vec<_>>().join(", ");
         println!("{:<width$}{}", "Binaries:".bold(), bins_str);
 
         print!("{:<width$}", "Status:".bold());
@@ -97,10 +92,7 @@ impl CommandHandler for InfoCommand {
                     println!("  - {clickable_tag}  {time_display}{pre_tag}");
                 }
                 if has_more {
-                    println!(
-                        "  {}",
-                        "... (and more, check the remote for details)".dimmed()
-                    );
+                    println!("  {}", "... (and more, check the remote for details)".dimmed());
                 }
             }
             Err(e) => report!(MsgType::Warning, "Failed to fetch remote versions: {e}"),

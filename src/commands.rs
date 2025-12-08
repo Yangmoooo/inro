@@ -8,8 +8,6 @@ pub mod unlink;
 pub mod update;
 pub mod usecmd;
 
-use anyhow::Result;
-
 pub use info::InfoCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;
@@ -21,5 +19,5 @@ pub use update::UpdateCommand;
 pub use usecmd::UseCommand;
 
 pub trait CommandHandler {
-    fn handle(&self) -> Result<()>;
+    fn handle(&self) -> anyhow::Result<()>;
 }

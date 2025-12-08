@@ -95,10 +95,7 @@ fn check_and_update(
 
     let current_ver = state.current_version.as_deref().unwrap_or_default();
 
-    let dan_def = registry
-        .dans
-        .get(name)
-        .ok_or(DanError::NotFound(name.to_string()))?;
+    let dan_def = registry.dans.get(name).ok_or(DanError::NotFound(name.to_string()))?;
 
     let candidate = find_best_candidate(dan_def)?;
 
@@ -107,11 +104,7 @@ fn check_and_update(
         return Ok(UpdateStatus::Skipped);
     }
 
-    report!(
-        MsgType::Step,
-        "Updating '{name}': {current_ver} -> {}",
-        candidate.version
-    );
+    report!(MsgType::Step, "Updating '{name}': {current_ver} -> {}", candidate.version);
 
     let dan = dan_def.clone().resolve(name);
     let receipt = install_candidate(name, &candidate, &dan, config, layout)?;
@@ -157,11 +150,7 @@ fn print_summary(results: &[UpdateStatus]) {
             eprintln!();
         }
 
-        report!(
-            MsgType::Error,
-            "Failed to update {} package(s):",
-            failed.len()
-        );
+        report!(MsgType::Error, "Failed to update {} package(s):", failed.len());
         let max_len = failed.iter().map(|t| t.0.len()).max().unwrap_or(0);
         for (name, err) in failed {
             eprintln!("  {} {:<max_len$} : {}", "•".red(), name.bold(), err);

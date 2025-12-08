@@ -96,9 +96,7 @@ impl Config {
         Ok(config)
     }
 
-    fn expand_paths(&mut self, home: &Path) {
-        self.bin_dir = expand_path(&self.bin_dir, home);
-    }
+    fn expand_paths(&mut self, home: &Path) { self.bin_dir = expand_path(&self.bin_dir, home); }
 }
 
 fn expand_path(path: &Path, home: &Path) -> PathBuf {

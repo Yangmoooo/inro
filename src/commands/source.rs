@@ -28,21 +28,15 @@ impl CommandHandler for SourceCommand {
                     return Ok(());
                 }
 
-                println!(
-                    "{:<4}  {:<10}  {:<10}  {:<50}",
-                    "Prio", "Name", "Status", "URL"
-                );
+                println!("{:<4}  {:<10}  {:<10}  {:<50}", "Prio", "Name", "Status", "URL");
                 println!("{:-<4}  {:-<10}  {:-<10}  {:-<50}", "", "", "", "");
 
                 for upstream in upstreams {
                     let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
                     let cached_path = upstream_registry_dir.join(&cached_name);
 
-                    let status_display = if cached_path.exists() {
-                        "Cached".green()
-                    } else {
-                        "Not cached".yellow()
-                    };
+                    let status_display =
+                        if cached_path.exists() { "Cached".green() } else { "Not cached".yellow() };
 
                     println!(
                         "{:<4}  {:<10}  {:<10}  {:<50}",
@@ -56,11 +50,7 @@ impl CommandHandler for SourceCommand {
                     return Ok(());
                 }
 
-                report!(
-                    MsgType::Info,
-                    "Updating {} upstream sources...",
-                    upstreams.len()
-                );
+                report!(MsgType::Info, "Updating {} upstream sources...", upstreams.len());
 
                 fs::create_dir_all(upstream_registry_dir)?;
 
@@ -84,12 +74,7 @@ impl CommandHandler for SourceCommand {
                             }
                         }
                         Err(e) => {
-                            report!(
-                                MsgType::Error,
-                                "Failed to update '{}': {}",
-                                upstream.name,
-                                e
-                            );
+                            report!(MsgType::Error, "Failed to update '{}': {}", upstream.name, e);
                         }
                     }
                 }

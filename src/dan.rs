@@ -41,7 +41,8 @@ pub struct ResolvedBin {
 }
 
 impl DanDef {
-    /// Resolves the configuration into a definitive set of installation parameters.
+    /// Resolves the configuration into a definitive set of installation
+    /// parameters.
     pub fn resolve(self, dan_name: &str) -> ResolvedDan {
         let normalize_name = |name: String| -> String {
             if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
@@ -54,10 +55,7 @@ impl DanDef {
         let bin = if self.bin.is_empty() {
             // binary default name is the dan name
             let name = normalize_name(dan_name.to_string());
-            vec![ResolvedBin {
-                name: name.clone(),
-                link: name,
-            }]
+            vec![ResolvedBin { name: name.clone(), link: name }]
         } else {
             // process each configured binary
             self.bin
@@ -72,11 +70,7 @@ impl DanDef {
                 .collect()
         };
 
-        ResolvedDan {
-            ver: self.ver,
-            remote: self.remote,
-            bin,
-        }
+        ResolvedDan { ver: self.ver, remote: self.remote, bin }
     }
 }
 
@@ -90,12 +84,7 @@ pub struct DanState {
 }
 
 impl DanState {
-    pub fn default() -> Self {
-        Self {
-            current_version: None,
-            versions: HashMap::new(),
-        }
-    }
+    pub fn default() -> Self { Self { current_version: None, versions: HashMap::new() } }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -123,10 +112,7 @@ impl DanReceipt {
     pub fn save_to_install_dir(&self) -> Result<()> {
         let receipt_path = self.install_dir.join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path).with_context(|| {
-            format!(
-                "Failed to create receipt backup: {}",
-                receipt_path.display()
-            )
+            format!("Failed to create receipt backup: {}", receipt_path.display())
         })?;
         serde_json::to_writer_pretty(receipt_file, self)?;
         Ok(())

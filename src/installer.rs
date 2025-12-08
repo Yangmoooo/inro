@@ -53,11 +53,7 @@ pub fn install_candidate(
         .map(|b| {
             let bin_path = find_binary_in_dir(&dan_install_dir, &b.name)
                 .ok_or_else(|| DanError::BinaryNotFoundInArchive(b.name.clone()))?;
-            Ok(InstalledBinary {
-                name: b.link.clone(),
-                bin_path,
-                link_path: PathBuf::new(),
-            })
+            Ok(InstalledBinary { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
         })
         .collect();
     let mut receipt = DanReceipt {
@@ -71,7 +67,6 @@ pub fn install_candidate(
     receipt.relink(&config.bin_dir)?;
 
     Ok(receipt)
-
 }
 
 fn prepare_install_dir(dir: &Path) -> Result<(), DanError> {
@@ -84,10 +79,7 @@ fn prepare_install_dir(dir: &Path) -> Result<(), DanError> {
 
 fn unpack_and_process(src_path: &Path, dst_dir: &Path, dan: &ResolvedDan) -> Result<(), DanError> {
     let ft = extract_file(src_path, dst_dir).map_err(|e| DanError::Extraction {
-        filename: src_path
-            .file_name()
-            .map(|s| s.to_string_lossy().to_string())
-            .unwrap_or_default(),
+        filename: src_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
         source: e,
     })?;
 
@@ -98,10 +90,7 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, dan: &ResolvedDan) -> Res
 
     // if there is only one directory, flatten it
     if let Err(e) = flatten_single_directory(dst_dir) {
-        report!(
-            MsgType::Warning,
-            "Failed to flatten directory structure: {e}"
-        );
+        report!(MsgType::Warning, "Failed to flatten directory structure: {e}");
     }
 
     report!(MsgType::Detail, "Installed to {}", dst_dir.display());

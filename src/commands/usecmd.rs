@@ -24,12 +24,7 @@ impl CommandHandler for UseCommand {
             .ok_or_else(|| anyhow!("Package '{}' is not installed", self.name))?;
 
         if let Some(receipt) = state.versions.get_mut(&self.version) {
-            report!(
-                MsgType::Step,
-                "Switching '{}' to version '{}'...",
-                self.name,
-                self.version
-            );
+            report!(MsgType::Step, "Switching '{}' to version '{}'...", self.name, self.version);
 
             if let Err(e) = receipt.relink(&config.bin_dir) {
                 report!(MsgType::Error, "Failed to update symlinks: {e}");
@@ -40,12 +35,7 @@ impl CommandHandler for UseCommand {
 
             manifest.save(&self.layout.manifest_path)?;
 
-            report!(
-                MsgType::Success,
-                "Now using {}@{}",
-                self.name.green(),
-                self.version.green()
-            );
+            report!(MsgType::Success, "Now using {}@{}", self.name.green(), self.version.green());
         } else {
             report!(
                 MsgType::Error,
