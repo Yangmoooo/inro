@@ -9,6 +9,8 @@ use chrono_humanize::HumanTime;
 use supports_hyperlinks::supports_hyperlinks;
 use walkdir::WalkDir;
 
+use crate::report;
+
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
     vec.sort_unstable();
@@ -17,6 +19,8 @@ pub fn unique(strs: &[String]) -> Vec<String> {
 }
 
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
+    report!(MsgType::Detail, "Downloading from {url}...",);
+
     let response = reqwest::blocking::get(url)
         .with_context(|| format!("Failed to download from URL: {url}"))?;
 
