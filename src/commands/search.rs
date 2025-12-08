@@ -14,7 +14,7 @@ pub struct SearchCommand {
     pub layout: InroLayout,
 }
 
-struct SearchResult {
+struct SearchEntry {
     name: String,
     remote_str: String,
     bins_display: String,
@@ -66,7 +66,7 @@ impl CommandHandler for SearchCommand {
                 max_name_len = max(max_name_len, name.len());
                 max_source_len = max(max_source_len, remote_str.len());
 
-                results.push(SearchResult {
+                results.push(SearchEntry {
                     name: name.clone(),
                     remote_str,
                     bins_display: bin_parts.join(", "),

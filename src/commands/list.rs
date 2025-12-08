@@ -12,7 +12,7 @@ pub struct ListCommand {
     pub layout: InroLayout,
 }
 
-struct ListResult {
+struct ListEntry {
     name: String,
     ver_display: String,
     remote_str: String,
@@ -61,7 +61,7 @@ impl CommandHandler for ListCommand {
             max_name_len = max(max_name_len, name.len());
             max_ver_len = max(max_ver_len, ver_display.len());
 
-            results.push(ListResult {
+            results.push(ListEntry {
                 name: name.clone(),
                 ver_display,
                 remote_str,
