@@ -2,6 +2,7 @@ mod cli;
 mod commands;
 mod config;
 mod dan;
+mod installer;
 mod layout;
 mod manifest;
 mod platform;
@@ -14,7 +15,6 @@ use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
 use clap::{CommandFactory, Parser};
-
 use cli::{Cli, Command};
 use commands::*;
 
@@ -30,6 +30,7 @@ fn main() -> anyhow::Result<()> {
             Command::Install { names } => Box::new(InstallCommand { names, layout }),
             Command::Uninstall { names } => Box::new(UninstallCommand { names, layout }),
             Command::List => Box::new(ListCommand { layout }),
+            Command::Update { names } => Box::new(UpdateCommand { names, layout }),
             Command::Source { command } => Box::new(SourceCommand { command, layout }),
             Command::Search { query } => Box::new(SearchCommand { query, layout }),
             Command::Info { name } => Box::new(InfoCommand { name, layout }),
