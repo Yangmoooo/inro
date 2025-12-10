@@ -24,3 +24,8 @@ walkdir = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-humanize = "0.2"
 supports-hyperlinks = "3.1"
+
+[profile.release]
+lto = true
+panic = "abort"
+codegen-units = 1
