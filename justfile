@@ -30,7 +30,7 @@ clean:
     cargo clean
 
 fmt:
-    cargo fmt
+    cargo +nightly fmt
 
 lint:
     cargo clippy -- -W clippy::pedantic
