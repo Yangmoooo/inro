@@ -61,6 +61,7 @@ const ALLOW_EXTENSIONS: &[&str] = &[
     ".tar.gz", ".tgz", //
     ".tar.xz", ".txz", //
     ".tar.bz2", ".tbz", //
+    ".7z",  //
     ".zip", //
     ".exe", //
 ];
@@ -84,6 +85,7 @@ pub enum FileType {
     TarGz,
     TarXz,
     TarBz2,
+    SevenZ,
     Zip,
     // binary
     Pe,
@@ -113,10 +115,12 @@ impl FileType {
         if name.ends_with(".tar.bz2") || name.ends_with(".tbz") {
             return Some(Self::TarBz2);
         }
+        if name.ends_with(".7z") {
+            return Some(Self::SevenZ);
+        }
         if name.ends_with(".zip") {
             return Some(Self::Zip);
         }
-
         if name.ends_with(".exe") {
             return Some(Self::Pe);
         }
@@ -161,6 +165,9 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
             let tar = bzip2::read::BzDecoder::new(reader);
             let mut archive = tar::Archive::new(tar);
             archive.unpack(dest_dir).context("Failed to extract tar.bz2 archive")?;
+        }
+        FileType::SevenZ => {
+            sevenz_rust2::decompress_file(file_path, dest_dir)?;
         }
         FileType::Zip => {
             let mut archive = zip::ZipArchive::new(reader)?;
