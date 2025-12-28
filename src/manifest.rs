@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 
-use crate::dan::{DanReceipt, DanState};
+use crate::package::{PkgReceipt, PkgState};
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
@@ -14,13 +14,13 @@ pub struct Manifest {
     pub schema_version: u32,
 
     #[serde(default, rename = "packages")]
-    pub dans: HashMap<String, DanState>,
+    pub pkgs: HashMap<String, PkgState>,
 }
 
 fn default_schema_version() -> u32 { 1 }
 
 impl Default for Manifest {
-    fn default() -> Self { Self { schema_version: default_schema_version(), dans: HashMap::new() } }
+    fn default() -> Self { Self { schema_version: default_schema_version(), pkgs: HashMap::new() } }
 }
 
 impl Manifest {
@@ -48,46 +48,46 @@ impl Manifest {
         Ok(())
     }
 
-    pub fn add(&mut self, receipt: DanReceipt) {
-        let dan_name = receipt.name.clone();
+    pub fn add(&mut self, receipt: PkgReceipt) {
+        let pkg_name = receipt.name.clone();
         let version = receipt.version.clone();
 
-        let state = self.dans.entry(dan_name).or_insert_with(DanState::default);
+        let state = self.pkgs.entry(pkg_name).or_insert_with(PkgState::default);
         state.versions.insert(version.clone(), receipt);
         state.current_version = Some(version);
     }
 
     /// remove a version
-    pub fn remove_version(&mut self, name: &str, version: &str) -> Option<DanReceipt> {
-        let state = self.dans.get_mut(name)?;
+    pub fn remove_version(&mut self, name: &str, version: &str) -> Option<PkgReceipt> {
+        let state = self.pkgs.get_mut(name)?;
         if state.current_version.as_deref() == Some(version) {
             state.current_version = None;
         }
         let receipt = state.versions.remove(version);
         // after removing, if there are other versions, need to use manually
         if state.versions.is_empty() {
-            self.dans.remove(name);
+            self.pkgs.remove(name);
         }
         receipt
     }
 
-    pub fn unlink_dan(&mut self, name: &str) -> Option<DanReceipt> {
-        let state = self.dans.get_mut(name)?;
+    pub fn unlink_pkg(&mut self, name: &str) -> Option<PkgReceipt> {
+        let state = self.pkgs.get_mut(name)?;
         let current_ver = state.current_version.take()?;
         state.versions.get(&current_ver).cloned()
     }
 
     /// remove a package, all versions
     #[allow(dead_code)]
-    pub fn remove_dan(&mut self, name: &str) -> Option<Vec<DanReceipt>> {
-        let state = self.dans.remove(name)?;
+    pub fn remove_pkg(&mut self, name: &str) -> Option<Vec<PkgReceipt>> {
+        let state = self.pkgs.remove(name)?;
         let receipts = state.versions.into_values().collect();
         Some(receipts)
     }
 
     #[allow(dead_code)]
-    pub fn _get_current_receipt(&self, name: &str) -> Option<&DanReceipt> {
-        let state = self.dans.get(name)?;
+    pub fn get_current_receipt(&self, name: &str) -> Option<&PkgReceipt> {
+        let state = self.pkgs.get(name)?;
         let version = state.current_version.as_ref()?;
         state.versions.get(version)
     }

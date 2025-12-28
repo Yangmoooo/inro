@@ -5,17 +5,17 @@ use chrono::Utc;
 use tempfile::TempDir;
 
 use crate::config::Config;
-use crate::dan::{DanDef, DanError, DanReceipt, InstalledBinary, ResolvedDan};
 use crate::layout::InroLayout;
+use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::remotes::{InstallCandidate, create_provider};
 use crate::report;
 use crate::utils::*;
 
-pub fn find_best_candidate(dan_def: &DanDef) -> Result<InstallCandidate, DanError> {
-    let provider = create_provider(&dan_def.remote)?;
+pub fn find_best_candidate(pkg_def: &PkgDef) -> Result<InstallCandidate, PkgError> {
+    let provider = create_provider(&pkg_def.remote)?;
 
     report!(MsgType::Detail, "Fetching candidates from remote...");
-    let candidates = provider.find_candidates(dan_def)?;
+    let candidates = provider.find_candidates(pkg_def)?;
     let candidate = candidates
         // just take the first one for now
         .first()
@@ -33,35 +33,35 @@ pub fn find_best_candidate(dan_def: &DanDef) -> Result<InstallCandidate, DanErro
 pub fn install_candidate(
     name: &str,
     candidate: &InstallCandidate,
-    dan: &ResolvedDan,
+    pkg: &ResolvedPkg,
     config: &Config,
     layout: &InroLayout,
-) -> Result<DanReceipt, DanError> {
+) -> Result<PkgReceipt, PkgError> {
     let safe_version = sanitize_version(&candidate.version);
-    let dan_install_dir = layout.dans_dir.join(name).join(safe_version);
+    let pkg_install_dir = layout.pkgs_dir.join(name).join(safe_version);
 
-    prepare_install_dir(&dan_install_dir)?;
+    prepare_install_dir(&pkg_install_dir)?;
 
-    let temp_dir = TempDir::new().map_err(DanError::Io)?;
+    let temp_dir = TempDir::new().map_err(PkgError::Io)?;
     let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
 
-    unpack_and_process(&downloaded_file, &dan_install_dir, dan)?;
+    unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
 
-    let binaries_result: Result<Vec<InstalledBinary>, DanError> = dan
+    let binaries_result: Result<Vec<InstalledBin>, PkgError> = pkg
         .bin
         .iter()
         .map(|b| {
-            let bin_path = find_binary_in_dir(&dan_install_dir, &b.name)
-                .ok_or_else(|| DanError::BinaryNotFoundInArchive(b.name.clone()))?;
-            Ok(InstalledBinary { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
+            let bin_path = find_binary_in_dir(&pkg_install_dir, &b.name)
+                .ok_or_else(|| PkgError::BinaryNotFoundInArchive(b.name.clone()))?;
+            Ok(InstalledBin { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
         })
         .collect();
-    let mut receipt = DanReceipt {
+    let mut receipt = PkgReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
-        remote: dan.remote.clone(),
+        remote: pkg.remote.clone(),
         installed_at: Utc::now(),
-        install_dir: dan_install_dir,
+        install_dir: pkg_install_dir,
         binaries: binaries_result?,
     };
     receipt.relink(&config.bin_dir)?;
@@ -69,7 +69,7 @@ pub fn install_candidate(
     Ok(receipt)
 }
 
-fn prepare_install_dir(dir: &Path) -> Result<(), DanError> {
+fn prepare_install_dir(dir: &Path) -> Result<(), PkgError> {
     if dir.exists() {
         report!(MsgType::Warning, "Package already installed. Removing...");
         fs::remove_dir_all(dir)?;
@@ -77,15 +77,15 @@ fn prepare_install_dir(dir: &Path) -> Result<(), DanError> {
     Ok(fs::create_dir_all(dir)?)
 }
 
-fn unpack_and_process(src_path: &Path, dst_dir: &Path, dan: &ResolvedDan) -> Result<(), DanError> {
-    let ft = extract_file(src_path, dst_dir).map_err(|e| DanError::Extraction {
+fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Result<(), PkgError> {
+    let ft = extract_file(src_path, dst_dir).map_err(|e| PkgError::Extraction {
         filename: src_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
         source: e,
     })?;
 
     // if asset is a single bin, rename it to the name of the package
     if let FileType::Pe | FileType::Elf = ft {
-        rename_single_file(dst_dir, &dan.bin[0].name)?;
+        rename_single_file(dst_dir, &pkg.bin[0].name)?;
     }
 
     // if there is only one directory, flatten it

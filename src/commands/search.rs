@@ -24,7 +24,7 @@ struct SearchEntry {
 impl CommandHandler for SearchCommand {
     fn handle(&self) -> Result<()> {
         let registry = Registry::load(&self.layout)?;
-        if registry.dans.is_empty() {
+        if registry.pkgs.is_empty() {
             report!(MsgType::Warning, "Registry is empty.");
             return Ok(());
         }
@@ -37,11 +37,11 @@ impl CommandHandler for SearchCommand {
         let mut max_name_len = 4;
         let mut max_source_len = 6;
 
-        for (name, dan_def) in &registry.dans {
-            let resolved = dan_def.clone().resolve(name);
+        for (name, pkg_def) in &registry.pkgs {
+            let resolved = pkg_def.clone().resolve(name);
             let name_lower = name.to_lowercase();
 
-            let dan_match = name_lower.contains(&query);
+            let pkg_match = name_lower.contains(&query);
 
             let mut bin_match = false;
             let mut bin_parts = Vec::new();
@@ -56,10 +56,10 @@ impl CommandHandler for SearchCommand {
                 }
             }
 
-            if dan_match || bin_match {
+            if pkg_match || bin_match {
                 let is_installed = manifest
                     .as_ref()
-                    .and_then(|m| m.dans.get(name))
+                    .and_then(|m| m.pkgs.get(name))
                     .is_some_and(|state| state.current_version.is_some());
                 let remote_str = resolved.remote.to_string();
 

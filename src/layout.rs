@@ -7,7 +7,7 @@ pub struct InroLayout {
     pub home_dir: PathBuf,              // user home
     pub config_path: PathBuf,           // config.toml
     pub manifest_path: PathBuf,         // inro.json
-    pub dans_dir: PathBuf,              // packages actually installed
+    pub pkgs_dir: PathBuf,              // packages actually installed
     pub upstream_registry_dir: PathBuf, // upstream registry, inro managed
     pub local_registry_dir: PathBuf,    // local registry, user defined
 }
@@ -24,7 +24,7 @@ impl InroLayout {
         let config_path = config_dir.join("inro").join("config.toml");
         let manifest_path = data_local_dir.join("inro").join("inro-manifest.json");
 
-        let dans_dir = data_local_dir.join("inro").join("packages");
+        let pkgs_dir = data_local_dir.join("inro").join("pkgs");
         let upstream_registry_dir = data_local_dir.join("inro").join("sources.list.d");
         let local_registry_dir = config_dir.join("inro").join("sources.list.d");
 
@@ -32,7 +32,7 @@ impl InroLayout {
             home_dir,
             config_path,
             manifest_path,
-            dans_dir,
+            pkgs_dir,
             upstream_registry_dir,
             local_registry_dir,
         })

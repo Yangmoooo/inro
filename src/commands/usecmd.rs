@@ -19,7 +19,7 @@ impl CommandHandler for UseCommand {
         let config = Config::load(&self.layout)?;
 
         let state = manifest
-            .dans
+            .pkgs
             .get_mut(&self.name)
             .ok_or_else(|| anyhow!("Package '{}' is not installed", self.name))?;
 

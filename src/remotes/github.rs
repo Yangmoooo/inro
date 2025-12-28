@@ -6,7 +6,7 @@ use reqwest::blocking::Client;
 use serde::Deserialize;
 
 use super::{InstallCandidate, RemoteProvider, RemoteType};
-use crate::dan::DanDef;
+use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
 use crate::report;
@@ -266,14 +266,14 @@ impl GitHubProvider {
 }
 
 impl RemoteProvider for GitHubProvider {
-    fn find_candidates(&self, dan: &DanDef) -> super::Result<Vec<InstallCandidate>> {
-        let repo = match &dan.remote {
+    fn find_candidates(&self, pkg: &PkgDef) -> super::Result<Vec<InstallCandidate>> {
+        let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
         let releases = self.fetch_releases(repo)?;
         let suitable_release = releases.first_suitable()?;
-        let RemoteType::GitHub(asset_def) = &dan.remote;
+        let RemoteType::GitHub(asset_def) = &pkg.remote;
         let assets = suitable_release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
@@ -287,8 +287,8 @@ impl RemoteProvider for GitHubProvider {
         Ok(candidates)
     }
 
-    fn list_versions(&self, dan: &DanDef) -> super::Result<Vec<VersionInfo>> {
-        let repo = match &dan.remote {
+    fn list_versions(&self, pkg: &PkgDef) -> super::Result<Vec<VersionInfo>> {
+        let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 

@@ -3,10 +3,10 @@ use colored::Colorize;
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::dan::{DanError, DanReceipt};
 use crate::installer::{find_best_candidate, install_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::package::{PkgError, PkgReceipt};
 use crate::registry::Registry;
 use crate::report;
 use crate::utils::unique;
@@ -20,7 +20,7 @@ struct UpdateReceipt {
     name: String,
     old_version: String,
     new_version: String,
-    full_receipt: DanReceipt,
+    full_receipt: PkgReceipt,
 }
 
 enum UpdateStatus {
@@ -37,7 +37,7 @@ impl CommandHandler for UpdateCommand {
         let mut manifest = Manifest::load(&self.layout.manifest_path)?;
 
         let names: Vec<String> = if self.names.is_empty() {
-            manifest.dans.keys().cloned().collect()
+            manifest.pkgs.keys().cloned().collect()
         } else {
             unique(&self.names)
         };
@@ -85,7 +85,7 @@ fn check_and_update(
     config: &Config,
     layout: &InroLayout,
 ) -> Result<UpdateStatus> {
-    let state = match manifest.dans.get(name) {
+    let state = match manifest.pkgs.get(name) {
         Some(s) => s,
         None => {
             report!(MsgType::Warning, "'{name}' not installed, skipping");
@@ -95,9 +95,9 @@ fn check_and_update(
 
     let current_ver = state.current_version.as_deref().unwrap_or_default();
 
-    let dan_def = registry.dans.get(name).ok_or(DanError::NotFound(name.to_string()))?;
+    let pkg_def = registry.pkgs.get(name).ok_or(PkgError::NotFound(name.to_string()))?;
 
-    let candidate = find_best_candidate(dan_def)?;
+    let candidate = find_best_candidate(pkg_def)?;
 
     if candidate.version == current_ver {
         report!(MsgType::Info, "'{name}' is up to date ({current_ver})");
@@ -106,8 +106,8 @@ fn check_and_update(
 
     report!(MsgType::Step, "Updating '{name}': {current_ver} -> {}", candidate.version);
 
-    let dan = dan_def.clone().resolve(name);
-    let receipt = install_candidate(name, &candidate, &dan, config, layout)?;
+    let pkg = pkg_def.clone().resolve(name);
+    let receipt = install_candidate(name, &candidate, &pkg, config, layout)?;
 
     Ok(UpdateStatus::Updated(Box::new(UpdateReceipt {
         name: name.to_string(),

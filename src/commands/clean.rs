@@ -5,9 +5,9 @@ use anyhow::Result;
 use colored::Colorize;
 
 use super::CommandHandler;
-use crate::dan::DanState;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::package::PkgState;
 use crate::report;
 use crate::utils::sanitize_version;
 
@@ -19,7 +19,7 @@ pub struct CleanCommand {
 impl CommandHandler for CleanCommand {
     fn handle(&self) -> Result<()> {
         let mut manifest = Manifest::load(&self.layout.manifest_path)?;
-        let pkgs_root = &self.layout.dans_dir;
+        let pkgs_root = &self.layout.pkgs_dir;
 
         if !pkgs_root.exists() {
             report!(MsgType::Warning, "No packages directory found.");
@@ -30,7 +30,7 @@ impl CommandHandler for CleanCommand {
         // 1. current active versions
         // 2. if no active, the latest (installed) version
         let mut keep_set = HashSet::new();
-        for (name, state) in &manifest.dans {
+        for (name, state) in &manifest.pkgs {
             // note the version in manifest not equals in filesystem (sanitized)
             if let Some(ver) = &state.current_version {
                 keep_set.insert((name.clone(), sanitize_version(ver)));
@@ -87,7 +87,7 @@ impl CommandHandler for CleanCommand {
                 if let Err(e) = fs::remove_dir_all(path) {
                     report!(MsgType::Warning, "Failed to remove {}: {}", path.display(), e);
                 } else {
-                    if let Some(state) = manifest.dans.get_mut(pkg) {
+                    if let Some(state) = manifest.pkgs.get_mut(pkg) {
                         state.versions.remove(ver);
                     }
                     recovered_space += size;
@@ -114,8 +114,8 @@ impl CommandHandler for CleanCommand {
     }
 }
 
-/// Get the latest **installed** version from DanState
-fn get_latest_version(state: &DanState) -> Option<String> {
+/// Get the latest **installed** version from PkgState
+fn get_latest_version(state: &PkgState) -> Option<String> {
     state
         .versions
         .iter()
