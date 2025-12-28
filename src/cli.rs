@@ -77,6 +77,13 @@ pub enum Command {
         names: Vec<String>,
     },
 
+    #[command(about = "Clean unused packages")]
+    Clean {
+        /// Perform a dry run without making any changes
+        #[arg(long)]
+        dry_run: bool,
+    },
+
     #[command(name = "self-update")]
     #[command(about = "Update inro itself to the latest version")]
     SelfUpdate,
