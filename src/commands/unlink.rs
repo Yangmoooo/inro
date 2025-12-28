@@ -14,7 +14,7 @@ impl CommandHandler for UnlinkCommand {
     fn handle(&self) -> Result<()> {
         let mut manifest = Manifest::load(&self.layout.manifest_path)?;
 
-        if let Some(receipt) = manifest.unlink_dan(&self.name) {
+        if let Some(receipt) = manifest.unlink_pkg(&self.name) {
             report!(MsgType::Step, "Unlinking '{}' ({}) ...", self.name, receipt.version);
 
             if let Err(e) = receipt.unlink() {
@@ -24,7 +24,7 @@ impl CommandHandler for UnlinkCommand {
             manifest.save(&self.layout.manifest_path)?;
 
             report!(MsgType::Success, "Unlinked '{}'. Package remains installed", self.name);
-        } else if let Some(state) = manifest.dans.get(&self.name) {
+        } else if let Some(state) = manifest.pkgs.get(&self.name) {
             if state.current_version.is_none() {
                 report!(
                     MsgType::Warning,

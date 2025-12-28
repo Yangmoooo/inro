@@ -21,13 +21,13 @@ impl CommandHandler for InfoCommand {
     fn handle(&self) -> Result<()> {
         let registry = Registry::load(&self.layout)?;
 
-        let dan_def = registry
-            .dans
+        let pkg_def = registry
+            .pkgs
             .get(&self.name)
             .ok_or_else(|| anyhow!("Package '{}' not found in registry.", self.name))?;
 
         let width = 12;
-        let resolved = dan_def.clone().resolve(&self.name);
+        let resolved = pkg_def.clone().resolve(&self.name);
         println!("{:<width$}{}", "Name:".bold(), self.name.green());
         println!("{:<width$}{}", "Source:".bold(), resolved.remote);
 
@@ -36,7 +36,7 @@ impl CommandHandler for InfoCommand {
 
         print!("{:<width$}", "Status:".bold());
         let manifest = Manifest::load(&self.layout.manifest_path).ok();
-        let install_state = manifest.as_ref().and_then(|m| m.dans.get(&self.name));
+        let install_state = manifest.as_ref().and_then(|m| m.pkgs.get(&self.name));
         if let Some(state) = install_state {
             // show status
             print!("{}", "Installed".green());
@@ -77,7 +77,7 @@ impl CommandHandler for InfoCommand {
 
         report!(MsgType::Step, "\nFetching remote info...");
         let provider = create_provider(&resolved.remote)?;
-        match provider.list_versions(dan_def) {
+        match provider.list_versions(pkg_def) {
             Ok(versions) => {
                 report!(MsgType::Success, "Recent available versions:");
                 let has_more = versions.len() > REMOTE_DISPLAY_LIMIT;

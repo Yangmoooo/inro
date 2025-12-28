@@ -10,7 +10,7 @@ use crate::remotes::RemoteType;
 use crate::utils::create_symlink;
 
 #[derive(Clone, Debug, Deserialize)]
-pub struct DanDef {
+pub struct PkgDef {
     #[serde(default)]
     pub ver: Option<String>,
     pub remote: RemoteType,
@@ -27,7 +27,7 @@ pub struct BinDef {
 }
 
 #[derive(Debug)]
-pub struct ResolvedDan {
+pub struct ResolvedPkg {
     #[allow(dead_code)]
     pub ver: Option<String>,
     pub remote: RemoteType,
@@ -40,10 +40,10 @@ pub struct ResolvedBin {
     pub link: String,
 }
 
-impl DanDef {
+impl PkgDef {
     /// Resolves the configuration into a definitive set of installation
     /// parameters.
-    pub fn resolve(self, dan_name: &str) -> ResolvedDan {
+    pub fn resolve(self, pkg_name: &str) -> ResolvedPkg {
         let normalize_name = |name: String| -> String {
             if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
                 format!("{name}.exe")
@@ -53,15 +53,15 @@ impl DanDef {
         };
 
         let bin = if self.bin.is_empty() {
-            // binary default name is the dan name
-            let name = normalize_name(dan_name.to_string());
+            // binary default name is the package name
+            let name = normalize_name(pkg_name.to_string());
             vec![ResolvedBin { name: name.clone(), link: name }]
         } else {
             // process each configured binary
             self.bin
                 .into_iter()
                 .map(|b| {
-                    let raw_name = b.name.unwrap_or_else(|| dan_name.to_string());
+                    let raw_name = b.name.unwrap_or_else(|| pkg_name.to_string());
                     let name = normalize_name(raw_name);
                     let raw_link = b.link.unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
@@ -70,25 +70,25 @@ impl DanDef {
                 .collect()
         };
 
-        ResolvedDan { ver: self.ver, remote: self.remote, bin }
+        ResolvedPkg { ver: self.ver, remote: self.remote, bin }
     }
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-pub struct DanState {
+pub struct PkgState {
     // none means installed but not linked
     pub current_version: Option<String>,
 
     // key: version
-    pub versions: HashMap<String, DanReceipt>,
+    pub versions: HashMap<String, PkgReceipt>,
 }
 
-impl DanState {
+impl PkgState {
     pub fn default() -> Self { Self { current_version: None, versions: HashMap::new() } }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DanReceipt {
+pub struct PkgReceipt {
     /// Package name, e.g. 'ripgrep'
     pub name: String,
 
@@ -105,10 +105,10 @@ pub struct DanReceipt {
     pub install_dir: PathBuf,
 
     /// Binaries installed details
-    pub binaries: Vec<InstalledBinary>,
+    pub binaries: Vec<InstalledBin>,
 }
 
-impl DanReceipt {
+impl PkgReceipt {
     pub fn save_to_install_dir(&self) -> Result<()> {
         let receipt_path = self.install_dir.join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path).with_context(|| {
@@ -156,7 +156,7 @@ impl DanReceipt {
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct InstalledBinary {
+pub struct InstalledBin {
     /// Binary file name, e.g. 'rg' or 'rg.exe'
     pub name: String,
 
@@ -168,7 +168,7 @@ pub struct InstalledBinary {
 }
 
 #[derive(thiserror::Error, Debug)]
-pub enum DanError {
+pub enum PkgError {
     #[error("Package '{0}' not found in registry")]
     NotFound(String),
 

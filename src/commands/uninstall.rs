@@ -4,9 +4,9 @@ use anyhow::{Context, Result};
 use colored::Colorize;
 
 use super::CommandHandler;
-use crate::dan::DanReceipt;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::package::PkgReceipt;
 use crate::report;
 use crate::utils::unique;
 
@@ -29,7 +29,7 @@ impl CommandHandler for UninstallCommand {
         let manifest_path = &self.layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;
 
-        if manifest.dans.is_empty() {
+        if manifest.pkgs.is_empty() {
             report!(MsgType::Warning, "No packages are currently installed");
             return Ok(());
         }
@@ -115,7 +115,7 @@ impl CommandHandler for UninstallCommand {
 
 fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallReceipt>> {
     // check if installed
-    let Some(state) = manifest.dans.get(name) else {
+    let Some(state) = manifest.pkgs.get(name) else {
         return Ok(None);
     };
 
@@ -135,14 +135,14 @@ fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallR
         // remove files
         cleanup_files(&receipt)?;
 
-        let fully_removed = !manifest.dans.contains_key(name);
+        let fully_removed = !manifest.pkgs.contains_key(name);
         Ok(Some(UninstallReceipt { name: name.to_string(), version, fully_removed }))
     } else {
         anyhow::bail!("Version not found in manifest");
     }
 }
 
-fn cleanup_files(receipt: &DanReceipt) -> Result<()> {
+fn cleanup_files(receipt: &PkgReceipt) -> Result<()> {
     // remove symbolic link
     for bin in &receipt.binaries {
         if bin.link_path.exists() || bin.link_path.is_symlink() {

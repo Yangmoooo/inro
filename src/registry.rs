@@ -6,13 +6,13 @@ use figment::Figment;
 use figment::providers::{Format, Toml};
 use serde::Deserialize;
 
-use crate::dan::DanDef;
 use crate::layout::InroLayout;
+use crate::package::PkgDef;
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Registry {
     #[serde(flatten)]
-    pub dans: HashMap<String, DanDef>,
+    pub pkgs: HashMap<String, PkgDef>,
 }
 
 impl Registry {
@@ -56,7 +56,7 @@ impl Registry {
         }
 
         let registry: Registry = figment.extract()?;
-        if registry.dans.is_empty() {
+        if registry.pkgs.is_empty() {
             return Err(anyhow!("No package definitions found in registry"));
         }
 

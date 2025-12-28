@@ -1,10 +1,10 @@
 mod cli;
 mod commands;
 mod config;
-mod dan;
 mod installer;
 mod layout;
 mod manifest;
+mod package;
 mod platform;
 mod registry;
 mod remotes;

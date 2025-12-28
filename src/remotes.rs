@@ -6,7 +6,7 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::dan::DanDef;
+use crate::package::PkgDef;
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
@@ -62,8 +62,8 @@ pub struct VersionInfo {
 }
 
 pub trait RemoteProvider {
-    fn find_candidates(&self, dan: &DanDef) -> Result<Vec<InstallCandidate>>;
-    fn list_versions(&self, dan: &DanDef) -> Result<Vec<VersionInfo>>;
+    fn find_candidates(&self, pkg: &PkgDef) -> Result<Vec<InstallCandidate>>;
+    fn list_versions(&self, pkg: &PkgDef) -> Result<Vec<VersionInfo>>;
 }
 
 pub fn create_provider(remote: &RemoteType) -> Result<Box<dyn RemoteProvider>> {

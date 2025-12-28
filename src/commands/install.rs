@@ -3,10 +3,10 @@ use colored::Colorize;
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::dan::DanError;
 use crate::installer::{find_best_candidate, install_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::package::PkgError;
 use crate::registry::Registry;
 use crate::report;
 use crate::utils::unique;
@@ -25,7 +25,7 @@ impl CommandHandler for InstallCommand {
         let config = Config::load(&self.layout)?;
         report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&self.layout)?;
-        if registry.dans.is_empty() {
+        if registry.pkgs.is_empty() {
             report!(
                 MsgType::Warning,
                 "Registry is empty. Run 'inro source update' to fetch packages"
@@ -40,11 +40,11 @@ impl CommandHandler for InstallCommand {
 
         // install one by one
         for name in &names {
-            let dan_def = registry.dans.get(name).ok_or(DanError::NotFound(name.to_string()))?;
-            let candidate = find_best_candidate(dan_def)?;
-            let dan = dan_def.clone().resolve(name);
+            let pkg_def = registry.pkgs.get(name).ok_or(PkgError::NotFound(name.to_string()))?;
+            let candidate = find_best_candidate(pkg_def)?;
+            let pkg = pkg_def.clone().resolve(name);
 
-            match install_candidate(name, &candidate, &dan, &config, &self.layout) {
+            match install_candidate(name, &candidate, &pkg, &config, &self.layout) {
                 Ok(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
                         report!(MsgType::Warning, "Failed to save backup receipt: {e}");

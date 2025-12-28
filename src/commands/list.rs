@@ -23,7 +23,7 @@ impl CommandHandler for ListCommand {
     fn handle(&self) -> Result<()> {
         let manifest = Manifest::load(&self.layout.manifest_path)?;
 
-        if manifest.dans.is_empty() {
+        if manifest.pkgs.is_empty() {
             report!(MsgType::Warning, "No packages installed");
             return Ok(());
         }
@@ -32,10 +32,10 @@ impl CommandHandler for ListCommand {
         let mut max_name_len = 4;
         let mut max_ver_len = 7;
 
-        let mut sorted_dans: Vec<_> = manifest.dans.iter().collect();
-        sorted_dans.sort_by_key(|(name, _)| *name);
+        let mut sorted_pkgs: Vec<_> = manifest.pkgs.iter().collect();
+        sorted_pkgs.sort_by_key(|(name, _)| *name);
 
-        for (name, state) in sorted_dans {
+        for (name, state) in sorted_pkgs {
             // get current verison and extra version (if exist)
             let (ver_display, extra_ver) = match &state.current_version {
                 Some(v) => {
