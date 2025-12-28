@@ -1,4 +1,4 @@
-default:
+_default:
     @just --list
 
 alias b  := build
@@ -28,6 +28,9 @@ test:
 
 clean:
     cargo clean
+
+update:
+    cargo update
 
 fmt:
     cargo +nightly fmt

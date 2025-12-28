@@ -1,3 +1,4 @@
+pub mod clean;
 pub mod info;
 pub mod install;
 pub mod list;
@@ -8,6 +9,7 @@ pub mod unlink;
 pub mod update;
 pub mod usecmd;
 
+pub use clean::CleanCommand;
 pub use info::InfoCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;

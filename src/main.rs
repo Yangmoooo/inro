@@ -36,6 +36,7 @@ fn main() -> anyhow::Result<()> {
             Command::Info { name } => Box::new(InfoCommand { name, layout }),
             Command::Use { name, version } => Box::new(UseCommand { name, version, layout }),
             Command::Unlink { name } => Box::new(UnlinkCommand { name, layout }),
+            Command::Clean { dry_run } => Box::new(CleanCommand { dry_run, layout }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };
