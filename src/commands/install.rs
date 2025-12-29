@@ -13,7 +13,6 @@ use crate::utils::unique;
 
 pub struct InstallCommand {
     pub names: Vec<String>,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for InstallCommand {
@@ -22,9 +21,10 @@ impl CommandHandler for InstallCommand {
         report!(MsgType::Info, "Starting installation of {} package(s)...", names.len());
 
         // prepare
-        let config = Config::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
         report!(MsgType::Detail, "Loaded inro config");
-        let registry = Registry::load(&self.layout)?;
+        let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {
             report!(
                 MsgType::Warning,
@@ -33,7 +33,7 @@ impl CommandHandler for InstallCommand {
             return Ok(());
         }
         report!(MsgType::Detail, "Loaded inro registry");
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
@@ -44,7 +44,7 @@ impl CommandHandler for InstallCommand {
             let candidate = find_best_candidate(pkg_def)?;
             let pkg = pkg_def.clone().resolve(name);
 
-            match install_candidate(name, &candidate, &pkg, &config, &self.layout) {
+            match install_candidate(name, &candidate, &pkg, &config, &layout) {
                 Ok(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
                         report!(MsgType::Warning, "Failed to save backup receipt: {e}");
@@ -60,7 +60,7 @@ impl CommandHandler for InstallCommand {
         }
 
         // save manifest
-        manifest.save(&self.layout.manifest_path)?;
+        manifest.save(&layout.manifest_path)?;
         report!(MsgType::Detail, "Manifest updated");
 
         // summary

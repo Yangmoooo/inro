@@ -12,14 +12,14 @@ use crate::utils::{format_date, terminal_link};
 
 pub struct InfoCommand {
     pub name: String,
-    pub layout: InroLayout,
 }
 
 const REMOTE_DISPLAY_LIMIT: usize = 5;
 
 impl CommandHandler for InfoCommand {
     fn handle(&self) -> Result<()> {
-        let registry = Registry::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let registry = Registry::load(&layout)?;
 
         let pkg_def = registry
             .pkgs
@@ -35,7 +35,7 @@ impl CommandHandler for InfoCommand {
         println!("{:<width$}{}", "Binaries:".bold(), bins_str);
 
         print!("{:<width$}", "Status:".bold());
-        let manifest = Manifest::load(&self.layout.manifest_path).ok();
+        let manifest = Manifest::load(&layout.manifest_path).ok();
         let install_state = manifest.as_ref().and_then(|m| m.pkgs.get(&self.name));
         if let Some(state) = install_state {
             // show status

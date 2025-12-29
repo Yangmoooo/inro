@@ -13,7 +13,6 @@ use crate::utils::unique;
 
 pub struct UpdateCommand {
     pub names: Vec<String>,
-    pub layout: InroLayout,
 }
 
 struct UpdateReceipt {
@@ -32,9 +31,10 @@ enum UpdateStatus {
 
 impl CommandHandler for UpdateCommand {
     fn handle(&self) -> Result<()> {
-        let config = Config::load(&self.layout)?;
-        let registry = Registry::load(&self.layout)?;
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
+        let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
+        let registry = Registry::load(&layout)?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         let names: Vec<String> = if self.names.is_empty() {
             manifest.pkgs.keys().cloned().collect()
@@ -46,7 +46,7 @@ impl CommandHandler for UpdateCommand {
         let mut any_updated = false;
 
         for name in &names {
-            let res = check_and_update(name, &manifest, &registry, &config, &self.layout);
+            let res = check_and_update(name, &manifest, &registry, &config, &layout);
             match res {
                 Ok(UpdateStatus::Updated(ref receipt)) => {
                     manifest.add(receipt.full_receipt.clone());
@@ -68,7 +68,7 @@ impl CommandHandler for UpdateCommand {
         }
 
         if any_updated {
-            manifest.save(&self.layout.manifest_path)?;
+            manifest.save(&layout.manifest_path)?;
             report!(MsgType::Detail, "Manifest updated");
         }
 
