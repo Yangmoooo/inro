@@ -14,7 +14,7 @@ impl CommandHandler for UnlinkCommand {
         let layout = InroLayout::new()?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
-        if let Some(receipt) = manifest.unlink_pkg(&self.name) {
+        if let Some(receipt) = manifest.unlink_package(&self.name) {
             report!(MsgType::Step, "Unlinking '{}' ({}) ...", self.name, receipt.version);
 
             if let Err(e) = receipt.unlink() {

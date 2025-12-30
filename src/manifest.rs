@@ -57,7 +57,7 @@ impl Manifest {
         state.current_version = Some(version);
     }
 
-    /// remove a version
+    /// Remove a version
     pub fn remove_version(&mut self, name: &str, version: &str) -> Option<PkgReceipt> {
         let state = self.pkgs.get_mut(name)?;
         if state.current_version.as_deref() == Some(version) {
@@ -71,15 +71,14 @@ impl Manifest {
         receipt
     }
 
-    pub fn unlink_pkg(&mut self, name: &str) -> Option<PkgReceipt> {
+    pub fn unlink_package(&mut self, name: &str) -> Option<PkgReceipt> {
         let state = self.pkgs.get_mut(name)?;
         let current_ver = state.current_version.take()?;
         state.versions.get(&current_ver).cloned()
     }
 
-    /// remove a package, all versions
-    #[allow(dead_code)]
-    pub fn remove_pkg(&mut self, name: &str) -> Option<Vec<PkgReceipt>> {
+    /// Remove all versions of the package
+    pub fn remove_package(&mut self, name: &str) -> Option<Vec<PkgReceipt>> {
         let state = self.pkgs.remove(name)?;
         let receipts = state.versions.into_values().collect();
         Some(receipts)
