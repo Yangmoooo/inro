@@ -1,4 +1,5 @@
 pub mod clean;
+pub mod generate;
 pub mod info;
 pub mod install;
 pub mod list;
@@ -10,6 +11,7 @@ pub mod update;
 pub mod usecmd;
 
 pub use clean::CleanCommand;
+pub use generate::GenerateCommand;
 pub use info::InfoCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;

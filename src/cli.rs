@@ -1,4 +1,6 @@
-use clap::{Parser, Subcommand};
+use std::path::PathBuf;
+
+use clap::{Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "inro", author = "Yangmoooo")]
@@ -121,6 +123,18 @@ pub enum Command {
         #[arg(long)]
         dry_run: bool,
     },
+
+    /// Generate shell completions and man pages
+    #[command(hide = true)]
+    Generate {
+        /// The type of asset to generate
+        #[arg(value_enum)]
+        generator: Generator,
+
+        /// Output directory
+        #[arg(long, default_value = ".")]
+        out: PathBuf,
+    },
 }
 
 #[derive(Subcommand, Debug)]
@@ -131,4 +145,13 @@ pub enum SourceSubCommand {
     /// List all configured remote sources and their status
     #[command(alias = "ls")]
     List,
+}
+
+#[derive(Clone, Debug, ValueEnum)]
+pub enum Generator {
+    Man,
+    Bash,
+    Zsh,
+    Fish,
+    PowerShell,
 }

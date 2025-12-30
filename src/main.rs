@@ -36,6 +36,8 @@ fn main() -> anyhow::Result<()> {
             Command::Use { name, version } => Box::new(UseCommand { name, version }),
             Command::Unlink { name } => Box::new(UnlinkCommand { name }),
             Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
+
+            Command::Generate { generator, out } => Box::new(GenerateCommand { generator, out }),
         };
         command_handler.handle()?;
     } else {
