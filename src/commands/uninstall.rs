@@ -1,17 +1,20 @@
 use std::fs;
+use std::path::Path;
 
 use anyhow::{Context, Result};
 use colored::Colorize;
 
 use super::CommandHandler;
+use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::PkgReceipt;
 use crate::report;
-use crate::utils::unique;
+use crate::utils::{parse_package_version, unique};
 
 pub struct UninstallCommand {
     pub names: Vec<String>,
+    pub all: bool,
 }
 
 struct UninstallReceipt {
@@ -26,6 +29,7 @@ impl CommandHandler for UninstallCommand {
         report!(MsgType::Info, "Starting uninstallation of {} package(s)...", names.len());
 
         let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
         let manifest_path = &layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;
 
@@ -38,7 +42,7 @@ impl CommandHandler for UninstallCommand {
         let mut failures = Vec::new();
 
         for name in &names {
-            match do_uninstall(name, &mut manifest) {
+            match do_uninstall(name, self.all, &mut manifest, &config.bin_dir) {
                 Ok(Some(receipt)) => successes.push(receipt),
                 Ok(None) => {
                     // package is not installed
@@ -113,43 +117,131 @@ impl CommandHandler for UninstallCommand {
     }
 }
 
-fn do_uninstall(name: &str, manifest: &mut Manifest) -> Result<Option<UninstallReceipt>> {
+fn do_uninstall(
+    raw_name: &str,
+    for_all: bool,
+    manifest: &mut Manifest,
+    bin_dir: &Path,
+) -> Result<Option<UninstallReceipt>> {
+    let (name, requested_ver) = parse_package_version(raw_name);
+
     // check if installed
     let Some(state) = manifest.pkgs.get(name) else {
         return Ok(None);
     };
 
-    // determine version
-    let version = match &state.current_version {
-        Some(v) => v.clone(),
-        None => {
-            // MARK: installed but no active version
-            anyhow::bail!("No active version to uninstall");
+    // if uninstall --all
+    if for_all {
+        report!(MsgType::Step, "Uninstalling ALL versions of '{name}'...");
+
+        if let Some(receipts) = manifest.remove_package(name) {
+            for receipt in receipts {
+                cleanup_files(&receipt)?;
+                report!(MsgType::Detail, "Removed version {}", receipt.version);
+            }
+            return Ok(Some(UninstallReceipt {
+                name: name.to_string(),
+                version: "ALL".to_string(),
+                fully_removed: true,
+            }));
+        } else {
+            unreachable!()
+        }
+    }
+
+    // if not --all
+    let current_ver = state.current_version.clone();
+    let target_ver = if let Some(ver) = requested_ver {
+        // specify a version
+        if !state.versions.contains_key(ver) {
+            anyhow::bail!("Version '{ver}' is not installed for package '{name}'");
+        }
+        ver.to_string()
+    } else {
+        // not specify
+        match &current_ver {
+            Some(v) => v.clone(),
+            None => {
+                let one_ver = state.versions.keys().next().expect("None versions");
+                // no active version, but only one version, remove it
+                if state.versions.len() == 1 {
+                    one_ver.clone()
+                } else {
+                    anyhow::bail!(
+                        "Package '{name}' has no active version and multiple versions installed. Please specify a version to uninstall (e.g. '{name}@{one_ver}') or use --all"
+                    );
+                }
+            }
         }
     };
 
-    report!(MsgType::Step, "Processing package '{name}' ({version}) ...");
+    report!(MsgType::Step, "Uninstalling package '{name}' ({target_ver})...");
 
     // remove from manifest
-    if let Some(receipt) = manifest.remove_version(name, &version) {
+    if let Some(receipt) = manifest.remove_version(name, &target_ver) {
         // remove files
         cleanup_files(&receipt)?;
 
         let fully_removed = !manifest.pkgs.contains_key(name);
-        Ok(Some(UninstallReceipt { name: name.to_string(), version, fully_removed }))
+
+        // auto-switch if:
+        // 1. target_ver == current_ver
+        // 2. package has at least one version
+        // 3. current_version is none
+        if !fully_removed && Some(&target_ver) == current_ver.as_ref() {
+            // reacquire state
+            if let Some(state) = manifest.pkgs.get_mut(name)
+                && state.current_version.is_none()
+                && let Some(next_ver) = state.get_latest_version()
+            {
+                report!(MsgType::Info, "Auto-switching to fallback version '{next_ver}'...");
+
+                // get receipt and relink
+                if let Some(new_receipt) = state.versions.get_mut(&next_ver) {
+                    if let Err(e) = new_receipt.relink(bin_dir) {
+                        report!(MsgType::Warning, "Failed to auto-switch symlinks: {e:?}");
+                    } else {
+                        state.current_version = Some(next_ver.clone());
+                        report!(MsgType::Detail, "Switched successfully");
+                    }
+                }
+            }
+        }
+        Ok(Some(UninstallReceipt { name: name.to_string(), version: target_ver, fully_removed }))
     } else {
-        anyhow::bail!("Version not found in manifest");
+        anyhow::bail!("Failed to remove version from manifest");
     }
 }
 
 fn cleanup_files(receipt: &PkgReceipt) -> Result<()> {
     // remove symbolic link
     for bin in &receipt.binaries {
-        if bin.link_path.exists() || bin.link_path.is_symlink() {
-            fs::remove_file(&bin.link_path).with_context(|| {
-                format!("Failed to remove symlink: {}", bin.link_path.display())
-            })?;
-            report!(MsgType::Detail, "Removed link: {}", bin.link_path.display());
+        let link = &bin.link_path;
+
+        if link.is_symlink() {
+            match fs::read_link(link) {
+                Ok(target) => {
+                    // only remove if the symlink points to the expected target
+                    if target == bin.bin_path {
+                        fs::remove_file(link).with_context(|| {
+                            format!("Failed to remove symlink: {}", link.display())
+                        })?;
+                        report!(MsgType::Detail, "Removed link: {}", link.display());
+                    } else {
+                        // symlink points to a different target, skip
+                    }
+                }
+                Err(e) => {
+                    report!(
+                        MsgType::Warning,
+                        "Failed to read symlink {}: {}, skipping removal",
+                        link.display(),
+                        e
+                    );
+                }
+            }
+        } else if link.exists() {
+            // not a symlink but exists, skip
         }
     }
 

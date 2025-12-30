@@ -7,7 +7,6 @@ use colored::Colorize;
 use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::package::PkgState;
 use crate::report;
 use crate::utils::sanitize_version;
 
@@ -34,7 +33,7 @@ impl CommandHandler for CleanCommand {
             // note the version in manifest not equals in filesystem (sanitized)
             if let Some(ver) = &state.current_version {
                 keep_set.insert((name.clone(), sanitize_version(ver)));
-            } else if let Some(latest_ver) = get_latest_version(state) {
+            } else if let Some(latest_ver) = state.get_latest_version() {
                 keep_set.insert((name.clone(), sanitize_version(&latest_ver)));
             }
         }
@@ -112,13 +111,4 @@ impl CommandHandler for CleanCommand {
 
         Ok(())
     }
-}
-
-/// Get the latest **installed** version from PkgState
-fn get_latest_version(state: &PkgState) -> Option<String> {
-    state
-        .versions
-        .iter()
-        .max_by_key(|(_ver, receipt)| receipt.installed_at)
-        .map(|(ver, _receipt)| ver.clone())
 }

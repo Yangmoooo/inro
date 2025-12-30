@@ -85,6 +85,14 @@ pub struct PkgState {
 
 impl PkgState {
     pub fn default() -> Self { Self { current_version: None, versions: HashMap::new() } }
+
+    /// Get the latest **installed** version from PkgState
+    pub fn get_latest_version(&self) -> Option<String> {
+        self.versions
+            .iter()
+            .max_by_key(|(_ver, receipt)| receipt.installed_at)
+            .map(|(ver, _receipt)| ver.clone())
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
