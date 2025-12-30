@@ -30,6 +30,10 @@ pub enum Command {
         /// Names of the packages to uninstall
         #[arg(num_args = 1..)]
         names: Vec<String>,
+
+        /// Uninstall all versions of the package
+        #[arg(long)]
+        all: bool,
     },
 
     #[command(alias = "ls")]

@@ -27,7 +27,7 @@ fn main() -> anyhow::Result<()> {
     if let Some(command) = cli.command {
         let command_handler: Box<dyn CommandHandler> = match command {
             Command::Install { names } => Box::new(InstallCommand { names }),
-            Command::Uninstall { names } => Box::new(UninstallCommand { names }),
+            Command::Uninstall { names, all } => Box::new(UninstallCommand { names, all }),
             Command::List => Box::new(ListCommand {}),
             Command::Update { names } => Box::new(UpdateCommand { names }),
             Command::Source { command } => Box::new(SourceCommand { command }),
