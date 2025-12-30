@@ -36,10 +36,7 @@ fn main() -> anyhow::Result<()> {
             Command::Use { name, version } => Box::new(UseCommand { name, version }),
             Command::Unlink { name } => Box::new(UnlinkCommand { name }),
             Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
-
-            _ => anyhow::bail!("Not implemented yet!"),
         };
-
         command_handler.handle()?;
     } else {
         Cli::command().print_long_help()?;
