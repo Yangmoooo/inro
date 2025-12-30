@@ -9,7 +9,7 @@ use crate::manifest::Manifest;
 use crate::package::{PkgError, PkgReceipt};
 use crate::registry::Registry;
 use crate::report;
-use crate::utils::unique;
+use crate::utils::{parse_package_version, unique};
 
 pub struct UpdateCommand {
     pub names: Vec<String>,
@@ -46,14 +46,23 @@ impl CommandHandler for UpdateCommand {
         let mut any_updated = false;
 
         for name in &names {
-            let res = check_and_update(name, &manifest, &registry, &config, &layout);
+            let (pkg_name, pkg_ver) = parse_package_version(name);
+
+            if pkg_ver.is_some() {
+                report!(
+                    MsgType::Warning,
+                    "Version specifier ignored for '{name}'. Update always targets the latest version"
+                )
+            }
+
+            let res = check_and_update(pkg_name, &manifest, &registry, &config, &layout);
             match res {
                 Ok(UpdateStatus::Updated(ref receipt)) => {
                     manifest.add(receipt.full_receipt.clone());
                     if let Err(e) = receipt.full_receipt.save_to_install_dir() {
                         report!(
                             MsgType::Warning,
-                            "Failed to save backup receipt for '{name}': {e}"
+                            "Failed to save backup receipt for '{pkg_name}': {e}"
                         );
                     }
                     any_updated = true;
@@ -61,8 +70,8 @@ impl CommandHandler for UpdateCommand {
                 }
                 Ok(_) => (),
                 Err(e) => {
-                    report!(MsgType::Error, "Failed to update '{name}': {e}");
-                    results.push(UpdateStatus::Failed(name.to_string(), e.to_string()));
+                    report!(MsgType::Error, "Failed to update '{pkg_name}': {e}");
+                    results.push(UpdateStatus::Failed(pkg_name.to_string(), e.to_string()));
                 }
             }
         }
@@ -97,7 +106,7 @@ fn check_and_update(
 
     let pkg_def = registry.pkgs.get(name).ok_or(PkgError::NotFound(name.to_string()))?;
 
-    let candidate = find_best_candidate(pkg_def)?;
+    let candidate = find_best_candidate(pkg_def, None)?;
 
     if candidate.version == current_ver {
         report!(MsgType::Info, "'{name}' is up to date ({current_ver})");

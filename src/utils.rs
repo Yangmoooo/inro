@@ -313,3 +313,12 @@ pub fn terminal_link(text: &str, url: &str) -> String {
         text.to_string()
     }
 }
+
+/// Parses "package" or "package@version"
+pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
+    if let Some((name, version)) = input.split_once('@') {
+        (name, Some(version))
+    } else {
+        (input, None)
+    }
+}

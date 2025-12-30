@@ -11,11 +11,14 @@ use crate::remotes::{InstallCandidate, create_provider};
 use crate::report;
 use crate::utils::*;
 
-pub fn find_best_candidate(pkg_def: &PkgDef) -> Result<InstallCandidate, PkgError> {
+pub fn find_best_candidate(
+    pkg_def: &PkgDef,
+    ver: Option<&str>,
+) -> Result<InstallCandidate, PkgError> {
     let provider = create_provider(&pkg_def.remote)?;
 
     report!(MsgType::Detail, "Fetching candidates from remote...");
-    let candidates = provider.find_candidates(pkg_def)?;
+    let candidates = provider.find_candidates(pkg_def, ver)?;
     let candidate = candidates
         // just take the first one for now
         .first()

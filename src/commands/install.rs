@@ -9,9 +9,10 @@ use crate::manifest::Manifest;
 use crate::package::PkgError;
 use crate::registry::Registry;
 use crate::report;
-use crate::utils::unique;
+use crate::utils::{parse_package_version, unique};
 
 pub struct InstallCommand {
+    /// Package names, optionally with version (e.g. "ripgrep@15.1.0")
     pub names: Vec<String>,
 }
 
@@ -40,11 +41,14 @@ impl CommandHandler for InstallCommand {
 
         // install one by one
         for name in &names {
-            let pkg_def = registry.pkgs.get(name).ok_or(PkgError::NotFound(name.to_string()))?;
-            let candidate = find_best_candidate(pkg_def)?;
-            let pkg = pkg_def.clone().resolve(name);
+            let (pkg_name, pkg_ver) = parse_package_version(name);
 
-            match install_candidate(name, &candidate, &pkg, &config, &layout) {
+            let pkg_def =
+                registry.pkgs.get(pkg_name).ok_or(PkgError::NotFound(pkg_name.to_string()))?;
+            let candidate = find_best_candidate(pkg_def, pkg_ver)?;
+            let pkg = pkg_def.clone().resolve(pkg_name);
+
+            match install_candidate(pkg_name, &candidate, &pkg, &config, &layout) {
                 Ok(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
                         report!(MsgType::Warning, "Failed to save backup receipt: {e}");
