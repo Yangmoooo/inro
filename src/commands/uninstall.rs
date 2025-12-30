@@ -12,7 +12,6 @@ use crate::utils::unique;
 
 pub struct UninstallCommand {
     pub names: Vec<String>,
-    pub layout: InroLayout,
 }
 
 struct UninstallReceipt {
@@ -26,7 +25,8 @@ impl CommandHandler for UninstallCommand {
         let names = unique(&self.names);
         report!(MsgType::Info, "Starting uninstallation of {} package(s)...", names.len());
 
-        let manifest_path = &self.layout.manifest_path;
+        let layout = InroLayout::new()?;
+        let manifest_path = &layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;
 
         if manifest.pkgs.is_empty() {

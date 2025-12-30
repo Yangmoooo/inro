@@ -23,20 +23,19 @@ static VERBOSITY: LazyLock<AtomicU8> = LazyLock::new(AtomicU8::default);
 fn main() -> anyhow::Result<()> {
     let cli = Cli::parse();
     VERBOSITY.store(cli.verbose, Ordering::Relaxed);
-    let layout = layout::InroLayout::new()?;
 
     if let Some(command) = cli.command {
         let command_handler: Box<dyn CommandHandler> = match command {
-            Command::Install { names } => Box::new(InstallCommand { names, layout }),
-            Command::Uninstall { names } => Box::new(UninstallCommand { names, layout }),
-            Command::List => Box::new(ListCommand { layout }),
-            Command::Update { names } => Box::new(UpdateCommand { names, layout }),
-            Command::Source { command } => Box::new(SourceCommand { command, layout }),
-            Command::Search { query } => Box::new(SearchCommand { query, layout }),
-            Command::Info { name } => Box::new(InfoCommand { name, layout }),
-            Command::Use { name, version } => Box::new(UseCommand { name, version, layout }),
-            Command::Unlink { name } => Box::new(UnlinkCommand { name, layout }),
-            Command::Clean { dry_run } => Box::new(CleanCommand { dry_run, layout }),
+            Command::Install { names } => Box::new(InstallCommand { names }),
+            Command::Uninstall { names } => Box::new(UninstallCommand { names }),
+            Command::List => Box::new(ListCommand {}),
+            Command::Update { names } => Box::new(UpdateCommand { names }),
+            Command::Source { command } => Box::new(SourceCommand { command }),
+            Command::Search { query } => Box::new(SearchCommand { query }),
+            Command::Info { name } => Box::new(InfoCommand { name }),
+            Command::Use { name, version } => Box::new(UseCommand { name, version }),
+            Command::Unlink { name } => Box::new(UnlinkCommand { name }),
+            Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
 
             _ => anyhow::bail!("Not implemented yet!"),
         };

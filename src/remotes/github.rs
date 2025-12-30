@@ -179,7 +179,7 @@ struct Releases(Vec<Release>);
 impl Releases {
     fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
 
-    fn first_suitable(&self) -> Result<&Release> {
+    fn latest_suitable(&self) -> Result<&Release> {
         let suitable = self.list_suitable();
         suitable.first().copied().ok_or_else(|| {
             let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
@@ -187,7 +187,6 @@ impl Releases {
         })
     }
 
-    #[allow(dead_code)]
     fn get_by_tag(&self, tag: &str) -> Result<&Release> {
         self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
             let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
@@ -266,20 +265,26 @@ impl GitHubProvider {
 }
 
 impl RemoteProvider for GitHubProvider {
-    fn find_candidates(&self, pkg: &PkgDef) -> super::Result<Vec<InstallCandidate>> {
+    fn find_candidates(
+        &self,
+        pkg: &PkgDef,
+        ver: Option<&str>,
+    ) -> super::Result<Vec<InstallCandidate>> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
         let releases = self.fetch_releases(repo)?;
-        let suitable_release = releases.first_suitable()?;
+        let release =
+            if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
+
         let RemoteType::GitHub(asset_def) = &pkg.remote;
-        let assets = suitable_release.find_assets(&asset_def.asset)?;
+        let assets = release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
             .map(|asset| InstallCandidate {
-                version: suitable_release.tag_name.clone(),
+                version: release.tag_name.clone(),
                 asset_name: asset.name.clone(),
                 download_url: asset.browser_download_url.clone(),
             })

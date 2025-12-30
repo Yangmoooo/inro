@@ -9,11 +9,11 @@ use crate::manifest::Manifest;
 use crate::package::PkgError;
 use crate::registry::Registry;
 use crate::report;
-use crate::utils::unique;
+use crate::utils::{parse_package_version, unique};
 
 pub struct InstallCommand {
+    /// Package names, optionally with version (e.g. "ripgrep@15.1.0")
     pub names: Vec<String>,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for InstallCommand {
@@ -22,9 +22,10 @@ impl CommandHandler for InstallCommand {
         report!(MsgType::Info, "Starting installation of {} package(s)...", names.len());
 
         // prepare
-        let config = Config::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
         report!(MsgType::Detail, "Loaded inro config");
-        let registry = Registry::load(&self.layout)?;
+        let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {
             report!(
                 MsgType::Warning,
@@ -33,18 +34,21 @@ impl CommandHandler for InstallCommand {
             return Ok(());
         }
         report!(MsgType::Detail, "Loaded inro registry");
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
         // install one by one
         for name in &names {
-            let pkg_def = registry.pkgs.get(name).ok_or(PkgError::NotFound(name.to_string()))?;
-            let candidate = find_best_candidate(pkg_def)?;
-            let pkg = pkg_def.clone().resolve(name);
+            let (pkg_name, pkg_ver) = parse_package_version(name);
 
-            match install_candidate(name, &candidate, &pkg, &config, &self.layout) {
+            let pkg_def =
+                registry.pkgs.get(pkg_name).ok_or(PkgError::NotFound(pkg_name.to_string()))?;
+            let candidate = find_best_candidate(pkg_def, pkg_ver)?;
+            let pkg = pkg_def.clone().resolve(pkg_name);
+
+            match install_candidate(pkg_name, &candidate, &pkg, &config, &layout) {
                 Ok(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
                         report!(MsgType::Warning, "Failed to save backup receipt: {e}");
@@ -60,7 +64,7 @@ impl CommandHandler for InstallCommand {
         }
 
         // save manifest
-        manifest.save(&self.layout.manifest_path)?;
+        manifest.save(&layout.manifest_path)?;
         report!(MsgType::Detail, "Manifest updated");
 
         // summary

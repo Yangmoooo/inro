@@ -10,13 +10,13 @@ use crate::report;
 pub struct UseCommand {
     pub name: String,
     pub version: String,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for UseCommand {
     fn handle(&self) -> Result<()> {
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
-        let config = Config::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
+        let config = Config::load(&layout)?;
 
         let state = manifest
             .pkgs
@@ -33,7 +33,7 @@ impl CommandHandler for UseCommand {
 
             state.current_version = Some(self.version.clone());
 
-            manifest.save(&self.layout.manifest_path)?;
+            manifest.save(&layout.manifest_path)?;
 
             report!(MsgType::Success, "Now using {}@{}", self.name.green(), self.version.green());
         } else {

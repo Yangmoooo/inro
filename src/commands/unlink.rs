@@ -7,12 +7,12 @@ use crate::report;
 
 pub struct UnlinkCommand {
     pub name: String,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for UnlinkCommand {
     fn handle(&self) -> Result<()> {
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
+        let layout = InroLayout::new()?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         if let Some(receipt) = manifest.unlink_pkg(&self.name) {
             report!(MsgType::Step, "Unlinking '{}' ({}) ...", self.name, receipt.version);
@@ -21,7 +21,7 @@ impl CommandHandler for UnlinkCommand {
                 report!(MsgType::Warning, "Failed to remove symlinks: {e}");
             }
 
-            manifest.save(&self.layout.manifest_path)?;
+            manifest.save(&layout.manifest_path)?;
 
             report!(MsgType::Success, "Unlinked '{}'. Package remains installed", self.name);
         } else if let Some(state) = manifest.pkgs.get(&self.name) {

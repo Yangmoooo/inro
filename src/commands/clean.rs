@@ -13,13 +13,13 @@ use crate::utils::sanitize_version;
 
 pub struct CleanCommand {
     pub dry_run: bool,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for CleanCommand {
     fn handle(&self) -> Result<()> {
-        let mut manifest = Manifest::load(&self.layout.manifest_path)?;
-        let pkgs_root = &self.layout.pkgs_dir;
+        let layout = InroLayout::new()?;
+        let mut manifest = Manifest::load(&layout.manifest_path)?;
+        let pkgs_root = layout.pkgs_dir;
 
         if !pkgs_root.exists() {
             report!(MsgType::Warning, "No packages directory found.");
@@ -99,7 +99,7 @@ impl CommandHandler for CleanCommand {
         if self.dry_run {
             report!(MsgType::Info, "Dry run complete. Use without --dry-run to perform cleanup.");
         } else if any_removed {
-            manifest.save(&self.layout.manifest_path)?;
+            manifest.save(&layout.manifest_path)?;
 
             let total_size_str = humansize::format_size(recovered_space, humansize::DECIMAL);
             report!(

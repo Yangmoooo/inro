@@ -62,7 +62,7 @@ pub struct VersionInfo {
 }
 
 pub trait RemoteProvider {
-    fn find_candidates(&self, pkg: &PkgDef) -> Result<Vec<InstallCandidate>>;
+    fn find_candidates(&self, pkg: &PkgDef, ver: Option<&str>) -> Result<Vec<InstallCandidate>>;
     fn list_versions(&self, pkg: &PkgDef) -> Result<Vec<VersionInfo>>;
 }
 

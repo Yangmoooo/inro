@@ -2,7 +2,7 @@ use clap::{Parser, Subcommand};
 
 #[derive(Parser, Debug)]
 #[command(name = "inro", author = "Yangmoooo")]
-#[command(version, propagate_version = true)]
+#[command(version)]
 #[command(about = "A personal toolbox for your favorite command-line tools.")]
 pub struct Cli {
     #[command(subcommand)]

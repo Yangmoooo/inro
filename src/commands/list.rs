@@ -8,9 +8,7 @@ use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::report;
 
-pub struct ListCommand {
-    pub layout: InroLayout,
-}
+pub struct ListCommand {}
 
 struct ListEntry {
     name: String,
@@ -21,7 +19,8 @@ struct ListEntry {
 
 impl CommandHandler for ListCommand {
     fn handle(&self) -> Result<()> {
-        let manifest = Manifest::load(&self.layout.manifest_path)?;
+        let layout = InroLayout::new()?;
+        let manifest = Manifest::load(&layout.manifest_path)?;
 
         if manifest.pkgs.is_empty() {
             report!(MsgType::Warning, "No packages installed");

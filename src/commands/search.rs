@@ -11,7 +11,6 @@ use crate::report;
 
 pub struct SearchCommand {
     pub query: String,
-    pub layout: InroLayout,
 }
 
 struct SearchEntry {
@@ -23,13 +22,14 @@ struct SearchEntry {
 
 impl CommandHandler for SearchCommand {
     fn handle(&self) -> Result<()> {
-        let registry = Registry::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {
             report!(MsgType::Warning, "Registry is empty.");
             return Ok(());
         }
 
-        let manifest = Manifest::load(&self.layout.manifest_path).ok();
+        let manifest = Manifest::load(&layout.manifest_path).ok();
 
         let query = self.query.to_lowercase();
         let mut results = Vec::new();

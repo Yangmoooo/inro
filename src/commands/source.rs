@@ -12,14 +12,14 @@ use crate::utils::download_file;
 
 pub struct SourceCommand {
     pub command: SourceSubCommand,
-    pub layout: InroLayout,
 }
 
 impl CommandHandler for SourceCommand {
     fn handle(&self) -> Result<()> {
-        let config = Config::load(&self.layout)?;
+        let layout = InroLayout::new()?;
+        let config = Config::load(&layout)?;
         let upstreams = &config.upstreams;
-        let upstream_registry_dir = &self.layout.upstream_registry_dir;
+        let upstream_registry_dir = &layout.upstream_registry_dir;
 
         match &self.command {
             SourceSubCommand::List => {
