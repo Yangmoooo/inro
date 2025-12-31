@@ -75,7 +75,7 @@ jobs:
             tar -cJvf "../$ARCHIVE_NAME" *
           else
             7z a "../$ARCHIVE_NAME" *
-          if
+          fi
 
           echo "ASSET=$ARCHIVE_NAME" >> "$GITHUB_ENV"
 
