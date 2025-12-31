@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0] - 2025-12-31
+
 ### Added
 
-## [0.1.0] - 202x-xx-xx
+- **Initial Release**: First public release of `inro`.
+- **Core Commands**:
+  - `install`: Support for latest or specific versions (`pkg@ver`).
+  - `uninstall`: Support for removing specific versions or all versions.
+  - `update`: Upgrade packages to the latest suitable version.
+  - `source`: Manage upstream registries.
+  - `use`: Switch between installed versions instantly.
+  - `list`, `info`, `clean`, `unlink`.
+- **Multi-Version Management**: Ability to install and manage multiple versions of the same package side-by-side.
+- **Smart Discovery**: Automatically detects platform-specific assets (OS/Arch) from GitHub Releases.
+- **Archive Support**: Native extraction for `.tar.gz`, `.tar.xz`, `.tar.bz2`, `.zip`, `.7z`, and standalone binaries.
+- **Registry System**: Configuration-driven package definitions supporting local overrides and remote updates.
+- **Shell Integration**: Built-in generator for Man pages and shell completions (Bash, Zsh, Fish, PowerShell).
