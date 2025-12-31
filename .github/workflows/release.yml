@@ -62,7 +62,7 @@ jobs:
           cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate bash --out dist/completions
           cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate zsh --out dist/completions
           cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate fish --out dist/completions
-          cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate powershell --out dist/completions
+          cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate power-shell --out dist/completions
 
       - name: Create archive
         shell: bash
