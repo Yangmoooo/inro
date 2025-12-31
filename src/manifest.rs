@@ -83,11 +83,4 @@ impl Manifest {
         let receipts = state.versions.into_values().collect();
         Some(receipts)
     }
-
-    #[allow(dead_code)]
-    pub fn get_current_receipt(&self, name: &str) -> Option<&PkgReceipt> {
-        let state = self.pkgs.get(name)?;
-        let version = state.current_version.as_ref()?;
-        state.versions.get(version)
-    }
 }

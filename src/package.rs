@@ -186,10 +186,6 @@ pub enum PkgError {
     #[error("Download failed: '{0}'")]
     Download(#[from] anyhow::Error),
 
-    #[error("Checksum validation failed for downloaded file")]
-    #[allow(dead_code)]
-    ChecksumMismatch,
-
     #[error("Failed to extract archive '{filename}'")]
     Extraction {
         filename: String,
