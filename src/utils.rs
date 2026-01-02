@@ -1,7 +1,6 @@
 use std::fs::{self, File};
 use std::io::{self, BufReader, Read, copy};
 use std::path::{Path, PathBuf};
-use std::result;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
@@ -192,7 +191,7 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
 }
 
 pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(Result::ok).collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -205,7 +204,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
         return Ok(());
     }
 
-    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(result::Result::ok).collect();
+    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.filter_map(Result::ok).collect();
 
     for sub_entry in sub_entries {
         let sub_path = sub_entry.path();
@@ -223,7 +222,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
 }
 
 pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(result::Result::ok).collect();
+    let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(Result::ok).collect();
 
     if entries.len() != 1 {
         return Ok(());
@@ -247,7 +246,7 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
 
-    for entry in walker.filter_map(result::Result::ok) {
+    for entry in walker.filter_map(Result::ok) {
         let path = entry.path();
         if path.is_file()
             && let Some(fname) = path.file_name().and_then(|s| s.to_str())
