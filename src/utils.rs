@@ -321,3 +321,197 @@ pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
         (input, None)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ==================== unique() ====================
+
+    #[test]
+    fn unique_removes_duplicates() {
+        let input = vec!["b".into(), "a".into(), "b".into(), "c".into(), "a".into()];
+        let result = unique(&input);
+        assert_eq!(result, vec!["a", "b", "c"]);
+    }
+
+    #[test]
+    fn unique_empty_input() {
+        let input: Vec<String> = vec![];
+        let result = unique(&input);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn unique_single_element() {
+        let input = vec!["only".into()];
+        let result = unique(&input);
+        assert_eq!(result, vec!["only"]);
+    }
+
+    // ==================== is_ignored_format() ====================
+
+    #[test]
+    fn is_ignored_format_checksums() {
+        assert!(is_ignored_format("file.sha256"));
+        assert!(is_ignored_format("file.sha256sum"));
+        assert!(is_ignored_format("file.md5"));
+        assert!(is_ignored_format("file.asc"));
+        assert!(is_ignored_format("file.sig"));
+    }
+
+    #[test]
+    fn is_ignored_format_installers() {
+        assert!(is_ignored_format("package.deb"));
+        assert!(is_ignored_format("package.rpm"));
+        assert!(is_ignored_format("package.msi"));
+        assert!(is_ignored_format("package.pkg"));
+        assert!(is_ignored_format("package.dmg"));
+    }
+
+    #[test]
+    fn is_ignored_format_data_files() {
+        assert!(is_ignored_format("readme.txt"));
+        assert!(is_ignored_format("notes.md"));
+        assert!(is_ignored_format("config.json"));
+        assert!(is_ignored_format("data.xml"));
+    }
+
+    #[test]
+    fn is_ignored_format_valid_archives_not_ignored() {
+        assert!(!is_ignored_format("package.tar.gz"));
+        assert!(!is_ignored_format("package.zip"));
+        assert!(!is_ignored_format("package.7z"));
+    }
+
+    // ==================== is_supported_format() ====================
+
+    #[test]
+    fn is_supported_format_archives() {
+        assert!(is_supported_format("package.tar.gz"));
+        assert!(is_supported_format("package.tgz"));
+        assert!(is_supported_format("package.tar.xz"));
+        assert!(is_supported_format("package.txz"));
+        assert!(is_supported_format("package.tar.bz2"));
+        assert!(is_supported_format("package.tbz"));
+        assert!(is_supported_format("package.7z"));
+        assert!(is_supported_format("package.zip"));
+    }
+
+    #[test]
+    fn is_supported_format_exe() {
+        assert!(is_supported_format("binary.exe"));
+    }
+
+    #[test]
+    fn is_supported_format_no_extension() {
+        // ELF binaries often have no extension
+        assert!(is_supported_format("ripgrep-linux-x86_64"));
+    }
+
+    #[test]
+    fn is_supported_format_unknown_extension() {
+        // Unknown extensions are not supported (need explicit config)
+        assert!(!is_supported_format("file.unknown"));
+        assert!(!is_supported_format("file.abc"));
+    }
+
+    // ==================== sanitize_version() ====================
+
+    #[test]
+    fn sanitize_version_replaces_slashes() {
+        assert_eq!(sanitize_version("v1/2/3"), "v1-2-3");
+        assert_eq!(sanitize_version("v1\\2\\3"), "v1-2-3");
+    }
+
+    #[test]
+    fn sanitize_version_replaces_colons() {
+        assert_eq!(sanitize_version("v1:2:3"), "v1-2-3");
+    }
+
+    #[test]
+    fn sanitize_version_mixed() {
+        assert_eq!(sanitize_version("v1/2:3\\4"), "v1-2-3-4");
+    }
+
+    #[test]
+    fn sanitize_version_no_changes() {
+        assert_eq!(sanitize_version("v1.2.3"), "v1.2.3");
+        assert_eq!(sanitize_version("1.0.0-beta"), "1.0.0-beta");
+    }
+
+    // ==================== parse_package_version() ====================
+
+    #[test]
+    fn parse_package_version_with_version() {
+        let (name, version) = parse_package_version("ripgrep@15.1.0");
+        assert_eq!(name, "ripgrep");
+        assert_eq!(version, Some("15.1.0"));
+    }
+
+    #[test]
+    fn parse_package_version_without_version() {
+        let (name, version) = parse_package_version("ripgrep");
+        assert_eq!(name, "ripgrep");
+        assert_eq!(version, None);
+    }
+
+    #[test]
+    fn parse_package_version_with_v_prefix() {
+        let (name, version) = parse_package_version("fd@v9.0.0");
+        assert_eq!(name, "fd");
+        assert_eq!(version, Some("v9.0.0"));
+    }
+
+    #[test]
+    fn parse_package_version_empty_version() {
+        // Edge case: trailing @
+        let (name, version) = parse_package_version("pkg@");
+        assert_eq!(name, "pkg");
+        assert_eq!(version, Some(""));
+    }
+
+    // ==================== FileType::from_extension() ====================
+
+    #[test]
+    fn filetype_from_extension_tar_gz() {
+        let path = Path::new("archive.tar.gz");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::TarGz)));
+
+        let path = Path::new("archive.tgz");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::TarGz)));
+    }
+
+    #[test]
+    fn filetype_from_extension_tar_xz() {
+        let path = Path::new("archive.tar.xz");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::TarXz)));
+
+        let path = Path::new("archive.txz");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::TarXz)));
+    }
+
+    #[test]
+    fn filetype_from_extension_zip() {
+        let path = Path::new("archive.zip");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::Zip)));
+    }
+
+    #[test]
+    fn filetype_from_extension_7z() {
+        let path = Path::new("archive.7z");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::SevenZ)));
+    }
+
+    #[test]
+    fn filetype_from_extension_exe() {
+        let path = Path::new("binary.exe");
+        assert!(matches!(FileType::from_extension(path), Some(FileType::Pe)));
+    }
+
+    #[test]
+    fn filetype_from_extension_unknown() {
+        let path = Path::new("binary-linux-x86_64");
+        assert!(FileType::from_extension(path).is_none());
+    }
+}

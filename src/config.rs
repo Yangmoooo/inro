@@ -118,3 +118,51 @@ impl Config {
         path.to_path_buf()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn expand_path_tilde_only() {
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("~"), home);
+        assert_eq!(result, PathBuf::from("/home/user"));
+    }
+
+    #[test]
+    fn expand_path_tilde_slash() {
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("~/bin"), home);
+        assert_eq!(result, PathBuf::from("/home/user/bin"));
+    }
+
+    #[test]
+    fn expand_path_tilde_nested() {
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("~/.local/bin"), home);
+        assert_eq!(result, PathBuf::from("/home/user/.local/bin"));
+    }
+
+    #[test]
+    fn expand_path_absolute_unchanged() {
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("/usr/local/bin"), home);
+        assert_eq!(result, PathBuf::from("/usr/local/bin"));
+    }
+
+    #[test]
+    fn expand_path_relative_unchanged() {
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("./bin"), home);
+        assert_eq!(result, PathBuf::from("./bin"));
+    }
+
+    #[test]
+    fn expand_path_tilde_not_at_start() {
+        // Tilde not at start should not be expanded
+        let home = Path::new("/home/user");
+        let result = Config::expand_path(Path::new("/path/to/~"), home);
+        assert_eq!(result, PathBuf::from("/path/to/~"));
+    }
+}
