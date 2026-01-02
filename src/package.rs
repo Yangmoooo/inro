@@ -74,7 +74,7 @@ impl PkgDef {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct PkgState {
     // none means installed but not linked
     pub current_version: Option<String>,
@@ -84,8 +84,6 @@ pub struct PkgState {
 }
 
 impl PkgState {
-    pub fn default() -> Self { Self { current_version: None, versions: HashMap::new() } }
-
     /// Get the latest **installed** version from PkgState
     pub fn get_latest_version(&self) -> Option<String> {
         self.versions
