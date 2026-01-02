@@ -52,7 +52,7 @@ impl Manifest {
         let pkg_name = receipt.name.clone();
         let version = receipt.version.clone();
 
-        let state = self.pkgs.entry(pkg_name).or_insert_with(PkgState::default);
+        let state = self.pkgs.entry(pkg_name).or_default();
         state.versions.insert(version.clone(), receipt);
         state.current_version = Some(version);
     }
