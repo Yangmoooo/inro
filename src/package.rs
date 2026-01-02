@@ -197,3 +197,150 @@ pub enum PkgError {
     #[error("Filesystem IO error: {0}")]
     Io(#[from] std::io::Error),
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remotes::GitHubAssetDef;
+
+    fn make_pkg_def(bins: Vec<BinDef>) -> PkgDef {
+        PkgDef {
+            ver: Some("v1.0.0".to_string()),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/repo".to_string(),
+                asset: HashMap::new(),
+            }),
+            bin: bins,
+        }
+    }
+
+    // ==================== PkgDef::resolve() ====================
+
+    #[test]
+    fn resolve_empty_bins_uses_package_name() {
+        let pkg_def = make_pkg_def(vec![]);
+        let resolved = pkg_def.resolve("ripgrep");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "ripgrep");
+            assert_eq!(resolved.bin[0].link, "ripgrep");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "ripgrep.exe");
+            assert_eq!(resolved.bin[0].link, "ripgrep.exe");
+        }
+    }
+
+    #[test]
+    fn resolve_custom_bin_name() {
+        let pkg_def = make_pkg_def(vec![BinDef { name: Some("rg".to_string()), link: None }]);
+        let resolved = pkg_def.resolve("ripgrep");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "rg");
+            assert_eq!(resolved.bin[0].link, "rg");
+        }
+    }
+
+    #[test]
+    fn resolve_custom_bin_name_and_link() {
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some("rg".to_string()),
+            link: Some("ripgrep".to_string()),
+        }]);
+        let resolved = pkg_def.resolve("ripgrep");
+
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "rg");
+            assert_eq!(resolved.bin[0].link, "ripgrep");
+        }
+    }
+
+    #[test]
+    fn resolve_multiple_binaries() {
+        let pkg_def = make_pkg_def(vec![
+            BinDef { name: Some("uv".to_string()), link: None },
+            BinDef { name: Some("uvx".to_string()), link: None },
+        ]);
+        let resolved = pkg_def.resolve("uv");
+
+        assert_eq!(resolved.bin.len(), 2);
+    }
+
+    #[test]
+    fn resolve_preserves_version() {
+        let pkg_def = make_pkg_def(vec![]);
+        let resolved = pkg_def.resolve("test");
+
+        assert_eq!(resolved.ver, Some("v1.0.0".to_string()));
+    }
+
+    // ==================== PkgState::get_latest_version() ====================
+
+    #[test]
+    fn pkg_state_get_latest_version_empty() {
+        let state = PkgState::default();
+        assert!(state.get_latest_version().is_none());
+    }
+
+    #[test]
+    fn pkg_state_get_latest_version_single() {
+        let mut state = PkgState::default();
+        state.versions.insert(
+            "1.0.0".to_string(),
+            PkgReceipt {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                remote: RemoteType::default(),
+                installed_at: Utc::now(),
+                install_dir: PathBuf::from("/tmp"),
+                binaries: vec![],
+            },
+        );
+
+        assert_eq!(state.get_latest_version(), Some("1.0.0".to_string()));
+    }
+
+    #[test]
+    fn pkg_state_get_latest_version_by_install_time() {
+        use chrono::Duration;
+
+        let mut state = PkgState::default();
+        let now = Utc::now();
+
+        // Older version installed first
+        state.versions.insert(
+            "1.0.0".to_string(),
+            PkgReceipt {
+                name: "test".to_string(),
+                version: "1.0.0".to_string(),
+                remote: RemoteType::default(),
+                installed_at: now - Duration::hours(1),
+                install_dir: PathBuf::from("/tmp/1.0.0"),
+                binaries: vec![],
+            },
+        );
+
+        // Newer version installed later
+        state.versions.insert(
+            "2.0.0".to_string(),
+            PkgReceipt {
+                name: "test".to_string(),
+                version: "2.0.0".to_string(),
+                remote: RemoteType::default(),
+                installed_at: now,
+                install_dir: PathBuf::from("/tmp/2.0.0"),
+                binaries: vec![],
+            },
+        );
+
+        // Should return the one with latest installed_at
+        assert_eq!(state.get_latest_version(), Some("2.0.0".to_string()));
+    }
+}
