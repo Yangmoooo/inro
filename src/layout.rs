@@ -21,12 +21,14 @@ impl InroLayout {
         let data_local_dir = dirs::data_local_dir()
             .ok_or_else(|| anyhow!("Could not determine data local directory"))?;
 
-        let config_path = config_dir.join("inro").join("config.toml");
-        let manifest_path = data_local_dir.join("inro").join("inro-manifest.json");
+        let inro_config_dir = config_dir.join("inro");
+        let inro_data_dir = data_local_dir.join("inro");
 
-        let pkgs_dir = data_local_dir.join("inro").join("pkgs");
-        let upstream_registry_dir = data_local_dir.join("inro").join("sources.list.d");
-        let local_registry_dir = config_dir.join("inro").join("sources.list.d");
+        let config_path = inro_config_dir.join("config.toml");
+        let manifest_path = inro_data_dir.join("inro-manifest.json");
+        let pkgs_dir = inro_data_dir.join("pkgs");
+        let upstream_registry_dir = inro_data_dir.join("sources.list.d");
+        let local_registry_dir = inro_config_dir.join("sources.list.d");
 
         Ok(Self {
             home_dir,
