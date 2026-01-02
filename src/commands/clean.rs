@@ -3,6 +3,7 @@ use std::fs;
 
 use anyhow::Result;
 use colored::Colorize;
+use humansize::{DECIMAL, format_size};
 
 use super::CommandHandler;
 use crate::layout::InroLayout;
@@ -77,7 +78,7 @@ impl CommandHandler for CleanCommand {
         let mut any_removed = false;
 
         for (pkg, ver, path, size) in &candidates_to_remove {
-            let size_str = humansize::format_size(*size, humansize::DECIMAL);
+            let size_str = format_size(*size, DECIMAL);
 
             if self.dry_run {
                 println!("  - {} {} ({})", pkg, ver.dimmed(), size_str);
@@ -100,7 +101,7 @@ impl CommandHandler for CleanCommand {
         } else if any_removed {
             manifest.save(&layout.manifest_path)?;
 
-            let total_size_str = humansize::format_size(recovered_space, humansize::DECIMAL);
+            let total_size_str = format_size(recovered_space, DECIMAL);
             report!(
                 MsgType::Success,
                 "Cleaned up {} old versions. Freed {}.",
