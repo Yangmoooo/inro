@@ -17,24 +17,16 @@ pub struct InstallCommand {
     pub names: Vec<String>,
 }
 
-/// Intermediate struct for parallel processing
 struct InstallTask {
-    name: String,
     pkg_name: String,
     pkg_ver: Option<String>,
     progress: PkgProgress,
-}
-
-enum InstallResult {
-    Success(PkgReceipt),
-    Failure(String, String),
 }
 
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
         let names = unique(&self.names);
 
-        // prepare
         let layout = InroLayout::new()?;
         let config = Config::load(&layout)?;
         let registry = Registry::load(&layout)?;
@@ -47,51 +39,50 @@ impl CommandHandler for InstallCommand {
         }
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
-        // Create progress manager
-        let pm = ProgressManager::new();
+        // Parse and collect package names for width calculation
+        let parsed: Vec<_> = names
+            .iter()
+            .map(|n| {
+                let (pkg_name, pkg_ver) = parse_package_version(n);
+                (n.clone(), pkg_name.to_string(), pkg_ver.map(|s| s.to_string()))
+            })
+            .collect();
+        let pkg_names: Vec<&str> = parsed.iter().map(|(_, p, _)| p.as_str()).collect();
+        let total_count = pkg_names.len();
+        let pm = ProgressManager::new(&pkg_names);
 
-        // Create tokio runtime for async operations
-        let rt = tokio::runtime::Runtime::new()?;
-
-        // Parse package names and validate
+        // Validate and create tasks
         let mut valid_tasks = Vec::new();
-        let mut failures: Vec<(String, String)> = Vec::new();
+        let mut fail_count = 0usize;
 
-        for name in &names {
-            let (pkg_name, pkg_ver) = parse_package_version(name);
-            match registry.pkgs.get(pkg_name) {
+        for (_, pkg_name, pkg_ver) in parsed {
+            match registry.pkgs.get(&pkg_name) {
                 Some(_) => {
-                    let progress = pm.add_package(pkg_name);
-                    valid_tasks.push(InstallTask {
-                        name: name.clone(),
-                        pkg_name: pkg_name.to_string(),
-                        pkg_ver: pkg_ver.map(|s| s.to_string()),
-                        progress,
-                    });
+                    let progress = pm.add_package(&pkg_name);
+                    valid_tasks.push(InstallTask { pkg_name, pkg_ver, progress });
                 }
                 None => {
-                    let err = PkgError::NotFound(pkg_name.to_string());
-                    // Add failed package to progress display
-                    let progress = pm.add_package(pkg_name);
-                    progress.finish_error(&err.to_string());
-                    failures.push((name.clone(), err.to_string()));
+                    let err = PkgError::NotFound(pkg_name.clone());
+                    pm.add_package(&pkg_name).finish_error(&err.to_string());
+                    fail_count += 1;
                 }
             }
         }
 
-        // Phase 2: Parallel fetch candidates and download
+        // Parallel fetch and install
+        let rt = tokio::runtime::Runtime::new()?;
         let parallel_limit = config.parallel_downloads;
-        let results: Vec<InstallResult> = rt.block_on(async {
+
+        let results: Vec<Option<PkgReceipt>> = rt.block_on(async {
             stream::iter(valid_tasks)
                 .map(|task| {
                     let registry = &registry;
                     let config = &config;
                     let layout = &layout;
                     async move {
-                        let pkg_def = registry.pkgs.get(&task.pkg_name).unwrap();
+                        let pkg_def = registry.pkgs.get(&task.pkg_name)?;
                         let pkg = pkg_def.clone().resolve(&task.pkg_name);
 
-                        // Fetch candidate (async network request)
                         let candidate = match find_best_candidate(
                             pkg_def,
                             task.pkg_ver.as_deref(),
@@ -102,11 +93,10 @@ impl CommandHandler for InstallCommand {
                             Ok(c) => c,
                             Err(e) => {
                                 task.progress.finish_error(&e.to_string());
-                                return InstallResult::Failure(task.name.clone(), e.to_string());
+                                return None;
                             }
                         };
 
-                        // Download and install (async download, sync extraction)
                         match install_candidate(
                             &task.pkg_name,
                             &candidate,
@@ -119,11 +109,11 @@ impl CommandHandler for InstallCommand {
                         {
                             Ok(receipt) => {
                                 task.progress.finish_success(&candidate.version);
-                                InstallResult::Success(receipt)
+                                Some(receipt)
                             }
                             Err(e) => {
                                 task.progress.finish_error(&e.to_string());
-                                InstallResult::Failure(task.name.clone(), e.to_string())
+                                None
                             }
                         }
                     }
@@ -134,82 +124,33 @@ impl CommandHandler for InstallCommand {
         });
 
         // Process results
-        let mut successes = Vec::new();
-        for result in results {
-            match result {
-                InstallResult::Success(receipt) => {
-                    if let Err(e) = receipt.save_to_install_dir() {
-                        eprintln!(
-                            "{} Failed to save backup receipt: {e}",
-                            "warning:".yellow().bold()
-                        );
-                    }
-                    manifest.add(receipt.clone());
-                    successes.push(receipt);
-                }
-                InstallResult::Failure(name, err) => {
-                    failures.push((name, err));
-                }
-            }
+        let mut success_count = 0usize;
+        for receipt in results.into_iter().flatten() {
+            receipt.save_to_install_dir().ok();
+            manifest.add(receipt);
+            success_count += 1;
         }
+        fail_count += total_count - success_count - fail_count;
 
-        // save manifest
         manifest.save(&layout.manifest_path)?;
+        print_summary(success_count, fail_count);
 
-        // summary
-        print_summary(&successes, &failures);
-
-        if !failures.is_empty() {
+        if fail_count > 0 {
             std::process::exit(1);
         }
-
         Ok(())
     }
 }
 
-fn print_summary(successes: &[PkgReceipt], failures: &[(String, String)]) {
+fn print_summary(success: usize, failed: usize) {
     eprintln!();
-    let has_success = !successes.is_empty();
-    let has_failure = !failures.is_empty();
-
-    if has_success {
-        eprintln!("{} Successfully installed {} package(s):", "✓".green().bold(), successes.len());
-
-        let max_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
-
-        for receipt in successes {
-            let bin_name = if receipt.binaries.len() == 1 {
-                format!("(bin: {})", receipt.binaries[0].name)
-            } else {
-                format!(
-                    "(bins: {})",
-                    receipt.binaries.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")
-                )
-            };
-            eprintln!(
-                "  {} {:<max_len$} : {} {}",
-                "+".green(),
-                receipt.name.bold(),
-                receipt.version,
-                bin_name.dimmed(),
-            );
-        }
-    }
-
-    if has_failure {
-        if !successes.is_empty() {
-            eprintln!();
-        }
-
-        eprintln!("{} Failed to install {} package(s):", "✗".red().bold(), failures.len());
-
-        let max_len = failures.iter().map(|t| t.0.len()).max().unwrap_or(0);
-        for (name, err) in failures {
-            eprintln!("  {} {:<max_len$} : {}", "•".red(), name.bold(), err);
-        }
-    }
-
-    if !has_success && !has_failure {
-        eprintln!("{} Nothing was installed", "warning:".yellow().bold());
+    if success > 0 && failed == 0 {
+        eprintln!("{} Installed {} package(s)", "✓".green().bold(), success);
+    } else if success > 0 && failed > 0 {
+        eprintln!("{} Installed {} package(s), {} failed", "!".yellow().bold(), success, failed);
+    } else if failed > 0 {
+        eprintln!("{} All {} package(s) failed", "✗".red().bold(), failed);
+    } else {
+        eprintln!("{} Nothing to install", "·".dimmed());
     }
 }
