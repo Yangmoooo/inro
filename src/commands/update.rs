@@ -4,12 +4,12 @@ use futures::stream::{self, StreamExt};
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::installer::{find_best_candidate_async, install_candidate_async};
+use crate::installer::{find_best_candidate, install_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::{PkgError, PkgReceipt};
+use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::Registry;
-use crate::report;
 use crate::utils::{parse_package_version, unique};
 
 pub struct UpdateCommand {
@@ -25,8 +25,9 @@ struct UpdateReceipt {
 
 enum UpdateResult {
     Updated(Box<UpdateReceipt>),
-    Skipped,
-    NotInstalled,
+    Skipped(String),
+    #[allow(dead_code)]
+    NotInstalled(String),
     Failed(String, String),
 }
 
@@ -34,6 +35,7 @@ enum UpdateResult {
 struct UpdateTask {
     name: String,
     current_version: String,
+    progress: PkgProgress,
 }
 
 impl CommandHandler for UpdateCommand {
@@ -49,6 +51,9 @@ impl CommandHandler for UpdateCommand {
             unique(&self.names)
         };
 
+        // Create progress manager
+        let pm = ProgressManager::new();
+
         // Prepare tasks - filter out not installed packages
         let mut tasks: Vec<UpdateTask> = Vec::new();
         let mut results: Vec<UpdateResult> = Vec::new();
@@ -57,23 +62,26 @@ impl CommandHandler for UpdateCommand {
             let (pkg_name, pkg_ver) = parse_package_version(name);
 
             if pkg_ver.is_some() {
-                report!(
-                    MsgType::Warning,
-                    "Version specifier ignored for '{name}'. Update always targets the latest version"
+                eprintln!(
+                    "{} Version specifier ignored for '{name}'. Update always targets the latest version",
+                    "warning:".yellow().bold()
                 );
             }
 
             match manifest.pkgs.get(pkg_name) {
                 Some(state) => {
                     let current_ver = state.current_version.as_deref().unwrap_or_default();
+                    let progress = pm.add_package(pkg_name);
                     tasks.push(UpdateTask {
                         name: pkg_name.to_string(),
                         current_version: current_ver.to_string(),
+                        progress,
                     });
                 }
                 None => {
-                    report!(MsgType::Warning, "'{pkg_name}' not installed, skipping");
-                    results.push(UpdateResult::NotInstalled);
+                    let progress = pm.add_package(pkg_name);
+                    progress.finish_error("not installed");
+                    results.push(UpdateResult::NotInstalled(pkg_name.to_string()));
                 }
             }
         }
@@ -94,50 +102,53 @@ impl CommandHandler for UpdateCommand {
                             Some(def) => def,
                             None => {
                                 let err = PkgError::NotFound(task.name.clone());
+                                task.progress.finish_error(&err.to_string());
                                 return UpdateResult::Failed(task.name.clone(), err.to_string());
                             }
                         };
 
                         // Fetch latest candidate
-                        let candidate = match find_best_candidate_async(pkg_def, None).await {
-                            Ok(c) => c,
-                            Err(e) => {
-                                return UpdateResult::Failed(task.name.clone(), e.to_string());
-                            }
-                        };
+                        let candidate =
+                            match find_best_candidate(pkg_def, None, &task.progress).await {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    task.progress.finish_error(&e.to_string());
+                                    return UpdateResult::Failed(task.name.clone(), e.to_string());
+                                }
+                            };
 
                         // Check if already up to date
                         if candidate.version == task.current_version {
-                            report!(
-                                MsgType::Info,
-                                "'{}' is up to date ({})",
-                                task.name,
-                                task.current_version
-                            );
-                            return UpdateResult::Skipped;
+                            task.progress.finish_success(&task.current_version);
+                            return UpdateResult::Skipped(task.name.clone());
                         }
-
-                        report!(
-                            MsgType::Step,
-                            "Updating '{}': {} -> {}",
-                            task.name,
-                            task.current_version,
-                            candidate.version
-                        );
 
                         let pkg = pkg_def.clone().resolve(&task.name);
 
                         // Download and install
-                        match install_candidate_async(&task.name, &candidate, &pkg, config, layout)
-                            .await
+                        match install_candidate(
+                            &task.name,
+                            &candidate,
+                            &pkg,
+                            config,
+                            layout,
+                            &task.progress,
+                        )
+                        .await
                         {
-                            Ok(receipt) => UpdateResult::Updated(Box::new(UpdateReceipt {
-                                name: task.name.clone(),
-                                old_version: task.current_version.clone(),
-                                new_version: candidate.version,
-                                full_receipt: receipt,
-                            })),
-                            Err(e) => UpdateResult::Failed(task.name.clone(), e.to_string()),
+                            Ok(receipt) => {
+                                task.progress.finish_success(&candidate.version);
+                                UpdateResult::Updated(Box::new(UpdateReceipt {
+                                    name: task.name.clone(),
+                                    old_version: task.current_version.clone(),
+                                    new_version: candidate.version.clone(),
+                                    full_receipt: receipt,
+                                }))
+                            }
+                            Err(e) => {
+                                task.progress.finish_error(&e.to_string());
+                                UpdateResult::Failed(task.name.clone(), e.to_string())
+                            }
                         }
                     }
                 })
@@ -155,9 +166,9 @@ impl CommandHandler for UpdateCommand {
             if let UpdateResult::Updated(receipt) = result {
                 manifest.add(receipt.full_receipt.clone());
                 if let Err(e) = receipt.full_receipt.save_to_install_dir() {
-                    report!(
-                        MsgType::Warning,
-                        "Failed to save backup receipt for '{}': {e}",
+                    eprintln!(
+                        "{} Failed to save backup receipt for '{}': {e}",
+                        "warning:".yellow().bold(),
                         receipt.name
                     );
                 }
@@ -167,7 +178,6 @@ impl CommandHandler for UpdateCommand {
 
         if any_updated {
             manifest.save(&layout.manifest_path)?;
-            report!(MsgType::Detail, "Manifest updated");
         }
 
         print_summary(&results);
@@ -178,20 +188,22 @@ impl CommandHandler for UpdateCommand {
 
 fn print_summary(results: &[UpdateResult]) {
     let mut updated = Vec::new();
+    let mut skipped = Vec::new();
     let mut failed = Vec::new();
 
     for res in results {
         match res {
             UpdateResult::Updated(r) => updated.push(r),
+            UpdateResult::Skipped(name) => skipped.push(name),
             UpdateResult::Failed(name, error) => failed.push((name, error)),
-            _ => (),
+            UpdateResult::NotInstalled(_) => (),
         }
     }
 
     eprintln!();
 
     if !updated.is_empty() {
-        report!(MsgType::Success, "Updated {} package(s):", updated.len());
+        eprintln!("{} Updated {} package(s):", "✓".green().bold(), updated.len());
         let max_len = updated.iter().map(|r| r.name.len()).max().unwrap_or(0);
         for r in &updated {
             eprintln!(
@@ -209,7 +221,7 @@ fn print_summary(results: &[UpdateResult]) {
             eprintln!();
         }
 
-        report!(MsgType::Error, "Failed to update {} package(s):", failed.len());
+        eprintln!("{} Failed to update {} package(s):", "✗".red().bold(), failed.len());
         let max_len = failed.iter().map(|t| t.0.len()).max().unwrap_or(0);
         for (name, err) in failed {
             eprintln!("  {} {:<max_len$} : {}", "•".red(), name.bold(), err);
@@ -218,6 +230,10 @@ fn print_summary(results: &[UpdateResult]) {
     }
 
     if updated.is_empty() && failed.is_empty() {
-        report!(MsgType::Success, "All packages are up to date.");
+        if skipped.is_empty() {
+            eprintln!("{} Nothing to update", "info:".cyan().bold());
+        } else {
+            eprintln!("{} All {} package(s) are up to date", "✓".green().bold(), skipped.len());
+        }
     }
 }

@@ -7,6 +7,7 @@ mod layout;
 mod manifest;
 mod package;
 mod platform;
+mod progress;
 mod registry;
 mod remotes;
 mod reporter;

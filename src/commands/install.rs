@@ -4,13 +4,12 @@ use futures::stream::{self, StreamExt};
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::installer::{find_best_candidate_async, install_candidate_async};
+use crate::installer::{find_best_candidate, install_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::{PkgError, PkgReceipt};
+use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::Registry;
-use crate::remotes::InstallCandidate;
-use crate::report;
 use crate::utils::{parse_package_version, unique};
 
 pub struct InstallCommand {
@@ -23,6 +22,7 @@ struct InstallTask {
     name: String,
     pkg_name: String,
     pkg_ver: Option<String>,
+    progress: PkgProgress,
 }
 
 enum InstallResult {
@@ -33,50 +33,48 @@ enum InstallResult {
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
         let names = unique(&self.names);
-        report!(MsgType::Info, "Starting installation of {} package(s)...", names.len());
 
         // prepare
         let layout = InroLayout::new()?;
         let config = Config::load(&layout)?;
-        report!(MsgType::Detail, "Loaded inro config");
         let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {
-            report!(
-                MsgType::Warning,
-                "Registry is empty. Run 'inro source update' to fetch packages"
+            eprintln!(
+                "{} Registry is empty. Run 'inro source update' to fetch packages",
+                "warning:".yellow().bold()
             );
             return Ok(());
         }
-        report!(MsgType::Detail, "Loaded inro registry");
         let mut manifest = Manifest::load(&layout.manifest_path)?;
+
+        // Create progress manager
+        let pm = ProgressManager::new();
 
         // Create tokio runtime for async operations
         let rt = tokio::runtime::Runtime::new()?;
 
-        // Phase 1: Parallel fetch candidates
-        let tasks: Vec<InstallTask> = names
-            .iter()
-            .map(|name| {
-                let (pkg_name, pkg_ver) = parse_package_version(name);
-                InstallTask {
-                    name: name.clone(),
-                    pkg_name: pkg_name.to_string(),
-                    pkg_ver: pkg_ver.map(|s| s.to_string()),
-                }
-            })
-            .collect();
-
-        // Validate all packages exist in registry first
+        // Parse package names and validate
         let mut valid_tasks = Vec::new();
         let mut failures: Vec<(String, String)> = Vec::new();
 
-        for task in tasks {
-            match registry.pkgs.get(&task.pkg_name) {
-                Some(_) => valid_tasks.push(task),
+        for name in &names {
+            let (pkg_name, pkg_ver) = parse_package_version(name);
+            match registry.pkgs.get(pkg_name) {
+                Some(_) => {
+                    let progress = pm.add_package(pkg_name);
+                    valid_tasks.push(InstallTask {
+                        name: name.clone(),
+                        pkg_name: pkg_name.to_string(),
+                        pkg_ver: pkg_ver.map(|s| s.to_string()),
+                        progress,
+                    });
+                }
                 None => {
-                    let err = PkgError::NotFound(task.pkg_name.clone());
-                    report!(MsgType::Error, "Failed to install '{}': {err}", task.name);
-                    failures.push((task.name.clone(), err.to_string()));
+                    let err = PkgError::NotFound(pkg_name.to_string());
+                    // Add failed package to progress display
+                    let progress = pm.add_package(pkg_name);
+                    progress.finish_error(&err.to_string());
+                    failures.push((name.clone(), err.to_string()));
                 }
             }
         }
@@ -94,30 +92,39 @@ impl CommandHandler for InstallCommand {
                         let pkg = pkg_def.clone().resolve(&task.pkg_name);
 
                         // Fetch candidate (async network request)
-                        let candidate: InstallCandidate =
-                            match find_best_candidate_async(pkg_def, task.pkg_ver.as_deref()).await
-                            {
-                                Ok(c) => c,
-                                Err(e) => {
-                                    return InstallResult::Failure(
-                                        task.name.clone(),
-                                        e.to_string(),
-                                    );
-                                }
-                            };
+                        let candidate = match find_best_candidate(
+                            pkg_def,
+                            task.pkg_ver.as_deref(),
+                            &task.progress,
+                        )
+                        .await
+                        {
+                            Ok(c) => c,
+                            Err(e) => {
+                                task.progress.finish_error(&e.to_string());
+                                return InstallResult::Failure(task.name.clone(), e.to_string());
+                            }
+                        };
 
                         // Download and install (async download, sync extraction)
-                        match install_candidate_async(
+                        match install_candidate(
                             &task.pkg_name,
                             &candidate,
                             &pkg,
                             config,
                             layout,
+                            &task.progress,
                         )
                         .await
                         {
-                            Ok(receipt) => InstallResult::Success(receipt),
-                            Err(e) => InstallResult::Failure(task.name.clone(), e.to_string()),
+                            Ok(receipt) => {
+                                task.progress.finish_success(&candidate.version);
+                                InstallResult::Success(receipt)
+                            }
+                            Err(e) => {
+                                task.progress.finish_error(&e.to_string());
+                                InstallResult::Failure(task.name.clone(), e.to_string())
+                            }
                         }
                     }
                 })
@@ -132,13 +139,15 @@ impl CommandHandler for InstallCommand {
             match result {
                 InstallResult::Success(receipt) => {
                     if let Err(e) = receipt.save_to_install_dir() {
-                        report!(MsgType::Warning, "Failed to save backup receipt: {e}");
+                        eprintln!(
+                            "{} Failed to save backup receipt: {e}",
+                            "warning:".yellow().bold()
+                        );
                     }
                     manifest.add(receipt.clone());
                     successes.push(receipt);
                 }
                 InstallResult::Failure(name, err) => {
-                    report!(MsgType::Error, "Failed to install '{name}': {err}");
                     failures.push((name, err));
                 }
             }
@@ -146,7 +155,6 @@ impl CommandHandler for InstallCommand {
 
         // save manifest
         manifest.save(&layout.manifest_path)?;
-        report!(MsgType::Detail, "Manifest updated");
 
         // summary
         print_summary(&successes, &failures);
@@ -165,7 +173,7 @@ fn print_summary(successes: &[PkgReceipt], failures: &[(String, String)]) {
     let has_failure = !failures.is_empty();
 
     if has_success {
-        report!(MsgType::Success, "Successfully installed {} package(s):", successes.len());
+        eprintln!("{} Successfully installed {} package(s):", "✓".green().bold(), successes.len());
 
         let max_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
 
@@ -193,7 +201,7 @@ fn print_summary(successes: &[PkgReceipt], failures: &[(String, String)]) {
             eprintln!();
         }
 
-        report!(MsgType::Error, "Failed to install {} package(s):", failures.len());
+        eprintln!("{} Failed to install {} package(s):", "✗".red().bold(), failures.len());
 
         let max_len = failures.iter().map(|t| t.0.len()).max().unwrap_or(0);
         for (name, err) in failures {
@@ -202,6 +210,6 @@ fn print_summary(successes: &[PkgReceipt], failures: &[(String, String)]) {
     }
 
     if !has_success && !has_failure {
-        report!(MsgType::Warning, "Nothing was installed");
+        eprintln!("{} Nothing was installed", "warning:".yellow().bold());
     }
 }
