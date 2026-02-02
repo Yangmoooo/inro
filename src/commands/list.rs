@@ -6,7 +6,7 @@ use colored::Colorize;
 use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::report;
+use crate::warn;
 
 pub struct ListCommand {}
 
@@ -23,7 +23,7 @@ impl CommandHandler for ListCommand {
         let manifest = Manifest::load(&layout.manifest_path)?;
 
         if manifest.pkgs.is_empty() {
-            report!(MsgType::Warning, "No packages installed");
+            warn!("No packages installed");
             return Ok(());
         }
 

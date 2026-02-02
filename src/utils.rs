@@ -11,7 +11,7 @@ use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
 use crate::progress::PkgProgress;
-use crate::{client, report};
+use crate::{client, detail};
 
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
@@ -20,7 +20,7 @@ pub fn unique(strs: &[String]) -> Vec<String> {
     vec
 }
 
-/// Async download with progress tracking
+/// Async download with progress tracking.
 pub async fn download_file_with_progress(
     url: &str,
     dest_dir: &Path,
@@ -59,9 +59,9 @@ pub async fn download_file_with_progress(
     Ok(dest_path)
 }
 
-/// Sync version of download_file (for source update)
+/// Sync download (for source update).
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
-    report!(MsgType::Detail, "Downloading from {url}...",);
+    detail!("Downloading from {url}...");
 
     let response = reqwest::blocking::get(url)
         .with_context(|| format!("Failed to download from URL: {url}"))?;
@@ -81,19 +81,23 @@ pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
 }
 
 const BLOCK_EXTENSIONS: &[&str] = &[
-    ".sha256", // checksum
+    // Checksum
+    ".sha256",
     ".sha256sum",
     ".md5",
     ".asc",
     ".sig",
-    ".txt", // plain
+    // Plain
+    ".txt",
     ".md",
-    ".xml", // data
+    // Data
+    ".xml",
     ".json",
     ".yml",
     ".yaml",
     ".toml",
-    ".deb", // installer
+    // Installer
+    ".deb",
     ".rpm",
     ".msi",
     ".pkg",
@@ -118,23 +122,24 @@ pub fn is_supported_format(name: &str) -> bool {
     if !name.contains('.') {
         return true;
     }
-    false // a elf like xxx-v0.1.0-linux-x86_64 need to be specified in registry
+    false // An elf like xxx-v0.1.0-linux-x86_64 need to be specified in registry
 }
 
 #[derive(Debug)]
 pub enum FileType {
-    // archive
+    // Archive
     TarGz,
     TarXz,
     TarBz2,
     SevenZ,
     Zip,
-    // binary
+    // Binary
     Pe,
     Elf,
 }
 
 impl FileType {
+    /// Detect file type by extension or magic bytes.
     pub fn detect(path: &Path) -> Result<Self> {
         if let Some(ft) = Self::from_extension(path) {
             return Ok(ft);
@@ -187,6 +192,7 @@ impl FileType {
     }
 }
 
+/// Extract file to destination directory based on its type.
 pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
     let file_type = FileType::detect(file_path)?;
     let file = File::open(file_path).context("Failed to open asset file")?;
@@ -233,6 +239,8 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
     Ok(file_type)
 }
 
+/// If the root directory contains a single subdirectory, move its contents up
+/// and remove it.
 pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
     let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(Result::ok).collect();
 
@@ -264,6 +272,7 @@ pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Rename the single file in the root directory to the target name.
 pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
     let entries: Vec<_> = fs::read_dir(root_dir)?.filter_map(Result::ok).collect();
 
@@ -286,6 +295,7 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
     Ok(())
 }
 
+/// Recursively search for a binary file by name (case-insensitive).
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
 
@@ -301,6 +311,8 @@ pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     None
 }
 
+/// Create a symlink from `link` to `original`, replacing existing link/file if
+/// necessary.
 pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
     if link.exists() || link.is_symlink() {
         if link.is_dir() {
@@ -337,8 +349,10 @@ pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Sanitize version string to be filesystem-safe.
 pub fn sanitize_version(raw_version: &str) -> String { raw_version.replace(['/', '\\', ':'], "-") }
 
+/// Format a DateTime<Utc> into a string with absolute and relative time.
 pub fn format_date(dt: &DateTime<Utc>) -> String {
     let local_dt: DateTime<Local> = DateTime::from(*dt);
     let abs_time = local_dt.format("%Y-%m-%d").to_string();
@@ -348,6 +362,7 @@ pub fn format_date(dt: &DateTime<Utc>) -> String {
     format!("{abs_time}, {rel_time}")
 }
 
+/// Create a terminal hyperlink if supported.
 pub fn terminal_link(text: &str, url: &str) -> String {
     if supports_hyperlinks() {
         format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
@@ -356,7 +371,7 @@ pub fn terminal_link(text: &str, url: &str) -> String {
     }
 }
 
-/// Parses "package" or "package@version"
+/// Parses "package" or "package@version".
 pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
     if let Some((name, version)) = input.split_once('@') {
         (name, Some(version))

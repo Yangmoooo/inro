@@ -9,8 +9,8 @@ use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::PkgReceipt;
-use crate::report;
 use crate::utils::{parse_package_version, unique};
+use crate::{detail, done, fail, hint, step, warn};
 
 pub struct UninstallCommand {
     pub names: Vec<String>,
@@ -26,7 +26,7 @@ struct UninstallReceipt {
 impl CommandHandler for UninstallCommand {
     fn handle(&self) -> Result<()> {
         let names = unique(&self.names);
-        report!(MsgType::Info, "Starting uninstallation of {} package(s)...", names.len());
+        hint!("Starting uninstallation of {} package(s)...", names.len());
 
         let layout = InroLayout::new()?;
         let config = Config::load(&layout)?;
@@ -34,7 +34,7 @@ impl CommandHandler for UninstallCommand {
         let mut manifest = Manifest::load(manifest_path)?;
 
         if manifest.pkgs.is_empty() {
-            report!(MsgType::Warning, "No packages are currently installed");
+            warn!("No packages are currently installed");
             return Ok(());
         }
 
@@ -46,11 +46,11 @@ impl CommandHandler for UninstallCommand {
                 Ok(Some(receipt)) => successes.push(receipt),
                 Ok(None) => {
                     // package is not installed
-                    report!(MsgType::Warning, "Package '{name}' is not installed");
+                    warn!("Package '{name}' is not installed");
                     failures.push((name.clone(), "Package not installed".to_string()));
                 }
                 Err(e) => {
-                    report!(MsgType::Error, "Failed to uninstall '{name}': {e:?}");
+                    fail!("Failed to uninstall '{name}': {e:?}");
                     failures.push((name.clone(), e.to_string()));
                 }
             }
@@ -58,7 +58,7 @@ impl CommandHandler for UninstallCommand {
 
         if !successes.is_empty() {
             manifest.save(manifest_path)?;
-            report!(MsgType::Detail, "Manifest updated");
+            detail!("Manifest updated");
         }
 
         // summary
@@ -67,7 +67,7 @@ impl CommandHandler for UninstallCommand {
         let has_failure = !failures.is_empty();
 
         if has_success {
-            report!(MsgType::Success, "Successfully uninstalled {} package(s):", successes.len());
+            done!("Successfully uninstalled {} package(s):", successes.len());
 
             let max_name_len = successes.iter().map(|r| r.name.len()).max().unwrap_or(0);
 
@@ -90,7 +90,7 @@ impl CommandHandler for UninstallCommand {
                 eprintln!();
             }
 
-            report!(MsgType::Error, "Failed to uninstall {} package(s):", failures.len());
+            fail!("Failed to uninstall {} package(s):", failures.len());
 
             let max_name_len = failures.iter().map(|(n, _)| n.len()).max().unwrap_or(0);
             for (name, reason) in &failures {
@@ -105,7 +105,7 @@ impl CommandHandler for UninstallCommand {
         }
 
         if !has_success && !has_failure {
-            report!(MsgType::Warning, "Nothing to do");
+            warn!("Nothing to do");
             return Ok(());
         }
 
@@ -132,12 +132,12 @@ fn do_uninstall(
 
     // if uninstall --all
     if for_all {
-        report!(MsgType::Step, "Uninstalling ALL versions of '{name}'...");
+        step!("Uninstalling ALL versions of '{name}'...");
 
         if let Some(receipts) = manifest.remove_package(name) {
             for receipt in receipts {
                 cleanup_files(&receipt)?;
-                report!(MsgType::Detail, "Removed version {}", receipt.version);
+                detail!("Removed version {}", receipt.version);
             }
             return Ok(Some(UninstallReceipt {
                 name: name.to_string(),
@@ -175,7 +175,7 @@ fn do_uninstall(
         }
     };
 
-    report!(MsgType::Step, "Uninstalling package '{name}' ({target_ver})...");
+    step!("Uninstalling package '{name}' ({target_ver})...");
 
     // remove from manifest
     if let Some(receipt) = manifest.remove_version(name, &target_ver) {
@@ -194,15 +194,15 @@ fn do_uninstall(
                 && state.current_version.is_none()
                 && let Some(next_ver) = state.get_latest_version()
             {
-                report!(MsgType::Info, "Auto-switching to fallback version '{next_ver}'...");
+                hint!("Auto-switching to fallback version '{next_ver}'...");
 
                 // get receipt and relink
                 if let Some(new_receipt) = state.versions.get_mut(&next_ver) {
                     if let Err(e) = new_receipt.relink(bin_dir) {
-                        report!(MsgType::Warning, "Failed to auto-switch symlinks: {e:?}");
+                        warn!("Failed to auto-switch symlinks: {e:?}");
                     } else {
                         state.current_version = Some(next_ver.clone());
-                        report!(MsgType::Detail, "Switched successfully");
+                        detail!("Switched successfully");
                     }
                 }
             }
@@ -226,18 +226,13 @@ fn cleanup_files(receipt: &PkgReceipt) -> Result<()> {
                         fs::remove_file(link).with_context(|| {
                             format!("Failed to remove symlink: {}", link.display())
                         })?;
-                        report!(MsgType::Detail, "Removed link: {}", link.display());
+                        detail!("Removed link: {}", link.display());
                     } else {
                         // symlink points to a different target, skip
                     }
                 }
                 Err(e) => {
-                    report!(
-                        MsgType::Warning,
-                        "Failed to read symlink {}: {}, skipping removal",
-                        link.display(),
-                        e
-                    );
+                    warn!("Failed to read symlink {}: {}, skipping removal", link.display(), e);
                 }
             }
         } else if link.exists() {
@@ -250,7 +245,7 @@ fn cleanup_files(receipt: &PkgReceipt) -> Result<()> {
         fs::remove_dir_all(&receipt.install_dir).with_context(|| {
             format!("Failed to remove data dir: {}", receipt.install_dir.display())
         })?;
-        report!(MsgType::Detail, "Removed data: {}", receipt.install_dir.display());
+        detail!("Removed data: {}", receipt.install_dir.display());
     }
 
     // if package dir is empty, remove it

@@ -1,69 +1,93 @@
+//! Styled message output for CLI feedback.
+//!
+//! Provides macros for different message types:
+//! - `hint!` - General information
+//! - `done!` - Success message
+//! - `fail!` - Error message
+//! - `warn!` - Warning message
+//! - `step!` - Current operation step
+//! - `detail!` - Verbose details (requires `-v`)
+
 use std::io::{self, Write};
 
-use colored::{ColoredString, Colorize};
+use colored::Colorize;
 
-/// Prints a formatted message to stderr with a specific style.
-///
-/// Info, Success, Error, Warning, Step and Detail.
-///
-/// Notice Detail could be ignored when verbosity is set to 0.
-///
-/// # Examples
-///
-/// ```
-/// report!(MsgType::Success, "Package '{}' installed.", pkg_name);
-/// report!(MsgType::Warning, "INRO_GITHUB_TOKEN is not set.");
-/// ```
+/// General information message.
 #[macro_export]
-macro_rules! report {
-    ($msg_type:expr, $fmt:literal $(, $($arg:expr),*)?) => {
-        {
-            use std::sync::atomic::Ordering;
-            use $crate::reporter::{MsgType, report_impl};
+macro_rules! hint {
+    ($($arg:tt)*) => {
+        $crate::reporter::print_msg(&format!($($arg)*))
+    };
+}
 
-            let should_print = match $msg_type {
-                MsgType::Detail => $crate::VERBOSITY.load(Ordering::Relaxed) > 0,
-                _ => true,
-            };
-            if should_print {
-                report_impl($msg_type, &format!($fmt $(, $($arg),*)?));
-            }
+/// Success message with green checkmark.
+#[macro_export]
+macro_rules! done {
+    ($($arg:tt)*) => {
+        $crate::reporter::print_done(&format!($($arg)*))
+    };
+}
+
+/// Error message with red cross.
+#[macro_export]
+macro_rules! fail {
+    ($($arg:tt)*) => {
+        $crate::reporter::print_fail(&format!($($arg)*))
+    };
+}
+
+/// Warning message with yellow symbol.
+#[macro_export]
+macro_rules! warn {
+    ($($arg:tt)*) => {
+        $crate::reporter::print_warn(&format!($($arg)*))
+    };
+}
+
+/// Step indicator with cyan arrow.
+#[macro_export]
+macro_rules! step {
+    ($($arg:tt)*) => {
+        $crate::reporter::print_step(&format!($($arg)*))
+    };
+}
+
+/// Verbose detail (only shown with `-v`).
+#[macro_export]
+macro_rules! detail {
+    ($($arg:tt)*) => {
+        if $crate::VERBOSITY.load(std::sync::atomic::Ordering::Relaxed) > 0 {
+            $crate::reporter::print_detail(&format!($($arg)*))
         }
     };
 }
 
-pub enum MsgType {
-    Info,    // General information
-    Success, // Something good happened
-    Error,   // Something bad happened
-    Warning, // Something might be wrong
-    Step,    // The current major step of an operation
-    Detail,  // A less important detail of a step
-}
+// Implementation functions
 
-// Actually do the reporting
 #[doc(hidden)]
-pub fn report_impl(msg_type: MsgType, msg_content: &str) {
-    match msg_type {
-        MsgType::Info => print_raw(msg_content),
-        MsgType::Success => print_with_prefix(&"✔".green(), msg_content),
-        MsgType::Error => print_with_prefix(&"✖".red(), msg_content),
-        MsgType::Warning => print_with_prefix(&"⚠".yellow(), msg_content),
-        MsgType::Step => print_with_prefix(&"==>".bold().cyan(), msg_content),
-        MsgType::Detail => print_with_prefix(&"  ->".normal(), msg_content),
-    }
-}
+pub fn print_msg(msg: &str) { writeln!(io::stderr(), "{msg}").ok(); }
 
-fn print_raw(message: &str) { writeln!(io::stderr(), "{message}").ok(); }
+#[doc(hidden)]
+pub fn print_done(msg: &str) { print_with_prefix("✔".green(), msg); }
 
-// Make report! can start with '\n'
-fn print_with_prefix(prefix: &ColoredString, message: &str) {
+#[doc(hidden)]
+pub fn print_fail(msg: &str) { print_with_prefix("✖".red(), msg); }
+
+#[doc(hidden)]
+pub fn print_warn(msg: &str) { print_with_prefix("⚠".yellow(), msg); }
+
+#[doc(hidden)]
+pub fn print_step(msg: &str) { print_with_prefix("==>".cyan().bold(), msg); }
+
+#[doc(hidden)]
+pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
+
+fn print_with_prefix(prefix: impl std::fmt::Display, msg: &str) {
     let mut stderr = io::stderr();
-
-    if let Some(stripped_message) = message.strip_prefix('\n') {
+    if let Some(rest) = msg.strip_prefix('\n') {
         writeln!(stderr).ok();
-        writeln!(stderr, "{prefix} {stripped_message}").ok();
+        writeln!(stderr, "{prefix} {rest}").ok();
     } else {
-        writeln!(stderr, "{prefix} {message}").ok();
+        writeln!(stderr, "{prefix} {msg}").ok();
     }
 }

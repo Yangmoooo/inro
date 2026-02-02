@@ -7,8 +7,8 @@ use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::registry::Registry;
 use crate::remotes::create_provider;
-use crate::report;
 use crate::utils::{format_date, terminal_link};
+use crate::{done, step, warn};
 
 pub struct InfoCommand {
     pub name: String,
@@ -75,11 +75,11 @@ impl CommandHandler for InfoCommand {
             println!("{}", "Not Installed".dimmed());
         }
 
-        report!(MsgType::Step, "\nFetching remote info...");
+        step!("\nFetching remote info...");
         let provider = create_provider(&resolved.remote)?;
         match provider.list_versions(pkg_def) {
             Ok(versions) => {
-                report!(MsgType::Success, "Recent available versions:");
+                done!("Recent available versions:");
                 let has_more = versions.len() > REMOTE_DISPLAY_LIMIT;
                 for ver in versions.iter().take(REMOTE_DISPLAY_LIMIT) {
                     let clickable_tag = terminal_link(&ver.tag, &ver.url);
@@ -95,7 +95,7 @@ impl CommandHandler for InfoCommand {
                     println!("  {}", "... (and more, check the remote for details)".dimmed());
                 }
             }
-            Err(e) => report!(MsgType::Warning, "Failed to fetch remote versions: {e}"),
+            Err(e) => warn!("Failed to fetch remote versions: {e}"),
         }
 
         Ok(())

@@ -9,7 +9,7 @@ use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
 use crate::utils::{is_ignored_format, is_supported_format};
-use crate::{client, report};
+use crate::{client, detail};
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
 
@@ -77,10 +77,7 @@ impl Release {
 
         // if the platform-specific asset is configured, use its name
         if let Some(keyword) = asset_map.get(&platform_key) {
-            report!(
-                MsgType::Detail,
-                "Using explicit configuration for platform '{platform_key}': '{keyword}'"
-            );
+            detail!("Using explicit configuration for platform '{platform_key}': '{keyword}'");
             let matching_assets: Vec<&Asset> = self
                 .assets
                 .iter()
@@ -226,19 +223,18 @@ impl GitHubProvider {
             .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
 
         if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
-            report!(MsgType::Detail, "Using INRO_GITHUB_TOKEN for authentication");
+            detail!("Using INRO_GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else if let Ok(token) = env::var("GITHUB_TOKEN") {
-            report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication");
+            detail!("Using GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else {
-            report!(
-                MsgType::Warning,
+            detail!(
                 "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
             );
         }
 
-        report!(MsgType::Detail, "Fetching releases from GitHub repository '{repo}'...");
+        detail!("Fetching releases from GitHub repository '{repo}'...");
 
         let response = request_builder
             .send()
@@ -304,19 +300,18 @@ impl GitHubProvider {
             .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
 
         if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
-            report!(MsgType::Detail, "Using INRO_GITHUB_TOKEN for authentication");
+            detail!("Using INRO_GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else if let Ok(token) = env::var("GITHUB_TOKEN") {
-            report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication");
+            detail!("Using GITHUB_TOKEN for authentication");
             request_builder = request_builder.bearer_auth(token);
         } else {
-            report!(
-                MsgType::Warning,
+            detail!(
                 "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
             );
         }
 
-        report!(MsgType::Detail, "Fetching releases from GitHub repository '{repo}'...");
+        detail!("Fetching releases from GitHub repository '{repo}'...");
 
         let response = request_builder
             .send()

@@ -5,7 +5,7 @@ use super::CommandHandler;
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::report;
+use crate::{done, fail, hint, step};
 
 pub struct UseCommand {
     pub name: String,
@@ -24,10 +24,10 @@ impl CommandHandler for UseCommand {
             .ok_or_else(|| anyhow!("Package '{}' is not installed", self.name))?;
 
         if let Some(receipt) = state.versions.get_mut(&self.version) {
-            report!(MsgType::Step, "Switching '{}' to version '{}'...", self.name, self.version);
+            step!("Switching '{}' to version '{}'...", self.name, self.version);
 
             if let Err(e) = receipt.relink(&config.bin_dir) {
-                report!(MsgType::Error, "Failed to update symlinks: {e}");
+                fail!("Failed to update symlinks: {e}");
                 return Err(e);
             }
 
@@ -35,21 +35,15 @@ impl CommandHandler for UseCommand {
 
             manifest.save(&layout.manifest_path)?;
 
-            report!(MsgType::Success, "Now using {}@{}", self.name.green(), self.version.green());
+            done!("Now using {}@{}", self.name.green(), self.version.green());
         } else {
-            report!(
-                MsgType::Error,
-                "Version '{}' is not installed for package '{}'",
-                self.version,
-                self.name
-            );
+            fail!("Version '{}' is not installed for package '{}'", self.version, self.name);
 
             let mut available: Vec<_> = state.versions.keys().collect();
             available.sort();
             available.reverse();
 
-            report!(
-                MsgType::Info,
+            hint!(
                 "Available versions: {}",
                 available
                     .into_iter()

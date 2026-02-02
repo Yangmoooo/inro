@@ -7,8 +7,8 @@ use super::CommandHandler;
 use crate::cli::SourceSubCommand;
 use crate::config::Config;
 use crate::layout::InroLayout;
-use crate::report;
 use crate::utils::download_file;
+use crate::{done, fail, hint, warn};
 
 pub struct SourceCommand {
     pub command: SourceSubCommand,
@@ -46,11 +46,11 @@ impl CommandHandler for SourceCommand {
             }
             SourceSubCommand::Update => {
                 if upstreams.is_empty() {
-                    report!(MsgType::Warning, "No upstream sources configured to update");
+                    warn!("No upstream sources configured to update");
                     return Ok(());
                 }
 
-                report!(MsgType::Info, "Updating {} upstream sources...", upstreams.len());
+                hint!("Updating {} upstream sources...", upstreams.len());
 
                 fs::create_dir_all(upstream_registry_dir)?;
 
@@ -62,19 +62,18 @@ impl CommandHandler for SourceCommand {
                             let cached_path = upstream_registry_dir.join(&cached_name);
 
                             if let Err(e) = fs::rename(&raw_path, cached_path) {
-                                report!(
-                                    MsgType::Error,
+                                fail!(
                                     "Downloaded '{}' but failed to rename it: {}",
                                     upstream.name,
                                     e
                                 );
                                 let _ = fs::remove_file(raw_path);
                             } else {
-                                report!(MsgType::Success, "'{}' Updated", upstream.name);
+                                done!("'{}' Updated", upstream.name);
                             }
                         }
                         Err(e) => {
-                            report!(MsgType::Error, "Failed to update '{}': {}", upstream.name, e);
+                            fail!("Failed to update '{}': {}", upstream.name, e);
                         }
                     }
                 }

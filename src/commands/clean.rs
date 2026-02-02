@@ -8,8 +8,8 @@ use humansize::{DECIMAL, format_size};
 use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::report;
 use crate::utils::sanitize_version;
+use crate::{detail, done, hint, warn};
 
 pub struct CleanCommand {
     pub dry_run: bool,
@@ -22,7 +22,7 @@ impl CommandHandler for CleanCommand {
         let pkgs_root = layout.pkgs_dir;
 
         if !pkgs_root.exists() {
-            report!(MsgType::Warning, "No packages directory found.");
+            warn!("No packages directory found.");
             return Ok(());
         }
 
@@ -70,11 +70,11 @@ impl CommandHandler for CleanCommand {
         }
 
         if candidates_to_remove.is_empty() {
-            report!(MsgType::Success, "Everything is clean. No old versions found.");
+            done!("Everything is clean. No old versions found.");
             return Ok(());
         }
 
-        report!(MsgType::Info, "Found {} old version(s) to remove:", candidates_to_remove.len());
+        hint!("Found {} old version(s) to remove:", candidates_to_remove.len());
         let mut any_removed = false;
 
         for (pkg, ver, path, size) in &candidates_to_remove {
@@ -83,9 +83,9 @@ impl CommandHandler for CleanCommand {
             if self.dry_run {
                 println!("  - {} {} ({})", pkg, ver.dimmed(), size_str);
             } else {
-                report!(MsgType::Detail, "Removing {pkg}/{ver}...");
+                detail!("Removing {pkg}/{ver}...");
                 if let Err(e) = fs::remove_dir_all(path) {
-                    report!(MsgType::Warning, "Failed to remove {}: {}", path.display(), e);
+                    warn!("Failed to remove {}: {}", path.display(), e);
                 } else {
                     if let Some(state) = manifest.pkgs.get_mut(pkg) {
                         state.versions.remove(ver);
@@ -97,13 +97,12 @@ impl CommandHandler for CleanCommand {
         }
 
         if self.dry_run {
-            report!(MsgType::Info, "Dry run complete. Use without --dry-run to perform cleanup.");
+            hint!("Dry run complete. Use without --dry-run to perform cleanup.");
         } else if any_removed {
             manifest.save(&layout.manifest_path)?;
 
             let total_size_str = format_size(recovered_space, DECIMAL);
-            report!(
-                MsgType::Success,
+            done!(
                 "Cleaned up {} old versions. Freed {}.",
                 candidates_to_remove.len(),
                 total_size_str

@@ -7,7 +7,7 @@ use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::registry::Registry;
-use crate::report;
+use crate::warn;
 
 pub struct SearchCommand {
     pub query: String,
@@ -25,7 +25,7 @@ impl CommandHandler for SearchCommand {
         let layout = InroLayout::new()?;
         let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {
-            report!(MsgType::Warning, "Registry is empty.");
+            warn!("Registry is empty.");
             return Ok(());
         }
 
@@ -76,7 +76,7 @@ impl CommandHandler for SearchCommand {
         }
 
         if results.is_empty() {
-            report!(MsgType::Warning, "No packages found matching '{}'", self.query);
+            warn!("No matching packages found for '{}'", self.query);
             return Ok(());
         }
 
