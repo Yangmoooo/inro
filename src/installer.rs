@@ -10,7 +10,10 @@ use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::progress::{OpPhase, PkgProgress};
 use crate::remotes::{InstallCandidate, create_provider};
 use crate::utils::*;
+use crate::warn;
 
+/// Find the best installation candidate for the given package definition and
+/// optional version.
 pub async fn find_best_candidate(
     pkg_def: &PkgDef,
     ver: Option<&str>,
@@ -23,6 +26,8 @@ pub async fn find_best_candidate(
     candidates.into_iter().next().ok_or(PkgError::NoCandidates)
 }
 
+/// Install the given candidate for the package, returning a PkgReceipt on
+/// success.
 pub async fn install_candidate(
     name: &str,
     candidate: &InstallCandidate,
@@ -73,6 +78,8 @@ pub async fn install_candidate(
     Ok(receipt)
 }
 
+/// Prepare the installation directory by removing it if it exists and creating
+/// a new one.
 fn prepare_install_dir(dir: &Path) -> Result<(), PkgError> {
     if dir.exists() {
         fs::remove_dir_all(dir)?;
@@ -80,19 +87,23 @@ fn prepare_install_dir(dir: &Path) -> Result<(), PkgError> {
     Ok(fs::create_dir_all(dir)?)
 }
 
+/// Unpack the downloaded file and perform post-processing like renaming and
+/// flattening.
 fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Result<(), PkgError> {
     let ft = extract_file(src_path, dst_dir).map_err(|e| PkgError::Extraction {
         filename: src_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
         source: e,
     })?;
 
-    // if asset is a single bin, rename it to the name of the package
+    // If asset is a single bin, rename it to the name of the package
     if let FileType::Pe | FileType::Elf = ft {
         rename_single_file(dst_dir, &pkg.bin[0].name)?;
     }
 
-    // if there is only one directory, flatten it
-    flatten_single_directory(dst_dir).ok();
+    // If there is only one directory, flatten it
+    if let Err(e) = flatten_single_directory(dst_dir) {
+        warn!("Failed to flatten single directory: {e}");
+    }
 
     Ok(())
 }

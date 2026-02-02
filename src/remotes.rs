@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("An error occurred while fetching from GitHub")]
+    #[error("Failed fetching from GitHub")]
     GitHub(#[from] github::Error),
 
     #[error("Filesystem IO error: {0}")]
