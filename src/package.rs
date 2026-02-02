@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 use crate::remotes::RemoteType;
 use crate::utils::create_symlink;
 
+/// Package definition as specified in the registry.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PkgDef {
     #[serde(default)]
@@ -18,6 +19,7 @@ pub struct PkgDef {
     pub bin: Vec<BinDef>,
 }
 
+/// Binary definition within a package.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BinDef {
     #[serde(default)]
@@ -26,6 +28,7 @@ pub struct BinDef {
     pub link: Option<String>,
 }
 
+/// Resolved package definition with finalized parameters.
 #[derive(Debug)]
 pub struct ResolvedPkg {
     #[allow(dead_code)]
@@ -34,6 +37,7 @@ pub struct ResolvedPkg {
     pub bin: Vec<ResolvedBin>,
 }
 
+/// Resolved binary definition with concrete names and links.
 #[derive(Debug)]
 pub struct ResolvedBin {
     pub name: String,
@@ -74,6 +78,7 @@ impl PkgDef {
     }
 }
 
+/// Current state of a package installation.
 #[derive(Debug, Serialize, Deserialize, Default)]
 pub struct PkgState {
     // none means installed but not linked
@@ -84,7 +89,7 @@ pub struct PkgState {
 }
 
 impl PkgState {
-    /// Get the latest **installed** version from PkgState
+    /// Get the latest **installed** version from PkgState.
     pub fn get_latest_version(&self) -> Option<String> {
         self.versions
             .iter()
@@ -93,28 +98,30 @@ impl PkgState {
     }
 }
 
+/// Receipt information for an installed package version.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PkgReceipt {
-    /// Package name, e.g. 'ripgrep'
+    /// Package name, e.g. 'ripgrep'.
     pub name: String,
 
-    /// Package version, actually the tag name
+    /// Package version, actually the tag name.
     pub version: String,
 
-    /// Remote info
+    /// Remote info.
     pub remote: RemoteType,
 
-    /// Installation time
+    /// Installation time.
     pub installed_at: DateTime<Utc>,
 
-    /// Installation directory, actually where the binary is extracted to
+    /// Installation directory, actually where the binary is extracted to.
     pub install_dir: PathBuf,
 
-    /// Binaries installed details
+    /// Binaries installed details.
     pub binaries: Vec<InstalledBin>,
 }
 
 impl PkgReceipt {
+    /// Save the receipt to the installation directory.
     pub fn save_to_install_dir(&self) -> Result<()> {
         let receipt_path = self.install_dir.join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path).with_context(|| {
@@ -124,6 +131,7 @@ impl PkgReceipt {
         Ok(())
     }
 
+    /// Relink the binaries to the target directory.
     pub fn relink(&mut self, target_dir: &Path) -> Result<()> {
         if !target_dir.exists() {
             let _ = fs::create_dir_all(target_dir)
@@ -131,9 +139,9 @@ impl PkgReceipt {
         }
 
         for bin in &mut self.binaries {
-            // clean up
-            // if the old entry is still at there and its parent dir is not the target_dir
-            // thats say the config bin_dir is changed, remove the old link
+            // Clean up
+            // If the old entry is still at there and its parent dir is not the target_dir
+            // Thats say the config bin_dir is changed, remove the old link
             if let Some(parent) = bin.link_path.parent()
                 && parent != target_dir
                 && bin.link_path.exists()
@@ -141,7 +149,7 @@ impl PkgReceipt {
                 let _ = fs::remove_file(&bin.link_path);
             }
 
-            // create new and update
+            // Create new and update
             let target = target_dir.join(&bin.name);
             create_symlink(&bin.bin_path, &target)?;
             bin.link_path = target;
@@ -149,6 +157,7 @@ impl PkgReceipt {
         Ok(())
     }
 
+    /// Unlink the binaries from the target directory.
     pub fn unlink(&self) -> Result<()> {
         for bin in &self.binaries {
             if bin.link_path.exists() || bin.link_path.is_symlink() {
@@ -161,6 +170,7 @@ impl PkgReceipt {
     }
 }
 
+/// Information about an installed binary.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InstalledBin {
     /// Binary file name, e.g. 'rg' or 'rg.exe'

@@ -67,10 +67,14 @@ struct Asset {
 }
 
 impl Release {
+    /// Check if the release is suitable (non-draft, non-prerelease, with
+    /// assets).
     fn is_suitable(&self) -> bool { !self.draft && !self.prerelease && !self.assets.is_empty() }
 
+    /// Check if the release is available (non-draft, with assets).
     fn is_available(&self) -> bool { !self.draft && !self.assets.is_empty() }
 
+    /// Find assets matching the given asset map or platform information.
     fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
@@ -128,6 +132,7 @@ impl Release {
     }
 }
 
+/// Calculate a heuristic score for how well an asset matches the platform.
 fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
     let name = asset.name.to_lowercase();
     let mut score = 0;
@@ -173,8 +178,10 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 pub(crate) struct Releases(Vec<Release>);
 
 impl Releases {
+    /// List all suitable releases (non-draft, non-prerelease, with assets).
     fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
 
+    /// Get the latest suitable release.
     fn latest_suitable(&self) -> Result<&Release> {
         let suitable = self.list_suitable();
         suitable.first().copied().ok_or_else(|| {
@@ -183,6 +190,7 @@ impl Releases {
         })
     }
 
+    /// Get a release by its tag name.
     fn get_by_tag(&self, tag: &str) -> Result<&Release> {
         self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
             let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());

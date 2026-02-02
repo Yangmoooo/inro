@@ -5,7 +5,7 @@ use reqwest::Client;
 
 static HTTP_CLIENT: OnceLock<Client> = OnceLock::new();
 
-/// Get or initialize the shared async HTTP client
+/// Get or initialize the shared async HTTP client.
 pub fn get() -> &'static Client {
     HTTP_CLIENT.get_or_init(|| {
         Client::builder()

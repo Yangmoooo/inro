@@ -32,7 +32,7 @@ impl OpPhase {
     }
 }
 
-/// A handle to update a single package's progress
+/// A handle to update a single package's progress.
 #[derive(Clone)]
 pub struct PkgProgress {
     bar: ProgressBar,
@@ -41,7 +41,7 @@ pub struct PkgProgress {
 }
 
 impl PkgProgress {
-    /// Update the operation phase
+    /// Update the operation phase.
     pub fn set_phase(&self, phase: OpPhase) {
         let symbol = phase.symbol();
         let msg = phase.message();
@@ -61,13 +61,13 @@ impl PkgProgress {
         }
     }
 
-    /// Set the total size for download progress
+    /// Set the total size for download progress.
     pub fn set_length(&self, len: u64) { self.bar.set_length(len); }
 
-    /// Increment download progress
+    /// Increment download progress.
     pub fn inc(&self, delta: u64) { self.bar.inc(delta); }
 
-    /// Mark as completed with version
+    /// Mark as completed with version.
     pub fn finish_success(&self, version: &str) {
         let name = &self.name;
         let w = self.max_name_width;
@@ -75,7 +75,7 @@ impl PkgProgress {
         self.bar.finish_with_message(format!("✓ {name:<w$}  {version}"));
     }
 
-    /// Mark as failed with error message
+    /// Mark as failed with error message.
     pub fn finish_error(&self, err: &str) {
         let name = &self.name;
         let w = self.max_name_width;
@@ -84,20 +84,20 @@ impl PkgProgress {
     }
 }
 
-/// Manager for multi-package progress display
+/// Manager for multi-package progress display.
 pub struct ProgressManager {
     multi: Arc<MultiProgress>,
     name_width: usize,
 }
 
 impl ProgressManager {
-    /// Create a new progress manager with calculated name width
+    /// Create a new progress manager with calculated name width.
     pub fn new(pkg_names: &[&str]) -> Self {
         let name_width = pkg_names.iter().map(|n| n.len()).max().unwrap_or(0);
         Self { multi: Arc::new(MultiProgress::new()), name_width }
     }
 
-    /// Add a package to track
+    /// Add a package to track.
     pub fn add_package(&self, name: &str) -> PkgProgress {
         let bar = self.multi.add(ProgressBar::new(0));
         bar.set_style(spinner_style());

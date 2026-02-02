@@ -44,6 +44,7 @@ impl Registry {
     }
 }
 
+/// Collect all .toml files in the given directory, sorted by filename.
 fn collect_toml_files(dir: &Path) -> io::Result<Vec<PathBuf>> {
     if !dir.exists() {
         return Ok(vec![]);
