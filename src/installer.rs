@@ -7,7 +7,7 @@ use tempfile::TempDir;
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
-use crate::progress::{PkgProgress, PkgStatus};
+use crate::progress::{OpPhase, PkgProgress};
 use crate::remotes::{InstallCandidate, create_provider};
 use crate::utils::*;
 
@@ -16,14 +16,11 @@ pub async fn find_best_candidate(
     ver: Option<&str>,
     progress: &PkgProgress,
 ) -> Result<InstallCandidate, PkgError> {
-    progress.set_status(PkgStatus::Fetching);
+    progress.set_phase(OpPhase::Fetching);
 
     let provider = create_provider(&pkg_def.remote)?;
     let candidates = provider.find_candidates_async(pkg_def, ver).await?;
-    let candidate = candidates
-        .first()
-        .expect("Remote provider violated contract: returned empty candidate list");
-    Ok(candidate.to_owned())
+    candidates.into_iter().next().ok_or(PkgError::NoCandidates)
 }
 
 pub async fn install_candidate(
@@ -40,7 +37,7 @@ pub async fn install_candidate(
     prepare_install_dir(&pkg_install_dir)?;
 
     // Download with progress
-    progress.set_status(PkgStatus::Downloading);
+    progress.set_phase(OpPhase::Downloading);
     let temp_dir = TempDir::new().map_err(PkgError::Io)?;
     let downloaded_file = download_file_with_progress(
         &candidate.download_url,
@@ -51,7 +48,7 @@ pub async fn install_candidate(
     .await?;
 
     // Extract
-    progress.set_status(PkgStatus::Extracting);
+    progress.set_phase(OpPhase::Extracting);
     unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
 
     let binaries_result: Result<Vec<InstalledBin>, PkgError> = pkg

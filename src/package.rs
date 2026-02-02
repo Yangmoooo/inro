@@ -178,6 +178,9 @@ pub enum PkgError {
     #[error("Package '{0}' not found in registry")]
     NotFound(String),
 
+    #[error("No suitable release found for this platform")]
+    NoCandidates,
+
     #[error("Failed to fetch from the upstream: '{0}'")]
     Remote(#[from] crate::remotes::Error),
 
