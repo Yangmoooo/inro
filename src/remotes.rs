@@ -6,8 +6,6 @@ use std::fmt;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
-use crate::package::PkgDef;
-
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
     #[error("An error occurred while fetching from GitHub")]
@@ -61,16 +59,11 @@ pub struct VersionInfo {
     pub prerelease: bool,
 }
 
-pub trait RemoteProvider {
-    fn find_candidates(&self, pkg: &PkgDef, ver: Option<&str>) -> Result<Vec<InstallCandidate>>;
-    fn list_versions(&self, pkg: &PkgDef) -> Result<Vec<VersionInfo>>;
-}
-
-pub fn create_provider(remote: &RemoteType) -> Result<Box<dyn RemoteProvider>> {
+pub fn create_provider(remote: &RemoteType) -> Result<github::GitHubProvider> {
     match remote {
         RemoteType::GitHub(_) => {
             let gh_provider = github::GitHubProvider::new().map_err(Error::GitHub)?;
-            Ok(Box::new(gh_provider))
+            Ok(gh_provider)
         } // RemoteType::Direct(_) => { ... }
     }
 }

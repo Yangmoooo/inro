@@ -2,10 +2,10 @@ use std::collections::HashMap;
 use std::env;
 
 use chrono::{DateTime, Utc};
-use reqwest::blocking::Client;
 use serde::Deserialize;
 
-use super::{InstallCandidate, RemoteProvider, RemoteType};
+use super::{InstallCandidate, RemoteType};
+use crate::client;
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
@@ -174,7 +174,7 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 
 #[derive(Deserialize, Debug, Clone)]
 #[serde(transparent)]
-struct Releases(Vec<Release>);
+pub(crate) struct Releases(Vec<Release>);
 
 impl Releases {
     fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
@@ -209,24 +209,97 @@ impl FromIterator<Release> for Releases {
     }
 }
 
-pub struct GitHubProvider {
-    client: Client,
-}
+pub struct GitHubProvider;
 
 impl GitHubProvider {
     pub fn new() -> Result<Self> {
-        let client = Client::builder()
+        Ok(Self)
+    }
+
+    // ==================== Async versions (for install/update) ====================
+
+    pub(crate) async fn fetch_releases_async(&self, repo: &str) -> Result<Releases> {
+        let api_url = format!("https://api.github.com/repos/{repo}/releases");
+        let client = client::get();
+
+        let mut request_builder = client
+            .get(&api_url)
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
+
+        if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
+            report!(MsgType::Detail, "Using INRO_GITHUB_TOKEN for authentication");
+            request_builder = request_builder.bearer_auth(token);
+        } else if let Ok(token) = env::var("GITHUB_TOKEN") {
+            report!(MsgType::Detail, "Using GITHUB_TOKEN for authentication");
+            request_builder = request_builder.bearer_auth(token);
+        } else {
+            report!(
+                MsgType::Warning,
+                "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
+            );
+        }
+
+        report!(MsgType::Detail, "Fetching releases from GitHub repository '{repo}'...");
+
+        let response = request_builder
+            .send()
+            .await
+            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
+        let response = response
+            .error_for_status()
+            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
+
+        let mut release_vec: Vec<Release> = response
+            .json()
+            .await
+            .map_err(|e| Error::JsonParse { repo: repo.to_string(), source: e })?;
+        for release in &mut release_vec {
+            release.repo = repo.to_string();
+        }
+
+        Ok(Releases(release_vec))
+    }
+
+    pub async fn find_candidates_async(
+        &self,
+        pkg: &PkgDef,
+        ver: Option<&str>,
+    ) -> super::Result<Vec<InstallCandidate>> {
+        let repo = match &pkg.remote {
+            RemoteType::GitHub(asset_def) => &asset_def.repo,
+        };
+
+        let releases = self.fetch_releases_async(repo).await?;
+        let release =
+            if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
+
+        let RemoteType::GitHub(asset_def) = &pkg.remote;
+        let assets = release.find_assets(&asset_def.asset)?;
+
+        let candidates: Vec<InstallCandidate> = assets
+            .into_iter()
+            .map(|asset| InstallCandidate {
+                version: release.tag_name.clone(),
+                asset_name: asset.name.clone(),
+                download_url: asset.browser_download_url.clone(),
+            })
+            .collect();
+        Ok(candidates)
+    }
+
+    // ==================== Sync versions (for info/source) ====================
+
+    fn fetch_releases_sync(&self, repo: &str) -> Result<Releases> {
+        let api_url = format!("https://api.github.com/repos/{repo}/releases");
+
+        let client = reqwest::blocking::Client::builder()
             .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
             .build()
             .map_err(Error::HttpClientBuild)?;
-        Ok(Self { client })
-    }
 
-    fn fetch_releases(&self, repo: &str) -> Result<Releases> {
-        let api_url = format!("https://api.github.com/repos/{repo}/releases");
-
-        let mut request_builder = self
-            .client
+        let mut request_builder = client
             .get(&api_url)
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
@@ -262,42 +335,13 @@ impl GitHubProvider {
 
         Ok(Releases(release_vec))
     }
-}
 
-impl RemoteProvider for GitHubProvider {
-    fn find_candidates(
-        &self,
-        pkg: &PkgDef,
-        ver: Option<&str>,
-    ) -> super::Result<Vec<InstallCandidate>> {
+    pub fn list_versions(&self, pkg: &PkgDef) -> super::Result<Vec<VersionInfo>> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
-        let releases = self.fetch_releases(repo)?;
-        let release =
-            if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
-
-        let RemoteType::GitHub(asset_def) = &pkg.remote;
-        let assets = release.find_assets(&asset_def.asset)?;
-
-        let candidates: Vec<InstallCandidate> = assets
-            .into_iter()
-            .map(|asset| InstallCandidate {
-                version: release.tag_name.clone(),
-                asset_name: asset.name.clone(),
-                download_url: asset.browser_download_url.clone(),
-            })
-            .collect();
-        Ok(candidates)
-    }
-
-    fn list_versions(&self, pkg: &PkgDef) -> super::Result<Vec<VersionInfo>> {
-        let repo = match &pkg.remote {
-            RemoteType::GitHub(asset_def) => &asset_def.repo,
-        };
-
-        let releases = self.fetch_releases(repo)?;
+        let releases = self.fetch_releases_sync(repo)?;
         let versions = releases
             .0
             .iter()

@@ -11,18 +11,17 @@ use crate::remotes::{InstallCandidate, create_provider};
 use crate::report;
 use crate::utils::*;
 
-pub fn find_best_candidate(
+/// Async version: find the best candidate for a package
+pub async fn find_best_candidate_async(
     pkg_def: &PkgDef,
     ver: Option<&str>,
 ) -> Result<InstallCandidate, PkgError> {
     let provider = create_provider(&pkg_def.remote)?;
 
     report!(MsgType::Detail, "Fetching candidates from remote...");
-    let candidates = provider.find_candidates(pkg_def, ver)?;
+    let candidates = provider.find_candidates_async(pkg_def, ver).await?;
     let candidate = candidates
-        // just take the first one for now
         .first()
-        // handled in remotes::github::Release::find_assets with NoMatchingAsset
         .expect("Remote provider violated contract: returned empty candidate list");
     report!(
         MsgType::Detail,
@@ -33,7 +32,8 @@ pub fn find_best_candidate(
     Ok(candidate.to_owned())
 }
 
-pub fn install_candidate(
+/// Async version: download and install a candidate
+pub async fn install_candidate_async(
     name: &str,
     candidate: &InstallCandidate,
     pkg: &ResolvedPkg,
@@ -41,12 +41,13 @@ pub fn install_candidate(
     layout: &InroLayout,
 ) -> Result<PkgReceipt, PkgError> {
     let safe_version = sanitize_version(&candidate.version);
-    let pkg_install_dir = layout.pkgs_dir.join(name).join(safe_version);
+    let pkg_install_dir = layout.pkgs_dir.join(name).join(&safe_version);
 
     prepare_install_dir(&pkg_install_dir)?;
 
     let temp_dir = TempDir::new().map_err(PkgError::Io)?;
-    let downloaded_file = download_file(&candidate.download_url, temp_dir.path())?;
+    let downloaded_file =
+        download_file_async(&candidate.download_url, temp_dir.path()).await?;
 
     unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
 

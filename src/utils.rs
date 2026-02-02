@@ -6,8 +6,10 @@ use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
 use chrono_humanize::HumanTime;
 use supports_hyperlinks::supports_hyperlinks;
+use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
+use crate::client;
 use crate::report;
 
 pub fn unique(strs: &[String]) -> Vec<String> {
@@ -17,6 +19,39 @@ pub fn unique(strs: &[String]) -> Vec<String> {
     vec
 }
 
+/// Async version of download_file (for install/update with parallel downloads)
+pub async fn download_file_async(url: &str, dest_dir: &Path) -> Result<PathBuf> {
+    report!(MsgType::Detail, "Downloading from {url}...",);
+
+    let client = client::get();
+    let response = client
+        .get(url)
+        .send()
+        .await
+        .with_context(|| format!("Failed to download from URL: {url}"))?;
+
+    let response =
+        response.error_for_status().with_context(|| format!("HTTP error for URL: {url}"))?;
+
+    let file_name =
+        Path::new(url).file_name().and_then(|s| s.to_str()).unwrap_or("inro-download.tmp");
+
+    let dest_path = dest_dir.join(file_name);
+    let content = response.bytes().await.context("Failed to read response body bytes")?;
+
+    let mut dest_file = tokio::fs::File::create(&dest_path)
+        .await
+        .with_context(|| format!("Failed to create destination file: {}", dest_path.display()))?;
+
+    dest_file
+        .write_all(&content)
+        .await
+        .context("Failed to write downloaded content to disk")?;
+
+    Ok(dest_path)
+}
+
+/// Sync version of download_file (for source update)
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     report!(MsgType::Detail, "Downloading from {url}...",);
 
