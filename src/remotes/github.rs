@@ -62,7 +62,7 @@ struct Release {
 #[derive(Deserialize, Debug, Clone)]
 struct Asset {
     name: String,
-    // pub content_type: String,
+    size: u64,
     browser_download_url: String,
 }
 
@@ -281,6 +281,7 @@ impl GitHubProvider {
                 version: release.tag_name.clone(),
                 asset_name: asset.name.clone(),
                 download_url: asset.browser_download_url.clone(),
+                size: asset.size,
             })
             .collect();
         Ok(candidates)

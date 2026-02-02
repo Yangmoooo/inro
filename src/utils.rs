@@ -5,10 +5,12 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
 use chrono_humanize::HumanTime;
+use futures::StreamExt;
 use supports_hyperlinks::supports_hyperlinks;
 use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
+use crate::progress::PkgProgress;
 use crate::{client, report};
 
 pub fn unique(strs: &[String]) -> Vec<String> {
@@ -18,10 +20,13 @@ pub fn unique(strs: &[String]) -> Vec<String> {
     vec
 }
 
-/// Async version of download_file (for install/update with parallel downloads)
-pub async fn download_file_async(url: &str, dest_dir: &Path) -> Result<PathBuf> {
-    report!(MsgType::Detail, "Downloading from {url}...",);
-
+/// Async download with progress tracking
+pub async fn download_file_with_progress(
+    url: &str,
+    dest_dir: &Path,
+    size: u64,
+    progress: &PkgProgress,
+) -> Result<PathBuf> {
     let client = client::get();
     let response = client
         .get(url)
@@ -36,13 +41,20 @@ pub async fn download_file_async(url: &str, dest_dir: &Path) -> Result<PathBuf> 
         Path::new(url).file_name().and_then(|s| s.to_str()).unwrap_or("inro-download.tmp");
 
     let dest_path = dest_dir.join(file_name);
-    let content = response.bytes().await.context("Failed to read response body bytes")?;
-
     let mut dest_file = tokio::fs::File::create(&dest_path)
         .await
         .with_context(|| format!("Failed to create destination file: {}", dest_path.display()))?;
 
-    dest_file.write_all(&content).await.context("Failed to write downloaded content to disk")?;
+    // Set progress bar length
+    progress.set_length(size);
+
+    // Stream the response body and update progress
+    let mut stream = response.bytes_stream();
+    while let Some(chunk) = stream.next().await {
+        let chunk = chunk.context("Failed to read response chunk")?;
+        dest_file.write_all(&chunk).await.context("Failed to write chunk to disk")?;
+        progress.inc(chunk.len() as u64);
+    }
 
     Ok(dest_path)
 }

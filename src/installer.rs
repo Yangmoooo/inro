@@ -7,47 +7,48 @@ use tempfile::TempDir;
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
+use crate::progress::{OpPhase, PkgProgress};
 use crate::remotes::{InstallCandidate, create_provider};
-use crate::report;
 use crate::utils::*;
 
-/// Async version: find the best candidate for a package
-pub async fn find_best_candidate_async(
+pub async fn find_best_candidate(
     pkg_def: &PkgDef,
     ver: Option<&str>,
+    progress: &PkgProgress,
 ) -> Result<InstallCandidate, PkgError> {
-    let provider = create_provider(&pkg_def.remote)?;
+    progress.set_phase(OpPhase::Fetching);
 
-    report!(MsgType::Detail, "Fetching candidates from remote...");
+    let provider = create_provider(&pkg_def.remote)?;
     let candidates = provider.find_candidates_async(pkg_def, ver).await?;
-    let candidate = candidates
-        .first()
-        .expect("Remote provider violated contract: returned empty candidate list");
-    report!(
-        MsgType::Detail,
-        "Selected candidate: {} ({})",
-        candidate.asset_name,
-        candidate.version
-    );
-    Ok(candidate.to_owned())
+    candidates.into_iter().next().ok_or(PkgError::NoCandidates)
 }
 
-/// Async version: download and install a candidate
-pub async fn install_candidate_async(
+pub async fn install_candidate(
     name: &str,
     candidate: &InstallCandidate,
     pkg: &ResolvedPkg,
     config: &Config,
     layout: &InroLayout,
+    progress: &PkgProgress,
 ) -> Result<PkgReceipt, PkgError> {
     let safe_version = sanitize_version(&candidate.version);
     let pkg_install_dir = layout.pkgs_dir.join(name).join(&safe_version);
 
     prepare_install_dir(&pkg_install_dir)?;
 
+    // Download with progress
+    progress.set_phase(OpPhase::Downloading);
     let temp_dir = TempDir::new().map_err(PkgError::Io)?;
-    let downloaded_file = download_file_async(&candidate.download_url, temp_dir.path()).await?;
+    let downloaded_file = download_file_with_progress(
+        &candidate.download_url,
+        temp_dir.path(),
+        candidate.size,
+        progress,
+    )
+    .await?;
 
+    // Extract
+    progress.set_phase(OpPhase::Extracting);
     unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
 
     let binaries_result: Result<Vec<InstalledBin>, PkgError> = pkg
@@ -74,7 +75,6 @@ pub async fn install_candidate_async(
 
 fn prepare_install_dir(dir: &Path) -> Result<(), PkgError> {
     if dir.exists() {
-        report!(MsgType::Warning, "Package already installed. Removing...");
         fs::remove_dir_all(dir)?;
     }
     Ok(fs::create_dir_all(dir)?)
@@ -92,10 +92,7 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
     }
 
     // if there is only one directory, flatten it
-    if let Err(e) = flatten_single_directory(dst_dir) {
-        report!(MsgType::Warning, "Failed to flatten directory structure: {e}");
-    }
+    flatten_single_directory(dst_dir).ok();
 
-    report!(MsgType::Detail, "Installed to {}", dst_dir.display());
     Ok(())
 }

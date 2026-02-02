@@ -47,8 +47,10 @@ pub struct GitHubAssetDef {
 #[derive(Debug, Clone)]
 pub struct InstallCandidate {
     pub version: String,
+    #[allow(dead_code)]
     pub asset_name: String,
     pub download_url: String,
+    pub size: u64,
 }
 
 #[derive(Debug, Clone)]
