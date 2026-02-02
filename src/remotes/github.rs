@@ -5,12 +5,11 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
 use super::{InstallCandidate, RemoteType};
-use crate::client;
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
-use crate::report;
 use crate::utils::{is_ignored_format, is_supported_format};
+use crate::{client, report};
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
 
@@ -212,9 +211,7 @@ impl FromIterator<Release> for Releases {
 pub struct GitHubProvider;
 
 impl GitHubProvider {
-    pub fn new() -> Result<Self> {
-        Ok(Self)
-    }
+    pub fn new() -> Result<Self> { Ok(Self) }
 
     // ==================== Async versions (for install/update) ====================
 

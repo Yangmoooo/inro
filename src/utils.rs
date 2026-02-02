@@ -9,8 +9,7 @@ use supports_hyperlinks::supports_hyperlinks;
 use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
-use crate::client;
-use crate::report;
+use crate::{client, report};
 
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
@@ -43,10 +42,7 @@ pub async fn download_file_async(url: &str, dest_dir: &Path) -> Result<PathBuf> 
         .await
         .with_context(|| format!("Failed to create destination file: {}", dest_path.display()))?;
 
-    dest_file
-        .write_all(&content)
-        .await
-        .context("Failed to write downloaded content to disk")?;
+    dest_file.write_all(&content).await.context("Failed to write downloaded content to disk")?;
 
     Ok(dest_path)
 }

@@ -46,8 +46,7 @@ pub async fn install_candidate_async(
     prepare_install_dir(&pkg_install_dir)?;
 
     let temp_dir = TempDir::new().map_err(PkgError::Io)?;
-    let downloaded_file =
-        download_file_async(&candidate.download_url, temp_dir.path()).await?;
+    let downloaded_file = download_file_async(&candidate.download_url, temp_dir.path()).await?;
 
     unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
 

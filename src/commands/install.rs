@@ -94,17 +94,17 @@ impl CommandHandler for InstallCommand {
                         let pkg = pkg_def.clone().resolve(&task.pkg_name);
 
                         // Fetch candidate (async network request)
-                        let candidate: InstallCandidate = match find_best_candidate_async(
-                            pkg_def,
-                            task.pkg_ver.as_deref(),
-                        )
-                        .await
-                        {
-                            Ok(c) => c,
-                            Err(e) => {
-                                return InstallResult::Failure(task.name.clone(), e.to_string());
-                            }
-                        };
+                        let candidate: InstallCandidate =
+                            match find_best_candidate_async(pkg_def, task.pkg_ver.as_deref()).await
+                            {
+                                Ok(c) => c,
+                                Err(e) => {
+                                    return InstallResult::Failure(
+                                        task.name.clone(),
+                                        e.to_string(),
+                                    );
+                                }
+                            };
 
                         // Download and install (async download, sync extraction)
                         match install_candidate_async(
@@ -175,12 +175,7 @@ fn print_summary(successes: &[PkgReceipt], failures: &[(String, String)]) {
             } else {
                 format!(
                     "(bins: {})",
-                    receipt
-                        .binaries
-                        .iter()
-                        .map(|b| b.name.as_str())
-                        .collect::<Vec<_>>()
-                        .join(", ")
+                    receipt.binaries.iter().map(|b| b.name.as_str()).collect::<Vec<_>>().join(", ")
                 )
             };
             eprintln!(
