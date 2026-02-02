@@ -255,6 +255,7 @@ mod tests {
         }]);
         let resolved = pkg_def.resolve("ripgrep");
 
+        assert_eq!(resolved.bin.len(), 1);
         #[cfg(not(windows))]
         {
             assert_eq!(resolved.bin[0].name, "rg");
