@@ -144,9 +144,9 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
             score += 0;
         }
 
-        if name.ends_with(".7z") {
+        if name.ends_with(".zip") {
             score += 5;
-        } else if name.ends_with(".zip") {
+        } else if name.ends_with(".7z") {
             score += 3;
         } else if name.ends_with(".exe") {
             score += 2;
