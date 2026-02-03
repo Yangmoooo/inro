@@ -1,5 +1,5 @@
 use std::fs::{self, File};
-use std::io::{self, BufReader, Read, copy};
+use std::io::{self, BufReader, BufWriter, Read, Write, copy};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow, bail};
@@ -12,6 +12,10 @@ use walkdir::WalkDir;
 
 use crate::progress::PkgProgress;
 use crate::{client, detail};
+
+/// Buffer size for file I/O operations (1 MB).
+/// Using a large buffer significantly reduces system calls for large files.
+const BUFFER_SIZE: usize = 1024 * 1024;
 
 pub fn unique(strs: &[String]) -> Vec<String> {
     let mut vec = strs.to_owned();
@@ -195,31 +199,30 @@ impl FileType {
 /// Extract file to destination directory based on its type.
 pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
     let file_type = FileType::detect(file_path)?;
-    let file = File::open(file_path).context("Failed to open asset file")?;
-    let reader = BufReader::new(file);
-
     match file_type {
         FileType::TarGz => {
+            let file = File::open(file_path).context("Failed to open asset file")?;
+            let reader = BufReader::with_capacity(BUFFER_SIZE, file);
             let tar = flate2::read::GzDecoder::new(reader);
-            let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.gz archive")?;
+            extract_tar_buffered(tar, dest_dir).context("Failed to extract tar.gz archive")?;
         }
         FileType::TarXz => {
+            let file = File::open(file_path).context("Failed to open asset file")?;
+            let reader = BufReader::with_capacity(BUFFER_SIZE, file);
             let tar = xz2::read::XzDecoder::new(reader);
-            let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.xz archive")?;
+            extract_tar_buffered(tar, dest_dir).context("Failed to extract tar.xz archive")?;
         }
         FileType::TarBz2 => {
+            let file = File::open(file_path).context("Failed to open asset file")?;
+            let reader = BufReader::with_capacity(BUFFER_SIZE, file);
             let tar = bzip2::read::BzDecoder::new(reader);
-            let mut archive = tar::Archive::new(tar);
-            archive.unpack(dest_dir).context("Failed to extract tar.bz2 archive")?;
+            extract_tar_buffered(tar, dest_dir).context("Failed to extract tar.bz2 archive")?;
         }
         FileType::SevenZ => {
             sevenz_rust2::decompress_file(file_path, dest_dir)?;
         }
         FileType::Zip => {
-            let mut archive = zip::ZipArchive::new(reader)?;
-            archive.extract(dest_dir).context("Failed to extract zip archive")?;
+            extract_zip_buffered(file_path, dest_dir).context("Failed to extract zip archive")?;
         }
         FileType::Pe | FileType::Elf => {
             let file_name = file_path.file_name().ok_or(anyhow!("Binary file name invalid"))?;
@@ -235,8 +238,117 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
             }
         }
     }
-
     Ok(file_type)
+}
+
+/// Extract a TAR archive using large buffers for better performance.
+///
+/// This function manually extracts files instead of using `Archive::unpack()`
+/// to control buffer sizes.
+fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
+    let mut archive = tar::Archive::new(reader);
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+
+    for entry in archive.entries()? {
+        let mut entry = entry?;
+        let entry_path = entry.path()?;
+        let entry_type = entry.header().entry_type();
+        let out_path = dest_dir.join(entry_path);
+
+        if entry_type.is_dir() {
+            fs::create_dir_all(&out_path)?;
+        } else if entry_type.is_file() {
+            if let Some(parent) = out_path.parent()
+                && !parent.exists()
+            {
+                fs::create_dir_all(parent)?;
+            }
+
+            let out_file = File::create(&out_path)?;
+            let mut writer = BufWriter::with_capacity(BUFFER_SIZE, out_file);
+
+            loop {
+                let bytes_read = entry.read(&mut buffer)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                writer.write_all(&buffer[..bytes_read])?;
+            }
+            writer.flush()?;
+
+            #[cfg(unix)]
+            if let Ok(mode) = entry.header().mode() {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&out_path, fs::Permissions::from_mode(mode))?;
+            }
+        } else if entry_type.is_symlink() {
+            #[cfg(unix)]
+            {
+                if let Some(parent) = out_path.parent()
+                    && !parent.exists()
+                {
+                    fs::create_dir_all(parent)?;
+                }
+                if let Some(target) = entry.link_name()? {
+                    std::os::unix::fs::symlink(&target, &out_path)?;
+                }
+            }
+        } else if entry_type.is_hard_link()
+            && let Some(target) = entry.link_name()?
+        {
+            let target_path = dest_dir.join(target);
+            fs::hard_link(&target_path, &out_path)?;
+        }
+    }
+
+    Ok(())
+}
+
+/// Extract a ZIP archive using large buffers for better performance.
+///
+/// This function manually extracts files instead of using
+/// `ZipArchive::extract()` to control buffer sizes.
+fn extract_zip_buffered(file_path: &Path, dest_dir: &Path) -> Result<()> {
+    let file = File::open(file_path)?;
+    let reader = BufReader::with_capacity(BUFFER_SIZE, file);
+    let mut archive = zip::ZipArchive::new(reader)?;
+    let mut buffer = vec![0u8; BUFFER_SIZE];
+
+    for i in 0..archive.len() {
+        let mut zip_file = archive.by_index(i)?;
+        let out_path = match zip_file.enclosed_name() {
+            Some(path) => dest_dir.join(path),
+            None => continue,
+        };
+
+        if zip_file.is_dir() {
+            fs::create_dir_all(&out_path)?;
+        } else {
+            if let Some(parent) = out_path.parent() {
+                fs::create_dir_all(parent)?;
+            }
+
+            let out_file = File::create(&out_path)?;
+            let mut writer = BufWriter::with_capacity(BUFFER_SIZE, out_file);
+
+            loop {
+                let bytes_read = zip_file.read(&mut buffer)?;
+                if bytes_read == 0 {
+                    break;
+                }
+                writer.write_all(&buffer[..bytes_read])?;
+            }
+            writer.flush()?;
+
+            #[cfg(unix)]
+            if let Some(mode) = zip_file.unix_mode() {
+                use std::os::unix::fs::PermissionsExt;
+                fs::set_permissions(&out_path, fs::Permissions::from_mode(mode))?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// If the root directory contains a single subdirectory, move its contents up
