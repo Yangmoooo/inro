@@ -57,6 +57,7 @@ jobs:
           mkdir -p dist/completions
 
           cp target/${{ matrix.target }}/release/${{ matrix.bin_name }} dist/
+          cp README.md LICENSE *.example.toml dist/
 
           cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate man --out dist/man
           cargo run --release --locked --bin inro --target ${{ matrix.target }} -- generate bash --out dist/completions
