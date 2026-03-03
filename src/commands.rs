@@ -1,9 +1,9 @@
 pub mod clean;
 pub mod generate;
-pub mod info;
 pub mod install;
 pub mod list;
 pub mod search;
+pub mod show;
 pub mod source;
 pub mod uninstall;
 pub mod unlink;
@@ -12,10 +12,10 @@ pub mod usecmd;
 
 pub use clean::CleanCommand;
 pub use generate::GenerateCommand;
-pub use info::InfoCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;
 pub use search::SearchCommand;
+pub use show::ShowCommand;
 pub use source::SourceCommand;
 pub use uninstall::UninstallCommand;
 pub use unlink::UnlinkCommand;

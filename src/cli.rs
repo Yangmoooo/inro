@@ -73,7 +73,7 @@ pub enum Command {
     ///
     /// Displays local status (installed versions) and fetches remote info
     /// (latest versions).
-    Info {
+    Show {
         /// Package name to inspect
         #[arg(value_name = "PKG")]
         name: String,
