@@ -7,13 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-03-04
+
 ### Added
 
-- **Pin Version**: Support for preventing packages from being auto-updated
+- **Pin Version**: `pin` command for preventing packages from being auto-updated.
+- **Spot Risks**: `doctor` command for find hidden dangers.
 
 ### Changed
 
-- **Rename `info`**: Rename subcommand `info` to `show`
+- **Rename `info`**: Rename command `info` to `show`.
 
 ## [0.2.1] - 2026-02-03
 
