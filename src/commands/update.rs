@@ -71,6 +71,10 @@ impl CommandHandler for UpdateCommand {
         for pkg_name in &parsed {
             match manifest.pkgs.get(pkg_name) {
                 Some(state) => {
+                    if state.pinned {
+                        pm.add_package(pkg_name).finish_error("pinned, skipping");
+                        continue;
+                    }
                     let current_ver = state.current_version.as_deref().unwrap_or_default();
                     let progress = pm.add_package(pkg_name);
                     tasks.push(UpdateTask {

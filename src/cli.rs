@@ -113,6 +113,23 @@ pub enum Command {
         names: Vec<String>,
     },
 
+    /// Pin a package to prevent it from being auto-updated
+    ///
+    /// Pinned packages are skipped when running 'inro update'.
+    /// Use 'inro unpin' to allow updates again.
+    Pin {
+        /// Package name to pin
+        #[arg(value_name = "PKG")]
+        name: String,
+    },
+
+    /// Unpin a package to allow it to be auto-updated again
+    Unpin {
+        /// Package name to unpin
+        #[arg(value_name = "PKG")]
+        name: String,
+    },
+
     /// Clean up unused package versions to free up disk space
     ///
     /// Removes versions that are not currently active (linked).

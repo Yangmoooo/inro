@@ -34,6 +34,8 @@ fn main() -> anyhow::Result<()> {
             Command::Update { names } => Box::new(UpdateCommand { names }),
             Command::Source { command } => Box::new(SourceCommand { command }),
             Command::Search { query } => Box::new(SearchCommand { query }),
+            Command::Pin { name } => Box::new(PinCommand { name }),
+            Command::Unpin { name } => Box::new(UnpinCommand { name }),
             Command::Show { name } => Box::new(ShowCommand { name }),
             Command::Use { name, version } => Box::new(UseCommand { name, version }),
             Command::Unlink { name } => Box::new(UnlinkCommand { name }),

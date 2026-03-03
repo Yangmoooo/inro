@@ -86,6 +86,10 @@ pub struct PkgState {
 
     // key: version
     pub versions: HashMap<String, PkgReceipt>,
+
+    // if true, this package will be skipped during updates
+    #[serde(default)]
+    pub pinned: bool,
 }
 
 impl PkgState {
