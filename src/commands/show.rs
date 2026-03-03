@@ -10,13 +10,13 @@ use crate::remotes::create_provider;
 use crate::utils::{format_date, terminal_link};
 use crate::{done, step, warn};
 
-pub struct InfoCommand {
+pub struct ShowCommand {
     pub name: String,
 }
 
 const REMOTE_DISPLAY_LIMIT: usize = 5;
 
-impl CommandHandler for InfoCommand {
+impl CommandHandler for ShowCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
         let registry = Registry::load(&layout)?;
