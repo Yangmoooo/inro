@@ -40,6 +40,7 @@ fn main() -> anyhow::Result<()> {
             Command::Use { name, version } => Box::new(UseCommand { name, version }),
             Command::Unlink { name } => Box::new(UnlinkCommand { name }),
             Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
+            Command::Doctor { fix } => Box::new(DoctorCommand { fix }),
 
             Command::Generate { generator, out } => Box::new(GenerateCommand { generator, out }),
         };

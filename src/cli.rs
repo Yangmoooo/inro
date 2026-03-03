@@ -141,6 +141,18 @@ pub enum Command {
         dry_run: bool,
     },
 
+    /// Check the health of your inro setup
+    ///
+    /// Verifies config parsing, source files, bin_dir PATH membership,
+    /// symlink integrity, and manifest consistency.
+    /// Use --fix to automatically repair bin_dir mismatches.
+    Doctor {
+        /// Automatically re-link binaries whose symlinks don't match the
+        /// configured bin_dir
+        #[arg(long)]
+        fix: bool,
+    },
+
     /// Generate shell completions and man pages
     #[command(hide = true)]
     Generate {
