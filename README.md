@@ -6,6 +6,8 @@ Inro fetches apps from sources like GitHub Releases and installs them into your 
 
 ## Installation
 
+You can install inro using any of the following methods. Once installed, you can safely delete the initial inro, as inro is capable of managing itself.
+
 ### From Binaries
 
 Download the latest archive for your platform from [GitHub Releases][releases], extract it, and place the `inro` binary in your `PATH`.
