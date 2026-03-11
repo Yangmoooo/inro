@@ -20,6 +20,38 @@ name = "example"
 link = "example"
 
 
+# Example with platform-specific binary names and links
+# This is useful when different platforms have different binary names in the archive
+[codex-example]
+ver = "vX.Y.Z"
+
+[codex-example.remote.github]
+repo = "example/codex"
+
+[codex-example.remote.github.asset]
+"linux-x86_64" = "codex-x86_64-unknown-linux-musl.tar.gz"
+"windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe.zip"
+
+# Main binary - different name on each platform
+[[codex-example.bin]]
+[codex-example.bin.name]
+"linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+"windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
+
+[codex-example.bin.link]
+"linux-x86_64" = "codex"
+"windows-x86_64" = "codex"
+
+# Windows-only helper binaries (only present on Windows)
+[[codex-example.bin]]
+[codex-example.bin.name]
+"windows-x86_64" = "codex-windows-sandbox-setup.exe"
+
+[[codex-example.bin]]
+[codex-example.bin.name]
+"windows-x86_64" = "codex-command-runner.exe"
+
+
 ### packages
 
 [btop]

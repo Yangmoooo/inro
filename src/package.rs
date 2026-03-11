@@ -655,4 +655,99 @@ mod tests {
         assert!(bin_def.name.is_some());
         assert!(bin_def.link.is_some());
     }
+
+    #[test]
+    fn deserialize_complete_pkg_def_with_platform_specific() {
+        let toml = r#"
+ver = "v1.0.0"
+
+[remote.github]
+repo = "example/codex"
+
+[[bin]]
+[bin.name]
+"linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+"windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
+
+[bin.link]
+"linux-x86_64" = "codex"
+"windows-x86_64" = "codex"
+
+[[bin]]
+[bin.name]
+"windows-x86_64" = "codex-windows-sandbox-setup.exe"
+
+[[bin]]
+[bin.name]
+"windows-x86_64" = "codex-command-runner.exe"
+        "#;
+
+        let result: Result<PkgDef, _> = toml::from_str(toml);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+
+        let pkg_def = result.unwrap();
+        assert_eq!(pkg_def.ver, Some("v1.0.0".to_string()));
+        assert_eq!(pkg_def.bin.len(), 3);
+
+        // Resolve and check that it works for current platform
+        let resolved = pkg_def.resolve("codex");
+
+        // All binaries should resolve, but with different behavior per platform:
+        // - On linux: 1st binary matches, 2nd and 3rd fall back to package name
+        // - On windows: all 3 binaries should match
+        assert_eq!(resolved.bin.len(), 3);
+
+        #[cfg(target_os = "linux")]
+        {
+            // First binary should match linux-x86_64
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
+            assert_eq!(resolved.bin[0].link, "codex");
+
+            // Second and third binaries don't match, so fall back to package name
+            assert_eq!(resolved.bin[1].name, "codex");
+            assert_eq!(resolved.bin[2].name, "codex");
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // All three binaries should match
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
+            assert_eq!(resolved.bin[0].link, "codex.exe");
+            assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
+            assert_eq!(resolved.bin[2].name, "codex-command-runner.exe");
+        }
+    }
+
+    #[test]
+    fn backward_compatibility_with_string_binaries() {
+        // Ensure old-style string binaries still work
+        let toml = r#"
+ver = "v1.0.0"
+
+[remote.github]
+repo = "example/simple"
+
+[[bin]]
+name = "simple-bin"
+link = "simple-link"
+        "#;
+
+        let result: Result<PkgDef, _> = toml::from_str(toml);
+        assert!(result.is_ok());
+
+        let pkg_def = result.unwrap();
+        let resolved = pkg_def.resolve("simple");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "simple-bin");
+            assert_eq!(resolved.bin[0].link, "simple-link");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "simple-bin.exe");
+            assert_eq!(resolved.bin[0].link, "simple-link.exe");
+        }
+    }
 }
