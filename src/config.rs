@@ -179,8 +179,6 @@ mod tests {
     #[test]
     fn default_parallel_downloads_within_expected_range() {
         let value = Config::default_parallel_downloads();
-        assert!(
-            (PARALLEL_DOWNLOADS_DEFAULT_MIN..=PARALLEL_DOWNLOADS_DEFAULT_MAX).contains(&value)
-        );
+        assert!((PARALLEL_DOWNLOADS_DEFAULT_MIN..=PARALLEL_DOWNLOADS_DEFAULT_MAX).contains(&value));
     }
 }
