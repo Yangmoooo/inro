@@ -24,21 +24,22 @@ pub struct PkgDef {
 /// Using #[serde(untagged)] for backward compatibility.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
-pub enum StringOrMap {
+pub enum PlatformAwareString {
     /// A plain string value that applies to all platforms
-    String(String),
-    /// A platform-specific mapping, e.g., {"windows-x86_64": "codex.exe", "linux-x86_64": "codex"}
-    Map(HashMap<String, String>),
+    Literal(String),
+    /// A platform-specific mapping, e.g., {"windows-x86_64": "codex.exe",
+    /// "linux-x86_64": "codex"}
+    ByPlatform(HashMap<String, String>),
 }
 
-impl StringOrMap {
+impl PlatformAwareString {
     /// Resolve the value for the current platform.
     /// If it's a plain string, returns that.
     /// If it's a map, tries to find a matching platform key or returns None.
-    fn resolve(&self) -> Option<String> {
+    fn resolve_for_platform(&self) -> Option<String> {
         match self {
-            StringOrMap::String(s) => Some(s.clone()),
-            StringOrMap::Map(map) => {
+            PlatformAwareString::Literal(s) => Some(s.clone()),
+            PlatformAwareString::ByPlatform(map) => {
                 let platform = PlatformInfo::current();
                 let platform_key = platform.key();
 
@@ -72,9 +73,9 @@ impl StringOrMap {
 #[derive(Clone, Debug, Deserialize)]
 pub struct BinDef {
     #[serde(default)]
-    pub name: Option<StringOrMap>,
+    pub name: Option<PlatformAwareString>,
     #[serde(default)]
-    pub link: Option<StringOrMap>,
+    pub link: Option<PlatformAwareString>,
 }
 
 /// Resolved package definition with finalized parameters.
@@ -114,16 +115,18 @@ impl PkgDef {
             self.bin
                 .into_iter()
                 .map(|b| {
-                    // Resolve name from StringOrMap, defaulting to package name
+                    // Resolve name from PlatformAwareString, defaulting to package name
                     let raw_name = b
                         .name
-                        .and_then(|som| som.resolve())
+                        .and_then(|s| s.resolve_for_platform())
                         .unwrap_or_else(|| pkg_name.to_string());
                     let name = normalize_name(raw_name);
 
-                    // Resolve link from StringOrMap, defaulting to the resolved name
-                    let raw_link =
-                        b.link.and_then(|som| som.resolve()).unwrap_or_else(|| name.clone());
+                    // Resolve link from PlatformAwareString, defaulting to the resolved name
+                    let raw_link = b
+                        .link
+                        .and_then(|s| s.resolve_for_platform())
+                        .unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
 
                     ResolvedBin { name, link }
@@ -311,7 +314,7 @@ mod tests {
     #[test]
     fn resolve_custom_bin_name() {
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::String("rg".to_string())),
+            name: Some(PlatformAwareString::Literal("rg".to_string())),
             link: None,
         }]);
         let resolved = pkg_def.resolve("ripgrep");
@@ -327,8 +330,8 @@ mod tests {
     #[test]
     fn resolve_custom_bin_name_and_link() {
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::String("rg".to_string())),
-            link: Some(StringOrMap::String("ripgrep".to_string())),
+            name: Some(PlatformAwareString::Literal("rg".to_string())),
+            link: Some(PlatformAwareString::Literal("ripgrep".to_string())),
         }]);
         let resolved = pkg_def.resolve("ripgrep");
 
@@ -343,8 +346,8 @@ mod tests {
     #[test]
     fn resolve_multiple_binaries() {
         let pkg_def = make_pkg_def(vec![
-            BinDef { name: Some(StringOrMap::String("uv".to_string())), link: None },
-            BinDef { name: Some(StringOrMap::String("uvx".to_string())), link: None },
+            BinDef { name: Some(PlatformAwareString::Literal("uv".to_string())), link: None },
+            BinDef { name: Some(PlatformAwareString::Literal("uvx".to_string())), link: None },
         ]);
         let resolved = pkg_def.resolve("uv");
 
@@ -434,7 +437,7 @@ mod tests {
         name_map.insert("other-platform".to_string(), "other-bin".to_string());
 
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::Map(name_map)),
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
             link: None,
         }]);
         let resolved = pkg_def.resolve("test");
@@ -464,8 +467,8 @@ mod tests {
         link_map.insert(platform_key.clone(), "codex".to_string());
 
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::Map(name_map)),
-            link: Some(StringOrMap::Map(link_map)),
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
+            link: Some(PlatformAwareString::ByPlatform(link_map)),
         }]);
         let resolved = pkg_def.resolve("test");
 
@@ -498,10 +501,10 @@ mod tests {
 
         let pkg_def = make_pkg_def(vec![
             BinDef {
-                name: Some(StringOrMap::Map(name_map1)),
-                link: Some(StringOrMap::Map(link_map1)),
+                name: Some(PlatformAwareString::ByPlatform(name_map1)),
+                link: Some(PlatformAwareString::ByPlatform(link_map1)),
             },
-            BinDef { name: Some(StringOrMap::Map(name_map2)), link: None },
+            BinDef { name: Some(PlatformAwareString::ByPlatform(name_map2)), link: None },
         ]);
         let resolved = pkg_def.resolve("test");
 
@@ -531,7 +534,7 @@ mod tests {
         }
 
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::Map(name_map)),
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
             link: None,
         }]);
         let resolved = pkg_def.resolve("test");
@@ -558,8 +561,11 @@ mod tests {
         name_map.insert(platform_key.clone(), "platform-bin".to_string());
 
         let pkg_def = make_pkg_def(vec![
-            BinDef { name: Some(StringOrMap::String("simple-bin".to_string())), link: None },
-            BinDef { name: Some(StringOrMap::Map(name_map)), link: None },
+            BinDef {
+                name: Some(PlatformAwareString::Literal("simple-bin".to_string())),
+                link: None,
+            },
+            BinDef { name: Some(PlatformAwareString::ByPlatform(name_map)), link: None },
         ]);
         let resolved = pkg_def.resolve("test");
 
@@ -578,7 +584,7 @@ mod tests {
         name_map.insert("nonexistent-platform-xyz".to_string(), "nonexistent-bin".to_string());
 
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some(StringOrMap::Map(name_map)),
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
             link: None,
         }]);
         let resolved = pkg_def.resolve("fallback-test");
@@ -595,10 +601,10 @@ mod tests {
         }
     }
 
-    // ==================== StringOrMap deserialization ====================
+    // ==================== PlatformAwareString deserialization ====================
 
     #[test]
-    fn deserialize_string_or_map_string() {
+    fn deserialize_platform_aware_string_literal() {
         let toml = r#"
             name = "test-bin"
         "#;
@@ -608,15 +614,15 @@ mod tests {
         let bin_def = result.unwrap();
         assert!(bin_def.name.is_some());
 
-        if let Some(StringOrMap::String(s)) = bin_def.name {
+        if let Some(PlatformAwareString::Literal(s)) = bin_def.name {
             assert_eq!(s, "test-bin");
         } else {
-            panic!("Expected StringOrMap::String");
+            panic!("Expected PlatformAwareString::Literal");
         }
     }
 
     #[test]
-    fn deserialize_string_or_map_map() {
+    fn deserialize_platform_aware_string_by_platform() {
         let toml = r#"
             [name]
             "linux-x86_64" = "linux-bin"
@@ -628,11 +634,11 @@ mod tests {
         let bin_def = result.unwrap();
         assert!(bin_def.name.is_some());
 
-        if let Some(StringOrMap::Map(map)) = bin_def.name {
+        if let Some(PlatformAwareString::ByPlatform(map)) = bin_def.name {
             assert_eq!(map.get("linux-x86_64"), Some(&"linux-bin".to_string()));
             assert_eq!(map.get("windows-x86_64"), Some(&"windows-bin.exe".to_string()));
         } else {
-            panic!("Expected StringOrMap::Map");
+            panic!("Expected PlatformAwareString::ByPlatform");
         }
     }
 
