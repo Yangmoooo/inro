@@ -9,6 +9,10 @@ use crate::layout::InroLayout;
 
 const INRO_DEFAULT_REGISTRY: &str =
     "https://raw.githubusercontent.com/Yangmoooo/inro-registry/main/default.toml";
+const PARALLEL_DOWNLOADS_MIN: usize = 1;
+const PARALLEL_DOWNLOADS_MAX: usize = 32;
+const PARALLEL_DOWNLOADS_DEFAULT_MIN: usize = 4;
+const PARALLEL_DOWNLOADS_DEFAULT_MAX: usize = 16;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -17,12 +21,6 @@ pub struct Config {
 
     // sources
     pub upstreams: Vec<UpstreamDef>,
-
-    // network
-    pub github_token: Option<String>,
-    pub proxy: Option<String>,
-    pub use_proxy: bool,
-    pub timeout_secs: u64,
 
     // behavior
     pub parallel_downloads: usize,
@@ -52,14 +50,8 @@ impl Default for Config {
                 url: INRO_DEFAULT_REGISTRY.to_string(),
             }],
 
-            // network defaults
-            github_token: None,
-            proxy: None,
-            use_proxy: false,
-            timeout_secs: 30,
-
             // behavior defaults
-            parallel_downloads: 4,
+            parallel_downloads: Self::default_parallel_downloads(),
         }
     }
 }
@@ -74,30 +66,33 @@ impl Config {
             figment = figment.merge(Toml::file(&layout.config_path));
         }
 
-        // layer 3: universal env vars
-        // HTTPS_PROXY | ALL_PROXY -> network.proxy
-        if let Ok(proxy) = std::env::var("HTTPS_PROXY").or_else(|_| std::env::var("ALL_PROXY")) {
-            figment = figment.merge(("proxy", proxy));
-        }
-        // GITHUB_TOKEN -> network.github_token
-        if let Ok(token) = std::env::var("GITHUB_TOKEN") {
-            figment = figment.merge(("github_token", token));
-        }
-
-        // layer 4: inro standard env vars
+        // layer 3: inro standard env vars
         // such as:
         // INRO_BIN_DIR -> bin_dir
-        // INRO_TIMEOUT_SECS -> timeout_secs
+        // INRO_PARALLEL_DOWNLOADS -> parallel_downloads
         figment = figment.merge(Env::prefixed("INRO_"));
 
         let mut config: Config = figment.extract()?;
         config.expand_paths(&layout.home_dir);
+        config.normalize();
 
         Ok(config)
     }
 
     fn expand_paths(&mut self, home: &Path) {
         self.bin_dir = Self::expand_path(&self.bin_dir, home);
+    }
+
+    fn normalize(&mut self) {
+        self.parallel_downloads =
+            self.parallel_downloads.clamp(PARALLEL_DOWNLOADS_MIN, PARALLEL_DOWNLOADS_MAX);
+    }
+
+    fn default_parallel_downloads() -> usize {
+        let raw = std::thread::available_parallelism()
+            .map(|n| n.get().saturating_mul(2))
+            .unwrap_or(PARALLEL_DOWNLOADS_DEFAULT_MIN);
+        raw.clamp(PARALLEL_DOWNLOADS_DEFAULT_MIN, PARALLEL_DOWNLOADS_DEFAULT_MAX)
     }
 
     fn expand_path(path: &Path, home: &Path) -> PathBuf {
@@ -164,5 +159,28 @@ mod tests {
         let home = Path::new("/home/user");
         let result = Config::expand_path(Path::new("/path/to/~"), home);
         assert_eq!(result, PathBuf::from("/path/to/~"));
+    }
+
+    #[test]
+    fn normalize_parallel_downloads_enforces_lower_bound() {
+        let mut config = Config { parallel_downloads: 0, ..Config::default() };
+        config.normalize();
+        assert_eq!(config.parallel_downloads, PARALLEL_DOWNLOADS_MIN);
+    }
+
+    #[test]
+    fn normalize_parallel_downloads_enforces_upper_bound() {
+        let mut config =
+            Config { parallel_downloads: PARALLEL_DOWNLOADS_MAX + 100, ..Config::default() };
+        config.normalize();
+        assert_eq!(config.parallel_downloads, PARALLEL_DOWNLOADS_MAX);
+    }
+
+    #[test]
+    fn default_parallel_downloads_within_expected_range() {
+        let value = Config::default_parallel_downloads();
+        assert!(
+            (PARALLEL_DOWNLOADS_DEFAULT_MIN..=PARALLEL_DOWNLOADS_DEFAULT_MAX).contains(&value)
+        );
     }
 }

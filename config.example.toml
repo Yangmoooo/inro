@@ -29,36 +29,16 @@ bin_dir = "~/bin"
 
 
 # =============================================================================
-# [network] - Settings for network requests
-# =============================================================================
-
-# GitHub Personal Access Token (PAT) for authenticated API requests.
-# Using a token increases your API rate limit from 60 to 5000 requests per hour.
-# Highly recommended.
-# Environment variable overrides: INRO_GITHUB_TOKEN or GITHUB_TOKEN
-#
-# github_token = "ghp_..."
-
-### BELOW IS NOT IMPLEMENTED YET!!!
-
-# HTTP/SOCKS5 proxy to use for all network requests.
-# Environment variable overrides: HTTPS_PROXY or ALL_PROXY
-#
-# proxy = "http://user:password@proxy.example.com:8080"
-# proxy = "socks5://localhost:7890"
-# use_proxy = true
-
-# Request timeout in seconds.
-# Default: 30
-#
-# timeout_secs = 60
-
-
-# =============================================================================
 # [behavior] - General behavior and performance tuning
 # =============================================================================
 
 # Number of packages to download in parallel during a multi-package install/update.
-# Default: 4 (or number of CPU cores)
+# Valid range: 1-32
+# Environment variable override: INRO_PARALLEL_DOWNLOADS
+# Default: clamp(CPU cores * 2, 4, 16)
 #
 # parallel_downloads = 8
+
+
+# GitHub token is configured only via environment variables:
+# INRO_GITHUB_TOKEN (preferred) or GITHUB_TOKEN.
