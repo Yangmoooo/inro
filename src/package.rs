@@ -6,6 +6,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
+use crate::platform::PlatformInfo;
 use crate::remotes::RemoteType;
 use crate::utils::create_symlink;
 
@@ -19,13 +20,62 @@ pub struct PkgDef {
     pub bin: Vec<BinDef>,
 }
 
+/// A value that can be either a plain string or a platform-specific mapping.
+/// Using #[serde(untagged)] for backward compatibility.
+#[derive(Clone, Debug, Deserialize)]
+#[serde(untagged)]
+pub enum PlatformAwareString {
+    /// A plain string value that applies to all platforms
+    Literal(String),
+    /// A platform-specific mapping, e.g., {"windows-x86_64": "codex.exe",
+    /// "linux-x86_64": "codex"}
+    ByPlatform(HashMap<String, String>),
+}
+
+impl PlatformAwareString {
+    /// Resolve the value for the current platform.
+    /// If it's a plain string, returns that.
+    /// If it's a map, tries to find a matching platform key or returns None.
+    fn resolve_for_platform(&self) -> Option<String> {
+        match self {
+            PlatformAwareString::Literal(s) => Some(s.clone()),
+            PlatformAwareString::ByPlatform(map) => {
+                let platform = PlatformInfo::current();
+                let platform_key = platform.key();
+
+                // Try exact match first
+                if let Some(value) = map.get(&platform_key) {
+                    return Some(value.clone());
+                }
+
+                // Try to find a matching key using platform and arch aliases
+                let os_aliases = platform.os_aliases();
+                let arch_aliases = platform.arch_aliases();
+
+                for (key, value) in map.iter() {
+                    // Check if the key matches any os-arch combination
+                    let key_lower = key.to_lowercase();
+                    let os_match = os_aliases.iter().any(|&alias| key_lower.contains(alias));
+                    let arch_match = arch_aliases.iter().any(|&alias| key_lower.contains(alias));
+
+                    if os_match && arch_match {
+                        return Some(value.clone());
+                    }
+                }
+
+                None
+            }
+        }
+    }
+}
+
 /// Binary definition within a package.
 #[derive(Clone, Debug, Deserialize)]
 pub struct BinDef {
     #[serde(default)]
-    pub name: Option<String>,
+    pub name: Option<PlatformAwareString>,
     #[serde(default)]
-    pub link: Option<String>,
+    pub link: Option<PlatformAwareString>,
 }
 
 /// Resolved package definition with finalized parameters.
@@ -65,10 +115,20 @@ impl PkgDef {
             self.bin
                 .into_iter()
                 .map(|b| {
-                    let raw_name = b.name.unwrap_or_else(|| pkg_name.to_string());
+                    // Resolve name from PlatformAwareString, defaulting to package name
+                    let raw_name = b
+                        .name
+                        .and_then(|s| s.resolve_for_platform())
+                        .unwrap_or_else(|| pkg_name.to_string());
                     let name = normalize_name(raw_name);
-                    let raw_link = b.link.unwrap_or_else(|| name.clone());
+
+                    // Resolve link from PlatformAwareString, defaulting to the resolved name
+                    let raw_link = b
+                        .link
+                        .and_then(|s| s.resolve_for_platform())
+                        .unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
+
                     ResolvedBin { name, link }
                 })
                 .collect()
@@ -253,7 +313,10 @@ mod tests {
 
     #[test]
     fn resolve_custom_bin_name() {
-        let pkg_def = make_pkg_def(vec![BinDef { name: Some("rg".to_string()), link: None }]);
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some(PlatformAwareString::Literal("rg".to_string())),
+            link: None,
+        }]);
         let resolved = pkg_def.resolve("ripgrep");
 
         assert_eq!(resolved.bin.len(), 1);
@@ -267,8 +330,8 @@ mod tests {
     #[test]
     fn resolve_custom_bin_name_and_link() {
         let pkg_def = make_pkg_def(vec![BinDef {
-            name: Some("rg".to_string()),
-            link: Some("ripgrep".to_string()),
+            name: Some(PlatformAwareString::Literal("rg".to_string())),
+            link: Some(PlatformAwareString::Literal("ripgrep".to_string())),
         }]);
         let resolved = pkg_def.resolve("ripgrep");
 
@@ -283,8 +346,8 @@ mod tests {
     #[test]
     fn resolve_multiple_binaries() {
         let pkg_def = make_pkg_def(vec![
-            BinDef { name: Some("uv".to_string()), link: None },
-            BinDef { name: Some("uvx".to_string()), link: None },
+            BinDef { name: Some(PlatformAwareString::Literal("uv".to_string())), link: None },
+            BinDef { name: Some(PlatformAwareString::Literal("uvx".to_string())), link: None },
         ]);
         let resolved = pkg_def.resolve("uv");
 
@@ -360,5 +423,337 @@ mod tests {
 
         // Should return the one with latest installed_at
         assert_eq!(state.get_latest_version(), Some("2.0.0".to_string()));
+    }
+
+    // ==================== Platform-specific binary names ====================
+
+    #[test]
+    fn resolve_platform_specific_name() {
+        let platform = PlatformInfo::current();
+        let platform_key = platform.key();
+
+        let mut name_map = HashMap::new();
+        name_map.insert(platform_key.clone(), "platform-specific-bin".to_string());
+        name_map.insert("other-platform".to_string(), "other-bin".to_string());
+
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
+            link: None,
+        }]);
+        let resolved = pkg_def.resolve("test");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "platform-specific-bin");
+            assert_eq!(resolved.bin[0].link, "platform-specific-bin");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "platform-specific-bin.exe");
+            assert_eq!(resolved.bin[0].link, "platform-specific-bin.exe");
+        }
+    }
+
+    #[test]
+    fn resolve_platform_specific_name_and_link() {
+        let platform = PlatformInfo::current();
+        let platform_key = platform.key();
+
+        let mut name_map = HashMap::new();
+        name_map.insert(platform_key.clone(), "codex-x86_64-pc-windows-msvc".to_string());
+
+        let mut link_map = HashMap::new();
+        link_map.insert(platform_key.clone(), "codex".to_string());
+
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
+            link: Some(PlatformAwareString::ByPlatform(link_map)),
+        }]);
+        let resolved = pkg_def.resolve("test");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc");
+            assert_eq!(resolved.bin[0].link, "codex");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
+            assert_eq!(resolved.bin[0].link, "codex.exe");
+        }
+    }
+
+    #[test]
+    fn resolve_multiple_platform_specific_binaries() {
+        let platform = PlatformInfo::current();
+        let platform_key = platform.key();
+
+        let mut name_map1 = HashMap::new();
+        name_map1.insert(platform_key.clone(), "bin1".to_string());
+
+        let mut link_map1 = HashMap::new();
+        link_map1.insert(platform_key.clone(), "link1".to_string());
+
+        let mut name_map2 = HashMap::new();
+        name_map2.insert(platform_key.clone(), "bin2".to_string());
+
+        let pkg_def = make_pkg_def(vec![
+            BinDef {
+                name: Some(PlatformAwareString::ByPlatform(name_map1)),
+                link: Some(PlatformAwareString::ByPlatform(link_map1)),
+            },
+            BinDef { name: Some(PlatformAwareString::ByPlatform(name_map2)), link: None },
+        ]);
+        let resolved = pkg_def.resolve("test");
+
+        assert_eq!(resolved.bin.len(), 2);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "bin1");
+            assert_eq!(resolved.bin[0].link, "link1");
+            assert_eq!(resolved.bin[1].name, "bin2");
+            assert_eq!(resolved.bin[1].link, "bin2");
+        }
+    }
+
+    #[test]
+    fn resolve_platform_specific_with_aliases() {
+        // Test that platform aliases work
+        let platform = PlatformInfo::current();
+
+        let mut name_map = HashMap::new();
+        // Use a fuzzy key that should match using aliases
+        if platform.os == "linux" {
+            name_map.insert("linux-x86_64".to_string(), "matched-bin".to_string());
+        } else if platform.os == "windows" {
+            name_map.insert("windows-x86_64".to_string(), "matched-bin".to_string());
+        } else if platform.os == "macos" {
+            name_map.insert("darwin-aarch64".to_string(), "matched-bin".to_string());
+        }
+
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
+            link: None,
+        }]);
+        let resolved = pkg_def.resolve("test");
+
+        // Only test if we can match
+        if !resolved.bin.is_empty() {
+            #[cfg(not(windows))]
+            {
+                assert_eq!(resolved.bin[0].name, "matched-bin");
+            }
+            #[cfg(windows)]
+            {
+                assert_eq!(resolved.bin[0].name, "matched-bin.exe");
+            }
+        }
+    }
+
+    #[test]
+    fn resolve_mixed_string_and_map_binaries() {
+        let platform = PlatformInfo::current();
+        let platform_key = platform.key();
+
+        let mut name_map = HashMap::new();
+        name_map.insert(platform_key.clone(), "platform-bin".to_string());
+
+        let pkg_def = make_pkg_def(vec![
+            BinDef {
+                name: Some(PlatformAwareString::Literal("simple-bin".to_string())),
+                link: None,
+            },
+            BinDef { name: Some(PlatformAwareString::ByPlatform(name_map)), link: None },
+        ]);
+        let resolved = pkg_def.resolve("test");
+
+        assert_eq!(resolved.bin.len(), 2);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "simple-bin");
+            assert_eq!(resolved.bin[1].name, "platform-bin");
+        }
+    }
+
+    #[test]
+    fn resolve_platform_specific_fallback_to_package_name() {
+        // Test that when platform doesn't match, it falls back to package name
+        let mut name_map = HashMap::new();
+        name_map.insert("nonexistent-platform-xyz".to_string(), "nonexistent-bin".to_string());
+
+        let pkg_def = make_pkg_def(vec![BinDef {
+            name: Some(PlatformAwareString::ByPlatform(name_map)),
+            link: None,
+        }]);
+        let resolved = pkg_def.resolve("fallback-test");
+
+        assert_eq!(resolved.bin.len(), 1);
+        // Should fallback to package name when no platform match
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "fallback-test");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "fallback-test.exe");
+        }
+    }
+
+    // ==================== PlatformAwareString deserialization ====================
+
+    #[test]
+    fn deserialize_platform_aware_string_literal() {
+        let toml = r#"
+            name = "test-bin"
+        "#;
+
+        let result: Result<BinDef, _> = toml::from_str(toml);
+        assert!(result.is_ok());
+        let bin_def = result.unwrap();
+        assert!(bin_def.name.is_some());
+
+        if let Some(PlatformAwareString::Literal(s)) = bin_def.name {
+            assert_eq!(s, "test-bin");
+        } else {
+            panic!("Expected PlatformAwareString::Literal");
+        }
+    }
+
+    #[test]
+    fn deserialize_platform_aware_string_by_platform() {
+        let toml = r#"
+            [name]
+            "linux-x86_64" = "linux-bin"
+            "windows-x86_64" = "windows-bin.exe"
+        "#;
+
+        let result: Result<BinDef, _> = toml::from_str(toml);
+        assert!(result.is_ok());
+        let bin_def = result.unwrap();
+        assert!(bin_def.name.is_some());
+
+        if let Some(PlatformAwareString::ByPlatform(map)) = bin_def.name {
+            assert_eq!(map.get("linux-x86_64"), Some(&"linux-bin".to_string()));
+            assert_eq!(map.get("windows-x86_64"), Some(&"windows-bin.exe".to_string()));
+        } else {
+            panic!("Expected PlatformAwareString::ByPlatform");
+        }
+    }
+
+    #[test]
+    fn deserialize_full_bin_def_with_platform_specific() {
+        let toml = r#"
+            [name]
+            "linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+            "windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
+
+            [link]
+            "linux-x86_64" = "codex"
+            "windows-x86_64" = "codex"
+        "#;
+
+        let result: Result<BinDef, _> = toml::from_str(toml);
+        assert!(result.is_ok());
+        let bin_def = result.unwrap();
+
+        assert!(bin_def.name.is_some());
+        assert!(bin_def.link.is_some());
+    }
+
+    #[test]
+    fn deserialize_complete_pkg_def_with_platform_specific() {
+        let toml = r#"
+ver = "v1.0.0"
+
+[remote.github]
+repo = "example/codex"
+
+[[bin]]
+[bin.name]
+"linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+"windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
+
+[bin.link]
+"linux-x86_64" = "codex"
+"windows-x86_64" = "codex"
+
+[[bin]]
+[bin.name]
+"windows-x86_64" = "codex-windows-sandbox-setup.exe"
+
+[[bin]]
+[bin.name]
+"windows-x86_64" = "codex-command-runner.exe"
+        "#;
+
+        let result: Result<PkgDef, _> = toml::from_str(toml);
+        assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
+
+        let pkg_def = result.unwrap();
+        assert_eq!(pkg_def.ver, Some("v1.0.0".to_string()));
+        assert_eq!(pkg_def.bin.len(), 3);
+
+        // Resolve and check that it works for current platform
+        let resolved = pkg_def.resolve("codex");
+
+        // All binaries should resolve, but with different behavior per platform:
+        // - On linux: 1st binary matches, 2nd and 3rd fall back to package name
+        // - On windows: all 3 binaries should match
+        assert_eq!(resolved.bin.len(), 3);
+
+        #[cfg(target_os = "linux")]
+        {
+            // First binary should match linux-x86_64
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
+            assert_eq!(resolved.bin[0].link, "codex");
+
+            // Second and third binaries don't match, so fall back to package name
+            assert_eq!(resolved.bin[1].name, "codex");
+            assert_eq!(resolved.bin[2].name, "codex");
+        }
+
+        #[cfg(target_os = "windows")]
+        {
+            // All three binaries should match
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
+            assert_eq!(resolved.bin[0].link, "codex.exe");
+            assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
+            assert_eq!(resolved.bin[2].name, "codex-command-runner.exe");
+        }
+    }
+
+    #[test]
+    fn backward_compatibility_with_string_binaries() {
+        // Ensure old-style string binaries still work
+        let toml = r#"
+ver = "v1.0.0"
+
+[remote.github]
+repo = "example/simple"
+
+[[bin]]
+name = "simple-bin"
+link = "simple-link"
+        "#;
+
+        let result: Result<PkgDef, _> = toml::from_str(toml);
+        assert!(result.is_ok());
+
+        let pkg_def = result.unwrap();
+        let resolved = pkg_def.resolve("simple");
+
+        assert_eq!(resolved.bin.len(), 1);
+        #[cfg(not(windows))]
+        {
+            assert_eq!(resolved.bin[0].name, "simple-bin");
+            assert_eq!(resolved.bin[0].link, "simple-link");
+        }
+        #[cfg(windows)]
+        {
+            assert_eq!(resolved.bin[0].name, "simple-bin.exe");
+            assert_eq!(resolved.bin[0].link, "simple-link.exe");
+        }
     }
 }
