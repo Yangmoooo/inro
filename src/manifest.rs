@@ -17,10 +17,14 @@ pub struct Manifest {
     pub pkgs: HashMap<String, PkgState>,
 }
 
-fn default_schema_version() -> u32 { 1 }
+fn default_schema_version() -> u32 {
+    1
+}
 
 impl Default for Manifest {
-    fn default() -> Self { Self { schema_version: default_schema_version(), pkgs: HashMap::new() } }
+    fn default() -> Self {
+        Self { schema_version: default_schema_version(), pkgs: HashMap::new() }
+    }
 }
 
 impl Manifest {

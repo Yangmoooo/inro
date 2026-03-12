@@ -8,6 +8,7 @@ use figment::Figment;
 use figment::providers::{Format, Toml};
 use serde::Deserialize;
 
+use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::PkgDef;
 
@@ -19,13 +20,20 @@ pub struct Registry {
 
 impl Registry {
     pub fn load(layout: &InroLayout) -> Result<Self> {
+        let config = Config::load(layout)?;
         let mut figment = Figment::new();
 
-        // load upstream registry
+        // load upstream registry - only enabled sources
         let upstream_registry_dir = &layout.upstream_registry_dir;
-        let files = collect_toml_files(upstream_registry_dir)?;
-        for file_path in files {
-            figment = figment.merge(Toml::file(file_path));
+        for upstream in &config.upstreams {
+            if !upstream.enabled {
+                continue;
+            }
+            let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
+            let cached_path = upstream_registry_dir.join(&cached_name);
+            if cached_path.exists() {
+                figment = figment.merge(Toml::file(cached_path));
+            }
         }
 
         // load local registry

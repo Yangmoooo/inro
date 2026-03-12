@@ -173,7 +173,25 @@ pub enum SourceSubCommand {
 
     /// List all configured remote sources and their status
     #[command(alias = "ls")]
-    List,
+    List {
+        /// Check remote registries for updates
+        #[arg(long)]
+        check_remote: bool,
+    },
+
+    /// Enable a source registry
+    Enable {
+        /// Name of the source to enable
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
+
+    /// Disable a source registry
+    Disable {
+        /// Name of the source to disable
+        #[arg(value_name = "NAME")]
+        name: String,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]

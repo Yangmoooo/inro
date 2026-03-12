@@ -65,22 +65,34 @@ macro_rules! detail {
 // Implementation functions
 
 #[doc(hidden)]
-pub fn print_msg(msg: &str) { writeln!(io::stderr(), "{msg}").ok(); }
+pub fn print_msg(msg: &str) {
+    writeln!(io::stderr(), "{msg}").ok();
+}
 
 #[doc(hidden)]
-pub fn print_done(msg: &str) { print_with_prefix("✔".green(), msg); }
+pub fn print_done(msg: &str) {
+    print_with_prefix("✔".green(), msg);
+}
 
 #[doc(hidden)]
-pub fn print_fail(msg: &str) { print_with_prefix("✖".red(), msg); }
+pub fn print_fail(msg: &str) {
+    print_with_prefix("✖".red(), msg);
+}
 
 #[doc(hidden)]
-pub fn print_warn(msg: &str) { print_with_prefix("⚠".yellow(), msg); }
+pub fn print_warn(msg: &str) {
+    print_with_prefix("⚠".yellow(), msg);
+}
 
 #[doc(hidden)]
-pub fn print_step(msg: &str) { print_with_prefix("==>".cyan().bold(), msg); }
+pub fn print_step(msg: &str) {
+    print_with_prefix("==>".cyan().bold(), msg);
+}
 
 #[doc(hidden)]
-pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
+pub fn print_detail(msg: &str) {
+    print_with_prefix("  ->".normal(), msg);
+}
 
 fn print_with_prefix(prefix: impl std::fmt::Display, msg: &str) {
     let mut stderr = io::stderr();

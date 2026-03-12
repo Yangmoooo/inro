@@ -31,6 +31,12 @@ pub struct UpstreamDef {
     pub name: String,
     pub priority: u8,
     pub url: String,
+    #[serde(default = "default_enabled")]
+    pub enabled: bool,
+}
+
+fn default_enabled() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -48,6 +54,7 @@ impl Default for Config {
                 name: "default".to_string(),
                 priority: 0,
                 url: INRO_DEFAULT_REGISTRY.to_string(),
+                enabled: true,
             }],
 
             // behavior defaults
