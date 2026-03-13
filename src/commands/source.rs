@@ -3,7 +3,7 @@ use std::fs;
 use anyhow::{Result, anyhow};
 use chrono::{DateTime, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
-use colored::Colorize;
+use colored::{ColoredString, Colorize};
 
 use super::CommandHandler;
 use crate::cli::SourceSubCommand;
@@ -46,21 +46,26 @@ impl CommandHandler for SourceCommand {
                     return Ok(());
                 }
 
-                // Print header
-                println!(
-                    "{:<6}  {:<15}  {:<10}  {:<20}  {:<50}",
-                    "Type", "Name", "Enabled", "Last Update", "URL/Path"
-                );
-                println!("{:-<6}  {:-<15}  {:-<10}  {:-<20}  {:-<50}", "", "", "", "", "");
+                struct Row {
+                    type_str: &'static str,
+                    name: String,
+                    enabled_plain: &'static str,
+                    enabled_display: ColoredString,
+                    last_update_plain: String,
+                    last_update_display: ColoredString,
+                    url_path: String,
+                }
 
-                // Display remote sources
+                let mut rows: Vec<Row> = Vec::new();
+
                 for upstream in upstreams {
                     let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
                     let cached_path = upstream_registry_dir.join(&cached_name);
 
-                    let enabled_display = if upstream.enabled { "Yes".green() } else { "No".red() };
+                    let (enabled_plain, enabled_display) =
+                        if upstream.enabled { ("Yes", "Yes".green()) } else { ("No", "No".red()) };
 
-                    let (last_update, remote_status) = if cached_path.exists() {
+                    let (last_update_plain, last_update_display) = if cached_path.exists() {
                         let metadata = fs::metadata(&cached_path)?;
                         let modified = metadata.modified()?;
                         let datetime: DateTime<Local> = modified.into();
@@ -68,31 +73,42 @@ impl CommandHandler for SourceCommand {
                         let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
 
                         if *check_remote {
-                            // Check if remote has updates
                             match check_remote_update(&upstream.url, &cached_path) {
-                                Ok(true) => (time_str, " (update available)".yellow()),
-                                Ok(false) => (time_str, " (up-to-date)".green()),
-                                Err(_) => (time_str, " (check failed)".red()),
+                                Ok(true) => {
+                                    let s = format!("{} (update available)", time_str);
+                                    let d = s.as_str().yellow();
+                                    (s, d)
+                                }
+                                Ok(false) => {
+                                    let s = format!("{} (up-to-date)", time_str);
+                                    let d = s.as_str().green();
+                                    (s, d)
+                                }
+                                Err(_) => {
+                                    let s = format!("{} (check failed)", time_str);
+                                    let d = s.as_str().red();
+                                    (s, d)
+                                }
                             }
                         } else {
-                            (time_str, "".normal())
+                            let d = time_str.as_str().normal();
+                            (time_str, d)
                         }
                     } else {
-                        ("Not cached".to_string(), "".normal())
+                        ("Not cached".to_string(), "Not cached".normal())
                     };
 
-                    println!(
-                        "{:<6}  {:<15}  {:<10}  {:<20}  {:<50}{}",
-                        "Remote",
-                        upstream.name,
+                    rows.push(Row {
+                        type_str: "Remote",
+                        name: upstream.name.clone(),
+                        enabled_plain,
                         enabled_display,
-                        last_update,
-                        upstream.url,
-                        remote_status
-                    );
+                        last_update_plain,
+                        last_update_display,
+                        url_path: upstream.url.clone(),
+                    });
                 }
 
-                // Display local sources
                 for local_file in local_files {
                     let local_path = local_registry_dir.join(format!("{}.toml", local_file));
                     let metadata = fs::metadata(&local_path)?;
@@ -100,14 +116,78 @@ impl CommandHandler for SourceCommand {
                     let datetime: DateTime<Local> = modified.into();
                     let human_time = HumanTime::from(datetime);
                     let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
+                    let last_update_display = time_str.as_str().normal();
 
+                    rows.push(Row {
+                        type_str: "Local",
+                        name: local_file,
+                        enabled_plain: "Always",
+                        enabled_display: "Always".cyan(),
+                        last_update_plain: time_str,
+                        last_update_display,
+                        url_path: local_path.display().to_string(),
+                    });
+                }
+
+                let col0_w =
+                    rows.iter().map(|r| r.type_str.len()).max().unwrap_or(0).max("Type".len());
+                let col1_w = rows.iter().map(|r| r.name.len()).max().unwrap_or(0).max("Name".len());
+                let col2_w = rows
+                    .iter()
+                    .map(|r| r.enabled_plain.len())
+                    .max()
+                    .unwrap_or(0)
+                    .max("Enabled".len());
+                let col3_w = rows
+                    .iter()
+                    .map(|r| r.last_update_plain.len())
+                    .max()
+                    .unwrap_or(0)
+                    .max("Last Update".len());
+                let col4_w =
+                    rows.iter().map(|r| r.url_path.len()).max().unwrap_or(0).max("URL/Path".len());
+
+                println!(
+                    "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+                    "Type",
+                    "Name",
+                    "Enabled",
+                    "Last Update",
+                    "URL/Path",
+                    w0 = col0_w,
+                    w1 = col1_w,
+                    w2 = col2_w,
+                    w3 = col3_w,
+                    w4 = col4_w
+                );
+                println!(
+                    "{:-<w0$}  {:-<w1$}  {:-<w2$}  {:-<w3$}  {:-<w4$}",
+                    "",
+                    "",
+                    "",
+                    "",
+                    "",
+                    w0 = col0_w,
+                    w1 = col1_w,
+                    w2 = col2_w,
+                    w3 = col3_w,
+                    w4 = col4_w
+                );
+
+                for row in &rows {
+                    let enabled_pad = " ".repeat(col2_w.saturating_sub(row.enabled_plain.len()));
+                    let update_pad = " ".repeat(col3_w.saturating_sub(row.last_update_plain.len()));
                     println!(
-                        "{:<6}  {:<15}  {:<10}  {:<20}  {:<50}",
-                        "Local",
-                        local_file,
-                        "Always".cyan(),
-                        time_str,
-                        local_path.display()
+                        "{:<w0$}  {:<w1$}  {}{}  {}{}  {}",
+                        row.type_str,
+                        row.name,
+                        row.enabled_display,
+                        enabled_pad,
+                        row.last_update_display,
+                        update_pad,
+                        row.url_path,
+                        w0 = col0_w,
+                        w1 = col1_w
                     );
                 }
             }
@@ -199,9 +279,9 @@ fn enable_disable_source(layout: &InroLayout, name: &str, enable: bool) -> Resul
     fs::write(config_path, new_content)?;
 
     if enable {
-        done!("Source '{}' enabled", name);
+        done!("Source '{name}' enabled");
     } else {
-        done!("Source '{}' disabled", name);
+        done!("Source '{name}' disabled");
     }
 
     Ok(())
