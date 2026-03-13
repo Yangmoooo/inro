@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-03-13
+
+### Added
+
+- **Exact Platform Matching**: Allow to specify exact OS/Arch matches in asset discovery, reducing false positives.
+- **Enhanced Source**: `source list` command can now display which remote registries need to be updated in the local cache. `source enable/disable` commands control whether a specific remote registry is enabled.
+
+### Fixed
+
+- **HTTP Error Handling**: Handle HTTP errors in ordinary downloading.
+- **Clean Thoroughly**: `clean` command now correctly updates the manifest when removing specific versions, preventing orphaned entries.
+
+### Security
+
+- **Safe Path Resolution**: prevent directory traversal in TAR extraction.
+
+### Removed
+
+- **Simplify Config**: `timeout` is no longer used. `proxy` and `token` are only configured via environment variables.
+
 ## [0.3.0] - 2026-03-04
 
 ### Added
