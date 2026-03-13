@@ -89,8 +89,11 @@ impl CommandHandler for CleanCommand {
             if let Err(e) = fs::remove_dir_all(path) {
                 warn!("Failed to remove {}: {}", path.display(), e);
             } else {
-                if let Some(state) = manifest.pkgs.get_mut(pkg) {
-                    state.versions.remove(ver);
+                if let Some(state) = manifest.pkgs.get_mut(pkg)
+                    && let Some(raw_ver) =
+                        state.versions.keys().find(|v| sanitize_version(v) == *ver).cloned()
+                {
+                    state.versions.remove(&raw_ver);
                 }
                 // If the package dir is empty after removal, remove it as well
                 let pkg_dir = pkgs_root.join(pkg);
