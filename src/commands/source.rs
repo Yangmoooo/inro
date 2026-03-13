@@ -255,28 +255,62 @@ fn check_remote_update(url: &str, local_path: &std::path::Path) -> Result<bool> 
 }
 
 fn enable_disable_source(layout: &InroLayout, name: &str, enable: bool) -> Result<()> {
-    let config_path = &layout.config_path;
+    use toml_edit::{Array, DocumentMut, InlineTable, Item, Value};
 
-    if !config_path.exists() {
-        return Err(anyhow!("Config file not found. Please run 'inro source update' first."));
-    }
-
-    // Read the config file
-    let content = fs::read_to_string(config_path)?;
-    let mut config: Config = toml::from_str(&content)?;
-
-    // Find the upstream by name
-    let upstream = config
+    // Verify the source exists in the effective config (including defaults)
+    let config = Config::load(layout)?;
+    let upstream_def = config
         .upstreams
-        .iter_mut()
+        .iter()
         .find(|u| u.name == name)
         .ok_or_else(|| anyhow!("Source '{}' not found", name))?;
 
-    upstream.enabled = enable;
+    let config_path = &layout.config_path;
 
-    // Write back to config file
-    let new_content = toml::to_string_pretty(&config)?;
-    fs::write(config_path, new_content)?;
+    // Parse existing file, or start with an empty document
+    let content =
+        if config_path.exists() { fs::read_to_string(config_path)? } else { String::new() };
+    let mut doc: DocumentMut =
+        content.parse().map_err(|e| anyhow!("Failed to parse config file: {e}"))?;
+
+    // Ensure upstreams key exists as an inline array
+    let upstreams_item =
+        doc.entry("upstreams").or_insert_with(|| Item::Value(Value::Array(Array::new())));
+    let upstreams_array = upstreams_item
+        .as_array_mut()
+        .ok_or_else(|| anyhow!("'upstreams' in config is not an array"))?;
+
+    // Find the entry by name
+    let entry_idx = upstreams_array.iter().position(|v| {
+        v.as_inline_table().and_then(|t| t.get("name")).and_then(|v| v.as_str()) == Some(name)
+    });
+
+    match entry_idx {
+        Some(idx) => {
+            let table = upstreams_array
+                .get_mut(idx)
+                .and_then(|v| v.as_inline_table_mut())
+                .ok_or_else(|| anyhow!("upstream entry is not an inline table"))?;
+            table.insert("enabled", enable.into());
+        }
+        None => {
+            // The entry only exists as a default — materialize it with the enabled flag
+            let mut tbl = InlineTable::new();
+            tbl.insert("name", upstream_def.name.as_str().into());
+            tbl.insert("priority", i64::from(upstream_def.priority).into());
+            tbl.insert("url", upstream_def.url.as_str().into());
+            tbl.insert("enabled", enable.into());
+            upstreams_array.push(Value::InlineTable(tbl));
+        }
+    }
+
+    // Ensure parent directory exists, then write atomically
+    if let Some(parent) = config_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp_path = config_path.with_extension("tmp");
+    fs::write(&temp_path, doc.to_string())?;
+    fs::rename(&temp_path, config_path)?;
 
     if enable {
         done!("Source '{name}' enabled");
