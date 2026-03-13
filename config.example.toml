@@ -24,7 +24,7 @@ bin_dir = "~/bin"
 #
 # upstreams = [
 #   { name = "default", priority = 0, url = "https://raw.githubusercontent.com/Yangmoooo/inro-registry/main/default.toml" },
-#   { name = "work", priority = 10, url = "https://internal-gitlab.com/team/my-tools/main/work.toml" }
+#   { name = "work", priority = 10, enabled = false, url = "https://internal-gitlab.com/team/my-tools/main/work.toml" }
 # ]
 
 
