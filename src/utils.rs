@@ -69,6 +69,8 @@ pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
 
     let response = reqwest::blocking::get(url)
         .with_context(|| format!("Failed to download from URL: {url}"))?;
+    let response =
+        response.error_for_status().with_context(|| format!("HTTP error for URL: {url}"))?;
 
     let file_name =
         Path::new(url).file_name().and_then(|s| s.to_str()).unwrap_or("inro-download.tmp");
