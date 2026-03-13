@@ -69,14 +69,10 @@ struct Asset {
 impl Release {
     /// Check if the release is suitable (non-draft, non-prerelease, with
     /// assets).
-    fn is_suitable(&self) -> bool {
-        !self.draft && !self.prerelease && !self.assets.is_empty()
-    }
+    fn is_suitable(&self) -> bool { !self.draft && !self.prerelease && !self.assets.is_empty() }
 
     /// Check if the release is available (non-draft, with assets).
-    fn is_available(&self) -> bool {
-        !self.draft && !self.assets.is_empty()
-    }
+    fn is_available(&self) -> bool { !self.draft && !self.assets.is_empty() }
 
     /// Find assets matching the given asset map or platform information.
     fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
@@ -183,9 +179,7 @@ pub(crate) struct Releases(Vec<Release>);
 
 impl Releases {
     /// List all suitable releases (non-draft, non-prerelease, with assets).
-    fn list_suitable(&self) -> Vec<&Release> {
-        self.0.iter().filter(|r| r.is_suitable()).collect()
-    }
+    fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
 
     /// Get the latest suitable release.
     fn latest_suitable(&self) -> Result<&Release> {
@@ -206,9 +200,7 @@ impl Releases {
 }
 
 impl From<Vec<Release>> for Releases {
-    fn from(releases: Vec<Release>) -> Self {
-        Self(releases)
-    }
+    fn from(releases: Vec<Release>) -> Self { Self(releases) }
 }
 
 impl FromIterator<Release> for Releases {
@@ -224,9 +216,7 @@ impl FromIterator<Release> for Releases {
 pub struct GitHubProvider;
 
 impl GitHubProvider {
-    pub fn new() -> Result<Self> {
-        Ok(Self)
-    }
+    pub fn new() -> Result<Self> { Ok(Self) }
 
     // ==================== Async versions (for install/update) ====================
 

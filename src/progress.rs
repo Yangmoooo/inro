@@ -62,14 +62,10 @@ impl PkgProgress {
     }
 
     /// Set the total size for download progress.
-    pub fn set_length(&self, len: u64) {
-        self.bar.set_length(len);
-    }
+    pub fn set_length(&self, len: u64) { self.bar.set_length(len); }
 
     /// Increment download progress.
-    pub fn inc(&self, delta: u64) {
-        self.bar.inc(delta);
-    }
+    pub fn inc(&self, delta: u64) { self.bar.inc(delta); }
 
     /// Mark as completed with version.
     pub fn finish_success(&self, version: &str) {

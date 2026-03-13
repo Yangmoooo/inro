@@ -35,9 +35,7 @@ pub struct UpstreamDef {
     pub enabled: bool,
 }
 
-fn default_enabled() -> bool {
-    true
-}
+fn default_enabled() -> bool { true }
 
 impl Default for Config {
     fn default() -> Self {

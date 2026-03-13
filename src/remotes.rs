@@ -25,9 +25,7 @@ pub enum RemoteType {
 }
 
 impl Default for RemoteType {
-    fn default() -> Self {
-        RemoteType::GitHub(GitHubAssetDef::default())
-    }
+    fn default() -> Self { RemoteType::GitHub(GitHubAssetDef::default()) }
 }
 
 impl fmt::Display for RemoteType {

@@ -462,9 +462,7 @@ pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
 }
 
 /// Sanitize version string to be filesystem-safe.
-pub fn sanitize_version(raw_version: &str) -> String {
-    raw_version.replace(['/', '\\', ':'], "-")
-}
+pub fn sanitize_version(raw_version: &str) -> String { raw_version.replace(['/', '\\', ':'], "-") }
 
 /// Format a DateTime<Utc> into a string with absolute and relative time.
 pub fn format_date(dt: &DateTime<Utc>) -> String {

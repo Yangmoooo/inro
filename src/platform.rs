@@ -8,13 +8,9 @@ pub struct PlatformInfo {
 }
 
 impl PlatformInfo {
-    pub fn current() -> Self {
-        Self { os: consts::OS, arch: consts::ARCH }
-    }
+    pub fn current() -> Self { Self { os: consts::OS, arch: consts::ARCH } }
 
-    pub fn key(&self) -> String {
-        format!("{}-{}", self.os, self.arch)
-    }
+    pub fn key(&self) -> String { format!("{}-{}", self.os, self.arch) }
 
     pub fn os_aliases(&self) -> &[&str] {
         match self.os {
