@@ -241,10 +241,38 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
     Ok(file_type)
 }
 
+/// Resolve a path under `base` without path traversal.
+///
+/// Normalizes `..` and `.` components purely lexically, then checks that
+/// the result stays within `base`. Returns `None` if the path escapes.
+fn safe_join_path(base: &Path, untrusted: &Path) -> Option<PathBuf> {
+    use std::path::Component;
+
+    let mut resolved = base.to_path_buf();
+    for component in untrusted.components() {
+        match component {
+            Component::Normal(c) => resolved.push(c),
+            Component::CurDir => {}
+            // ParentDir: go up but never above base
+            Component::ParentDir => {
+                if !resolved.starts_with(base) || resolved == base {
+                    return None;
+                }
+                resolved.pop();
+            }
+            // RootDir / Prefix: absolute path — reject
+            _ => return None,
+        }
+    }
+
+    if resolved.starts_with(base) { Some(resolved) } else { None }
+}
+
 /// Extract a TAR archive using large buffers for better performance.
 ///
 /// This function manually extracts files instead of using `Archive::unpack()`
-/// to control buffer sizes.
+/// to control buffer sizes. All entry paths are validated against path
+/// traversal before extraction.
 fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
     let mut archive = tar::Archive::new(reader);
     let mut buffer = vec![0u8; BUFFER_SIZE];
@@ -253,7 +281,14 @@ fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
         let mut entry = entry?;
         let entry_path = entry.path()?;
         let entry_type = entry.header().entry_type();
-        let out_path = dest_dir.join(entry_path);
+
+        let out_path = match safe_join_path(dest_dir, &entry_path) {
+            Some(p) => p,
+            None => bail!(
+                "tar entry '{}' would escape destination directory",
+                entry_path.display()
+            ),
+        };
 
         if entry_type.is_dir() {
             fs::create_dir_all(&out_path)?;
@@ -290,13 +325,31 @@ fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
                     fs::create_dir_all(parent)?;
                 }
                 if let Some(target) = entry.link_name()? {
+                    // Validate: resolve the symlink target relative to the link's parent
+                    let link_parent = out_path.parent().unwrap_or(dest_dir);
+                    if target.is_absolute()
+                        || safe_join_path(dest_dir, &link_parent.join(&target)).is_none()
+                    {
+                        bail!(
+                            "tar symlink '{}' -> '{}' would escape destination directory",
+                            entry_path.display(),
+                            target.display()
+                        );
+                    }
                     std::os::unix::fs::symlink(&target, &out_path)?;
                 }
             }
         } else if entry_type.is_hard_link()
             && let Some(target) = entry.link_name()?
         {
-            let target_path = dest_dir.join(target);
+            let target_path = match safe_join_path(dest_dir, &target) {
+                Some(p) => p,
+                None => bail!(
+                    "tar hard link '{}' -> '{}' would escape destination directory",
+                    entry_path.display(),
+                    target.display()
+                ),
+            };
             fs::hard_link(&target_path, &out_path)?;
         }
     }
@@ -683,5 +736,48 @@ mod tests {
     fn filetype_from_extension_unknown() {
         let path = Path::new("binary-linux-x86_64");
         assert!(FileType::from_extension(path).is_none());
+    }
+
+    // ==================== safe_join_path() ====================
+
+    #[test]
+    fn safe_join_normal_path() {
+        let base = Path::new("/tmp/extract");
+        let result = safe_join_path(base, Path::new("dir/file.txt"));
+        assert_eq!(result, Some(PathBuf::from("/tmp/extract/dir/file.txt")));
+    }
+
+    #[test]
+    fn safe_join_rejects_parent_escape() {
+        let base = Path::new("/tmp/extract");
+        assert!(safe_join_path(base, Path::new("../../etc/passwd")).is_none());
+    }
+
+    #[test]
+    fn safe_join_rejects_absolute_path() {
+        let base = Path::new("/tmp/extract");
+        assert!(safe_join_path(base, Path::new("/etc/passwd")).is_none());
+    }
+
+    #[test]
+    fn safe_join_allows_internal_parent() {
+        let base = Path::new("/tmp/extract");
+        // "a/b/../c" should resolve to "a/c" which is still inside base
+        let result = safe_join_path(base, Path::new("a/b/../c"));
+        assert_eq!(result, Some(PathBuf::from("/tmp/extract/a/c")));
+    }
+
+    #[test]
+    fn safe_join_rejects_exact_boundary_escape() {
+        let base = Path::new("/tmp/extract");
+        // "a/../../etc" -> would go above base
+        assert!(safe_join_path(base, Path::new("a/../../etc")).is_none());
+    }
+
+    #[test]
+    fn safe_join_ignores_curdir() {
+        let base = Path::new("/tmp/extract");
+        let result = safe_join_path(base, Path::new("./dir/./file.txt"));
+        assert_eq!(result, Some(PathBuf::from("/tmp/extract/dir/file.txt")));
     }
 }
