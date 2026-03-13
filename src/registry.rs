@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::read_dir;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -23,17 +23,23 @@ impl Registry {
         let config = Config::load(layout)?;
         let mut figment = Figment::new();
 
-        // load upstream registry - only enabled sources
+        // load upstream registry - sorted by priority, only enabled sources
         let upstream_registry_dir = &layout.upstream_registry_dir;
-        for upstream in &config.upstreams {
-            if !upstream.enabled {
-                continue;
-            }
-            let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
-            let cached_path = upstream_registry_dir.join(&cached_name);
-            if cached_path.exists() {
-                figment = figment.merge(Toml::file(cached_path));
-            }
+        let enabled_names: HashSet<String> = config
+            .upstreams
+            .iter()
+            .filter(|u| u.enabled)
+            .map(|u| format!("{:02}-{}.toml", u.priority, u.name))
+            .collect();
+        let mut upstream_files = collect_toml_files(upstream_registry_dir)?;
+        upstream_files.retain(|p| {
+            p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| enabled_names.contains(n))
+                .unwrap_or(false)
+        });
+        for file_path in upstream_files {
+            figment = figment.merge(Toml::file(file_path));
         }
 
         // load local registry
