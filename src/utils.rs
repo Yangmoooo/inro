@@ -284,10 +284,9 @@ fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
 
         let out_path = match safe_join_path(dest_dir, &entry_path) {
             Some(p) => p,
-            None => bail!(
-                "tar entry '{}' would escape destination directory",
-                entry_path.display()
-            ),
+            None => {
+                bail!("tar entry '{}' would escape destination directory", entry_path.display())
+            }
         };
 
         if entry_type.is_dir() {
