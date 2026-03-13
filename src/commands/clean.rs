@@ -43,7 +43,7 @@ impl CommandHandler for CleanCommand {
         let mut recovered_space: u64 = 0; // total bytes recovered
 
         // traverse first-level pkgs_dir for pkg_names
-        for entry in fs::read_dir(pkgs_root)? {
+        for entry in fs::read_dir(&pkgs_root)? {
             let entry = entry?;
             let pkg_name = entry.file_name().to_string_lossy().to_string();
             let pkg_path = entry.path();
@@ -82,17 +82,23 @@ impl CommandHandler for CleanCommand {
 
             if self.dry_run {
                 println!("  - {} {} ({})", pkg, ver.dimmed(), size_str);
+                continue;
+            }
+
+            detail!("Removing {pkg}/{ver}...");
+            if let Err(e) = fs::remove_dir_all(path) {
+                warn!("Failed to remove {}: {}", path.display(), e);
             } else {
-                detail!("Removing {pkg}/{ver}...");
-                if let Err(e) = fs::remove_dir_all(path) {
-                    warn!("Failed to remove {}: {}", path.display(), e);
-                } else {
-                    if let Some(state) = manifest.pkgs.get_mut(pkg) {
-                        state.versions.remove(ver);
-                    }
-                    recovered_space += size;
-                    any_removed = true;
+                if let Some(state) = manifest.pkgs.get_mut(pkg) {
+                    state.versions.remove(ver);
                 }
+                // If the package dir is empty after removal, remove it as well
+                let pkg_dir = pkgs_root.join(pkg);
+                if pkg_dir.read_dir().map(|mut d| d.next().is_none()).unwrap_or(false) {
+                    let _ = fs::remove_dir(&pkg_dir);
+                }
+                recovered_space += size;
+                any_removed = true;
             }
         }
 
