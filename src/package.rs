@@ -115,9 +115,9 @@ impl PkgDef {
             self.bin
                 .into_iter()
                 .filter_map(|b| {
-                    // Resolve name from PlatformAwareString; skip binaries that don't
-                    // match the current platform when a platform map is provided.
-                    let raw_name = match &b.name {
+                    // Resolve name from PlatformAwareString; if it doesn't match the current
+                    // platform, skip this binary instead of falling back to the package name.
+                    let raw_name = match b.name {
                         Some(s) => s.resolve_for_platform(),
                         None => Some(pkg_name.to_string()),
                     }?;
@@ -577,9 +577,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_platform_specific_skips_when_no_match() {
-        // When a platform-specific binary doesn't match the current platform,
-        // it should be skipped rather than falling back to a default name.
+    fn resolve_platform_specific_without_match_is_skipped() {
+        // Test that when platform doesn't match, the binary definition is skipped
         let mut name_map = HashMap::new();
         name_map.insert("nonexistent-platform-xyz".to_string(), "nonexistent-bin".to_string());
 
@@ -691,7 +690,7 @@ repo = "example/codex"
 
         #[cfg(target_os = "linux")]
         {
-            // Only binaries that explicitly match the current platform are kept
+            // Only the linux-specific binary should be kept
             assert_eq!(resolved.bin.len(), 1);
             assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
             assert_eq!(resolved.bin[0].link, "codex");
@@ -701,6 +700,7 @@ repo = "example/codex"
         {
             assert_eq!(resolved.bin.len(), 3);
             // All three binaries should match
+            assert_eq!(resolved.bin.len(), 3);
             assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
             assert_eq!(resolved.bin[0].link, "codex.exe");
             assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
