@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-03-24
+
+### Fixed
+
+- **Binary Not Found**: Fix a phantom lookup in assets.
+
 ## [0.4.0] - 2026-03-13
 
 ### Added
