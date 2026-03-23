@@ -120,10 +120,7 @@ impl PkgDef {
                     let raw_name = match b.name {
                         Some(s) => s.resolve_for_platform(),
                         None => Some(pkg_name.to_string()),
-                    };
-                    let Some(raw_name) = raw_name else {
-                        return None;
-                    };
+                    }?;
                     let name = normalize_name(raw_name);
 
                     // Resolve link from PlatformAwareString, defaulting to the resolved name
