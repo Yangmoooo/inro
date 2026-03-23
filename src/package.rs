@@ -124,8 +124,11 @@ impl PkgDef {
                     let name = normalize_name(raw_name);
 
                     // Resolve link from PlatformAwareString, defaulting to the resolved name
-                    let raw_link =
-                        b.link.as_ref().and_then(|s| s.resolve_for_platform()).unwrap_or_else(|| name.clone());
+                    let raw_link = b
+                        .link
+                        .as_ref()
+                        .and_then(|s| s.resolve_for_platform())
+                        .unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
 
                     Some(ResolvedBin { name, link })
