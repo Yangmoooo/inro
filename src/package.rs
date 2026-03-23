@@ -127,10 +127,8 @@ impl PkgDef {
                     let name = normalize_name(raw_name);
 
                     // Resolve link from PlatformAwareString, defaulting to the resolved name
-                    let raw_link = b
-                        .link
-                        .and_then(|s| s.resolve_for_platform())
-                        .unwrap_or_else(|| name.clone());
+                    let raw_link =
+                        b.link.as_ref().and_then(|s| s.resolve_for_platform()).unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
 
                     Some(ResolvedBin { name, link })
@@ -703,6 +701,7 @@ repo = "example/codex"
 
         #[cfg(target_os = "windows")]
         {
+            assert_eq!(resolved.bin.len(), 3);
             // All three binaries should match
             assert_eq!(resolved.bin.len(), 3);
             assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
