@@ -114,12 +114,16 @@ impl PkgDef {
             // process each configured binary
             self.bin
                 .into_iter()
-                .map(|b| {
-                    // Resolve name from PlatformAwareString, defaulting to package name
-                    let raw_name = b
-                        .name
-                        .and_then(|s| s.resolve_for_platform())
-                        .unwrap_or_else(|| pkg_name.to_string());
+                .filter_map(|b| {
+                    // Resolve name from PlatformAwareString; if it doesn't match the current
+                    // platform, skip this binary instead of falling back to the package name.
+                    let raw_name = match b.name {
+                        Some(s) => s.resolve_for_platform(),
+                        None => Some(pkg_name.to_string()),
+                    };
+                    let Some(raw_name) = raw_name else {
+                        return None;
+                    };
                     let name = normalize_name(raw_name);
 
                     // Resolve link from PlatformAwareString, defaulting to the resolved name
@@ -129,7 +133,7 @@ impl PkgDef {
                         .unwrap_or_else(|| name.clone());
                     let link = normalize_name(raw_link);
 
-                    ResolvedBin { name, link }
+                    Some(ResolvedBin { name, link })
                 })
                 .collect()
         };
@@ -578,8 +582,8 @@ mod tests {
     }
 
     #[test]
-    fn resolve_platform_specific_fallback_to_package_name() {
-        // Test that when platform doesn't match, it falls back to package name
+    fn resolve_platform_specific_without_match_is_skipped() {
+        // Test that when platform doesn't match, the binary definition is skipped
         let mut name_map = HashMap::new();
         name_map.insert("nonexistent-platform-xyz".to_string(), "nonexistent-bin".to_string());
 
@@ -589,16 +593,7 @@ mod tests {
         }]);
         let resolved = pkg_def.resolve("fallback-test");
 
-        assert_eq!(resolved.bin.len(), 1);
-        // Should fallback to package name when no platform match
-        #[cfg(not(windows))]
-        {
-            assert_eq!(resolved.bin[0].name, "fallback-test");
-        }
-        #[cfg(windows)]
-        {
-            assert_eq!(resolved.bin[0].name, "fallback-test.exe");
-        }
+        assert!(resolved.bin.is_empty());
     }
 
     // ==================== PlatformAwareString deserialization ====================
@@ -698,25 +693,18 @@ repo = "example/codex"
         // Resolve and check that it works for current platform
         let resolved = pkg_def.resolve("codex");
 
-        // All binaries should resolve, but with different behavior per platform:
-        // - On linux: 1st binary matches, 2nd and 3rd fall back to package name
-        // - On windows: all 3 binaries should match
-        assert_eq!(resolved.bin.len(), 3);
-
         #[cfg(target_os = "linux")]
         {
-            // First binary should match linux-x86_64
+            // Only the linux-specific binary should be kept
+            assert_eq!(resolved.bin.len(), 1);
             assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
             assert_eq!(resolved.bin[0].link, "codex");
-
-            // Second and third binaries don't match, so fall back to package name
-            assert_eq!(resolved.bin[1].name, "codex");
-            assert_eq!(resolved.bin[2].name, "codex");
         }
 
         #[cfg(target_os = "windows")]
         {
             // All three binaries should match
+            assert_eq!(resolved.bin.len(), 3);
             assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
             assert_eq!(resolved.bin[0].link, "codex.exe");
             assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
