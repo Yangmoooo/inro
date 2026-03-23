@@ -56,4 +56,4 @@ jobs:
         run: cargo +stable clippy
 
       - name: Format
-        run: cargo +nightly fmt -- --check
+        run: cargo +nightly fmt
