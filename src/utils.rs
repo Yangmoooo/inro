@@ -497,18 +497,20 @@ pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
 fn is_likely_binary(path: &Path) -> bool {
     // Check if any parent directory is named "bin" (skip the file itself)
     if let Some(parent) = path.parent()
-        && parent.ancestors().any(|a| a.file_name().and_then(|n| n.to_str()) == Some("bin")) {
-            return true;
-        }
+        && parent.ancestors().any(|a| a.file_name().and_then(|n| n.to_str()) == Some("bin"))
+    {
+        return true;
+    }
 
     // On Unix, check for the executable permission bit
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if let Ok(meta) = path.metadata()
-            && meta.permissions().mode() & 0o111 != 0 {
-                return true;
-            }
+            && meta.permissions().mode() & 0o111 != 0
+        {
+            return true;
+        }
     }
 
     false
