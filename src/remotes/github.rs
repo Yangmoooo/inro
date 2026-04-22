@@ -1,3 +1,4 @@
+use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::env;
 
@@ -126,7 +127,7 @@ impl Release {
             });
         }
 
-        candidates.sort_by(|a, b| b.1.cmp(&a.1));
+        candidates.sort_by_key(|b| Reverse(b.1));
         let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
         Ok(sorted_assets)
     }
