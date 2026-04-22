@@ -462,19 +462,58 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 }
 
 /// Recursively search for a binary file by name (case-insensitive).
+///
+/// When multiple files share the same name (e.g. an executable in `usr/bin/`
+/// and a bash-completion script in `usr/share/bash-completion/completions/`),
+/// the function prefers files that are executable or reside under a directory
+/// whose name is `bin` (e.g. `/usr/bin`, `/usr/local/bin`).
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
+    let target = bin_name.to_lowercase();
+
+    let mut fallback: Option<PathBuf> = None;
 
     for entry in walker.filter_map(Result::ok) {
         let path = entry.path();
         if path.is_file()
             && let Some(fname) = path.file_name().and_then(|s| s.to_str())
-            && fname.to_lowercase() == bin_name.to_lowercase()
+            && fname.to_lowercase() == target
         {
-            return Some(path.to_path_buf());
+            // Prefer candidates that sit under a `bin/` directory or are
+            // executable on Unix.
+            if is_likely_binary(path) {
+                return Some(path.to_path_buf());
+            }
+            if fallback.is_none() {
+                fallback = Some(path.to_path_buf());
+            }
         }
     }
-    None
+    fallback
+}
+
+/// Heuristic: returns `true` when the file looks like a real binary rather
+/// than a data/completion file.
+fn is_likely_binary(path: &Path) -> bool {
+    // Check if any parent directory is named "bin" (skip the file itself)
+    if let Some(parent) = path.parent()
+        && parent.ancestors().any(|a| a.file_name().and_then(|n| n.to_str()) == Some("bin"))
+    {
+        return true;
+    }
+
+    // On Unix, check for the executable permission bit
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(meta) = path.metadata()
+            && meta.permissions().mode() & 0o111 != 0
+        {
+            return true;
+        }
+    }
+
+    false
 }
 
 /// Create a symlink from `link` to `original`, replacing existing link/file if
@@ -780,5 +819,73 @@ mod tests {
         let base = Path::new("/tmp/extract");
         let result = safe_join_path(base, Path::new("./dir/./file.txt"));
         assert_eq!(result, Some(PathBuf::from("/tmp/extract/dir/file.txt")));
+    }
+
+    // ==================== find_binary_in_dir() ====================
+
+    #[test]
+    fn find_binary_prefers_bin_dir_over_completions() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Create two files with the same name: one under usr/bin/, one under
+        // usr/share/bash-completion/completions/
+        let bin_dir = root.join("usr/bin");
+        let comp_dir = root.join("usr/share/bash-completion/completions");
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&comp_dir).unwrap();
+
+        fs::write(bin_dir.join("fastfetch"), b"ELF binary").unwrap();
+        fs::write(comp_dir.join("fastfetch"), b"# completion script").unwrap();
+
+        let result = find_binary_in_dir(root, "fastfetch").unwrap();
+        assert_eq!(result, bin_dir.join("fastfetch"));
+    }
+
+    #[test]
+    fn find_binary_returns_only_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Single file not under a bin/ directory should still be found
+        let some_dir = root.join("usr/share/data");
+        fs::create_dir_all(&some_dir).unwrap();
+        fs::write(some_dir.join("mytool"), b"data").unwrap();
+
+        let result = find_binary_in_dir(root, "mytool").unwrap();
+        assert_eq!(result, some_dir.join("mytool"));
+    }
+
+    #[test]
+    fn find_binary_none_when_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        assert!(find_binary_in_dir(tmp.path(), "nonexistent").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_binary_prefers_executable_file() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Two files with the same name in non-bin directories, but one is
+        // executable.
+        let dir_a = root.join("share/completions");
+        let dir_b = root.join("libexec");
+        fs::create_dir_all(&dir_a).unwrap();
+        fs::create_dir_all(&dir_b).unwrap();
+
+        let non_exec = dir_a.join("tool");
+        fs::write(&non_exec, b"# script").unwrap();
+        fs::set_permissions(&non_exec, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let exec = dir_b.join("tool");
+        fs::write(&exec, b"\x7fELF").unwrap();
+        fs::set_permissions(&exec, fs::Permissions::from_mode(0o755)).unwrap();
+
+        let result = find_binary_in_dir(root, "tool").unwrap();
+        assert_eq!(result, exec);
     }
 }
