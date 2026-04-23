@@ -36,7 +36,10 @@ fmt:
     cargo +nightly fmt
 
 lint:
-    cargo clippy -- -W clippy::pedantic
+    cargo clippy -- -D warnings
+
+lint-fix:
+    cargo clippy --fix --allow-dirty --allow-staged
 
 install:
     cargo install --path . --force
