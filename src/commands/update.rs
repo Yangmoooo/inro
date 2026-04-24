@@ -150,43 +150,44 @@ impl CommandHandler for UpdateCommand {
         let install_tasks_count = install_tasks.len();
         let mut updated = 0usize;
 
-        let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> = rt.block_on(async {
-            stream::iter(install_tasks)
-                .map(|(task, candidate, write_back)| {
-                    let registry = &registry;
-                    let config = &config;
-                    let layout = &layout;
-                    async move {
-                        let Some(pkg_def) = registry.pkgs.get(&task.name) else {
-                            task.progress.finish_error("not found in registry");
-                            return None;
-                        };
-                        let pkg = pkg_def.clone().resolve(&task.name);
-                        match install_candidate(
-                            &task.name,
-                            &candidate,
-                            &pkg,
-                            config,
-                            layout,
-                            &task.progress,
-                        )
-                        .await
-                        {
-                            Ok(receipt) => {
-                                task.progress.finish_success(&candidate.version);
-                                Some((receipt, write_back))
-                            }
-                            Err(e) => {
-                                task.progress.finish_error(&e.to_string());
-                                None
+        let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> =
+            rt.block_on(async {
+                stream::iter(install_tasks)
+                    .map(|(task, candidate, write_back)| {
+                        let registry = &registry;
+                        let config = &config;
+                        let layout = &layout;
+                        async move {
+                            let Some(pkg_def) = registry.pkgs.get(&task.name) else {
+                                task.progress.finish_error("not found in registry");
+                                return None;
+                            };
+                            let pkg = pkg_def.clone().resolve(&task.name);
+                            match install_candidate(
+                                &task.name,
+                                &candidate,
+                                &pkg,
+                                config,
+                                layout,
+                                &task.progress,
+                            )
+                            .await
+                            {
+                                Ok(receipt) => {
+                                    task.progress.finish_success(&candidate.version);
+                                    Some((receipt, write_back))
+                                }
+                                Err(e) => {
+                                    task.progress.finish_error(&e.to_string());
+                                    None
+                                }
                             }
                         }
-                    }
-                })
-                .buffer_unordered(parallel_limit)
-                .collect()
-                .await
-        });
+                    })
+                    .buffer_unordered(parallel_limit)
+                    .collect()
+                    .await
+            });
 
         let mut write_backs = Vec::new();
         for (receipt, write_back) in results.into_iter().flatten() {

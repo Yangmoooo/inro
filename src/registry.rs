@@ -81,9 +81,8 @@ impl Registry {
         let file_path = layout.local_registry_dir.join("local.toml");
         let content =
             if file_path.exists() { fs::read_to_string(&file_path)? } else { String::new() };
-        let mut doc: DocumentMut = content
-            .parse()
-            .map_err(|e| anyhow!("Failed to parse {}: {e}", file_path.display()))?;
+        let mut doc: DocumentMut =
+            content.parse().map_err(|e| anyhow!("Failed to parse {}: {e}", file_path.display()))?;
 
         for sel in selections {
             let pkg_table = get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;

@@ -126,41 +126,42 @@ impl CommandHandler for InstallCommand {
         }
 
         // Phase 3: Parallel install
-        let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> = rt.block_on(async {
-            stream::iter(install_tasks)
-                .map(|(task, candidate, write_back)| {
-                    let registry = &registry;
-                    let config = &config;
-                    let layout = &layout;
-                    async move {
-                        let pkg_def = registry.pkgs.get(&task.pkg_name)?;
-                        let pkg = pkg_def.clone().resolve(&task.pkg_name);
+        let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> =
+            rt.block_on(async {
+                stream::iter(install_tasks)
+                    .map(|(task, candidate, write_back)| {
+                        let registry = &registry;
+                        let config = &config;
+                        let layout = &layout;
+                        async move {
+                            let pkg_def = registry.pkgs.get(&task.pkg_name)?;
+                            let pkg = pkg_def.clone().resolve(&task.pkg_name);
 
-                        match install_candidate(
-                            &task.pkg_name,
-                            &candidate,
-                            &pkg,
-                            config,
-                            layout,
-                            &task.progress,
-                        )
-                        .await
-                        {
-                            Ok(receipt) => {
-                                task.progress.finish_success(&candidate.version);
-                                Some((receipt, write_back))
-                            }
-                            Err(e) => {
-                                task.progress.finish_error(&e.to_string());
-                                None
+                            match install_candidate(
+                                &task.pkg_name,
+                                &candidate,
+                                &pkg,
+                                config,
+                                layout,
+                                &task.progress,
+                            )
+                            .await
+                            {
+                                Ok(receipt) => {
+                                    task.progress.finish_success(&candidate.version);
+                                    Some((receipt, write_back))
+                                }
+                                Err(e) => {
+                                    task.progress.finish_error(&e.to_string());
+                                    None
+                                }
                             }
                         }
-                    }
-                })
-                .buffer_unordered(parallel_limit)
-                .collect()
-                .await
-        });
+                    })
+                    .buffer_unordered(parallel_limit)
+                    .collect()
+                    .await
+            });
 
         // Process results
         let mut success_count = 0usize;
