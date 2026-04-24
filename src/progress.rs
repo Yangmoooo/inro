@@ -97,6 +97,14 @@ impl ProgressManager {
         Self { multi: Arc::new(MultiProgress::new()), name_width }
     }
 
+    /// Temporarily suspend progress bars for interactive prompts.
+    pub fn suspend<F, R>(&self, f: F) -> R
+    where
+        F: FnOnce() -> R,
+    {
+        self.multi.suspend(f)
+    }
+
     /// Add a package to track.
     pub fn add_package(&self, name: &str) -> PkgProgress {
         let bar = self.multi.add(ProgressBar::new(0));

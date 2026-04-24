@@ -47,10 +47,19 @@ pub struct GitHubAssetDef {
 #[derive(Debug, Clone)]
 pub struct InstallCandidate {
     pub version: String,
-    #[allow(dead_code)]
     pub asset_name: String,
     pub download_url: String,
     pub size: u64,
+}
+
+/// Result of candidate discovery, carrying both candidates and how they were
+/// matched.
+#[derive(Debug)]
+pub struct CandidateResult {
+    pub candidates: Vec<InstallCandidate>,
+    /// `true` if matched via explicit platform keyword in registry config (Path
+    /// A). `false` if matched via OS/arch heuristic scoring (Path B).
+    pub explicit: bool,
 }
 
 #[derive(Debug, Clone)]

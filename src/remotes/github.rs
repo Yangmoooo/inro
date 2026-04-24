@@ -5,7 +5,7 @@ use std::env;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{InstallCandidate, RemoteType};
+use super::{CandidateResult, InstallCandidate, RemoteType};
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
@@ -76,7 +76,8 @@ impl Release {
     fn is_available(&self) -> bool { !self.draft && !self.assets.is_empty() }
 
     /// Find assets matching the given asset map or platform information.
-    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
+    /// Returns the matched assets and whether an explicit config was used.
+    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<(Vec<&Asset>, bool)> {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
 
@@ -97,7 +98,7 @@ impl Release {
                     keyword: keyword.clone(),
                 });
             }
-            return Ok(matching_assets);
+            return Ok((matching_assets, true));
         }
 
         // if not configured, use the os and arch to match the asset name
@@ -129,7 +130,7 @@ impl Release {
 
         candidates.sort_by_key(|b| Reverse(b.1));
         let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
-        Ok(sorted_assets)
+        Ok((sorted_assets, false))
     }
 }
 
@@ -268,7 +269,7 @@ impl GitHubProvider {
         &self,
         pkg: &PkgDef,
         ver: Option<&str>,
-    ) -> super::Result<Vec<InstallCandidate>> {
+    ) -> super::Result<CandidateResult> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -278,7 +279,7 @@ impl GitHubProvider {
             if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
 
         let RemoteType::GitHub(asset_def) = &pkg.remote;
-        let assets = release.find_assets(&asset_def.asset)?;
+        let (assets, explicit) = release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
@@ -289,7 +290,7 @@ impl GitHubProvider {
                 size: asset.size,
             })
             .collect();
-        Ok(candidates)
+        Ok(CandidateResult { candidates, explicit })
     }
 
     // ==================== Sync versions (for info/source) ====================

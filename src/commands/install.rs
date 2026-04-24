@@ -4,13 +4,15 @@ use futures::stream::{self, StreamExt};
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::installer::{find_best_candidate, install_candidate};
+use crate::installer::{WriteBackInfo, find_candidates, install_candidate, select_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::{PkgError, PkgReceipt};
 use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::Registry;
+use crate::remotes::CandidateResult;
 use crate::utils::{parse_package_version, unique};
+use crate::warn;
 
 pub struct InstallCommand {
     /// Package names, optionally with version (e.g. "ripgrep@15.1.0")
@@ -69,33 +71,70 @@ impl CommandHandler for InstallCommand {
             }
         }
 
-        // Parallel fetch and install
         let rt = tokio::runtime::Runtime::new()?;
         let parallel_limit = config.parallel_downloads;
 
-        let results: Vec<Option<PkgReceipt>> = rt.block_on(async {
-            stream::iter(valid_tasks)
-                .map(|task| {
+        // Phase 1: Parallel fetch candidates
+        let fetch_results: Vec<(InstallTask, Result<CandidateResult, PkgError>)> =
+            rt.block_on(async {
+                stream::iter(valid_tasks)
+                    .map(|task| {
+                        let registry = &registry;
+                        async move {
+                            let result = match registry.pkgs.get(&task.pkg_name) {
+                                Some(pkg_def) => {
+                                    find_candidates(
+                                        pkg_def,
+                                        task.pkg_ver.as_deref(),
+                                        &task.progress,
+                                    )
+                                    .await
+                                }
+                                None => Err(PkgError::NotFound(task.pkg_name.clone())),
+                            };
+                            (task, result)
+                        }
+                    })
+                    .buffer_unordered(parallel_limit)
+                    .collect()
+                    .await
+            });
+
+        // Phase 2: Sequential selection (may prompt interactively)
+        let mut install_tasks = Vec::new();
+
+        for (task, result) in fetch_results {
+            match result {
+                Ok(candidate_result) => {
+                    let selection =
+                        pm.suspend(|| select_candidate(&task.pkg_name, candidate_result));
+                    match selection {
+                        Ok(sel) => {
+                            install_tasks.push((task, sel.candidate, sel.write_back));
+                        }
+                        Err(e) => {
+                            task.progress.finish_error(&e.to_string());
+                            fail_count += 1;
+                        }
+                    }
+                }
+                Err(e) => {
+                    task.progress.finish_error(&e.to_string());
+                    fail_count += 1;
+                }
+            }
+        }
+
+        // Phase 3: Parallel install
+        let results: Vec<Option<(PkgReceipt, Option<WriteBackInfo>)>> = rt.block_on(async {
+            stream::iter(install_tasks)
+                .map(|(task, candidate, write_back)| {
                     let registry = &registry;
                     let config = &config;
                     let layout = &layout;
                     async move {
                         let pkg_def = registry.pkgs.get(&task.pkg_name)?;
                         let pkg = pkg_def.clone().resolve(&task.pkg_name);
-
-                        let candidate = match find_best_candidate(
-                            pkg_def,
-                            task.pkg_ver.as_deref(),
-                            &task.progress,
-                        )
-                        .await
-                        {
-                            Ok(c) => c,
-                            Err(e) => {
-                                task.progress.finish_error(&e.to_string());
-                                return None;
-                            }
-                        };
 
                         match install_candidate(
                             &task.pkg_name,
@@ -109,7 +148,7 @@ impl CommandHandler for InstallCommand {
                         {
                             Ok(receipt) => {
                                 task.progress.finish_success(&candidate.version);
-                                Some(receipt)
+                                Some((receipt, write_back))
                             }
                             Err(e) => {
                                 task.progress.finish_error(&e.to_string());
@@ -125,12 +164,22 @@ impl CommandHandler for InstallCommand {
 
         // Process results
         let mut success_count = 0usize;
-        for receipt in results.into_iter().flatten() {
+        let mut write_backs = Vec::new();
+        for (receipt, write_back) in results.into_iter().flatten() {
             receipt.save_to_install_dir().ok();
             manifest.add(receipt);
+            if let Some(wb) = write_back {
+                write_backs.push(wb);
+            }
             success_count += 1;
         }
         fail_count += total_count - success_count - fail_count;
+
+        if !write_backs.is_empty()
+            && let Err(e) = Registry::write_asset_selections(&layout, &write_backs)
+        {
+            warn!("Failed to save asset selections: {e}");
+        }
 
         manifest.save(&layout.manifest_path)?;
         print_summary(success_count, fail_count);
