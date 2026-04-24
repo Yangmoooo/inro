@@ -122,7 +122,7 @@ impl Release {
                 os_match && arch_match && is_supported_format(&name_lower)
             })
             .map(|asset| {
-                let score = calculate_heuristic_score(asset, &platform);
+                let score = calculate_heuristic_score(asset, platform);
                 (asset, score)
             })
             .collect();
@@ -443,7 +443,8 @@ mod tests {
         ]);
         let platform = PlatformInfo { os: "macos", arch: "aarch64" };
 
-        let (assets, match_kind) = release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
+        let (assets, match_kind) =
+            release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
 
         let names: Vec<_> = assets.into_iter().map(|asset| asset.name.as_str()).collect();
         assert_eq!(match_kind, MatchKind::PlatformHeuristic);
@@ -462,7 +463,8 @@ mod tests {
         let release = release_with_assets(vec![asset("chsrc-aarch64-macos")]);
         let platform = PlatformInfo { os: "macos", arch: "aarch64" };
 
-        let (assets, match_kind) = release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
+        let (assets, match_kind) =
+            release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
 
         assert_eq!(match_kind, MatchKind::PlatformHeuristic);
         assert_eq!(assets.len(), 1);
