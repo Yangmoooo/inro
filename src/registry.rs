@@ -76,26 +76,11 @@ impl Registry {
             content.parse().map_err(|e| anyhow!("Failed to parse local.toml: {e}"))?;
 
         for sel in selections {
-            // Navigate/create: [pkg_name] -> [remote] -> [github] -> [asset]
-            let pkg_table = doc.entry(&sel.pkg_name).or_insert_with(|| Item::Table(Table::new()));
-            let pkg_table = pkg_table
-                .as_table_mut()
-                .ok_or_else(|| anyhow!("'{0}' is not a table", sel.pkg_name))?;
-
-            let remote_table =
-                pkg_table.entry("remote").or_insert_with(|| Item::Table(Table::new()));
-            let remote_table =
-                remote_table.as_table_mut().ok_or_else(|| anyhow!("'remote' is not a table"))?;
-
-            let github_table =
-                remote_table.entry("github").or_insert_with(|| Item::Table(Table::new()));
-            let github_table =
-                github_table.as_table_mut().ok_or_else(|| anyhow!("'github' is not a table"))?;
-
-            let asset_table =
-                github_table.entry("asset").or_insert_with(|| Item::Table(Table::new()));
-            let asset_table =
-                asset_table.as_table_mut().ok_or_else(|| anyhow!("'asset' is not a table"))?;
+            let pkg_table =
+                get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;
+            let remote_table = get_or_create_table(pkg_table, "remote", true)?;
+            let github_table = get_or_create_table(remote_table, "github", true)?;
+            let asset_table = get_or_create_table(github_table, "asset", false)?;
 
             asset_table.insert(&sel.platform_key, toml_edit::value(&sel.keyword));
         }
@@ -107,6 +92,19 @@ impl Registry {
 
         Ok(())
     }
+}
+
+fn get_or_create_table<'a>(
+    parent: &'a mut Table,
+    key: &str,
+    implicit: bool,
+) -> Result<&'a mut Table> {
+    let item = parent.entry(key).or_insert_with(|| {
+        let mut table = Table::new();
+        table.set_implicit(implicit);
+        Item::Table(table)
+    });
+    item.as_table_mut().ok_or_else(|| anyhow!("'{key}' is not a table"))
 }
 
 /// Collect all .toml files in the given directory, sorted by filename.
@@ -185,5 +183,32 @@ link = "tool"
         assert_eq!(pkg.bin.len(), 1);
         let resolved = pkg.clone().resolve("tool");
         assert_eq!(resolved.bin[0].link, "tool");
+    }
+
+    #[test]
+    fn write_asset_selection_uses_compact_dotted_table() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        let platform_key = PlatformInfo::current().key();
+
+        Registry::write_asset_selections(
+            &layout,
+            &[WriteBackInfo {
+                pkg_name: "codex".to_string(),
+                platform_key: platform_key.clone(),
+                keyword: "codex-aarch64-apple-darwin.tar.gz".to_string(),
+            }],
+        )
+        .unwrap();
+
+        let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
+
+        assert!(local_toml.contains("[codex.remote.github.asset]"));
+        assert!(local_toml.contains(&format!(
+            r#"{platform_key} = "codex-aarch64-apple-darwin.tar.gz""#
+        )));
+        assert!(!local_toml.contains("[codex]\n\n"));
+        assert!(!local_toml.contains("[codex.remote]\n\n"));
+        assert!(!local_toml.contains("[codex.remote.github]\n\n"));
     }
 }
