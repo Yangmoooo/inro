@@ -78,6 +78,14 @@ impl Release {
     /// Returns the matched assets and how they were matched.
     fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<(Vec<&Asset>, MatchKind)> {
         let platform = PlatformInfo::current();
+        self.find_assets_for_platform(asset_map, &platform)
+    }
+
+    fn find_assets_for_platform(
+        &self,
+        asset_map: &HashMap<String, String>,
+        platform: &PlatformInfo,
+    ) -> Result<(Vec<&Asset>, MatchKind)> {
         let platform_key = platform.key();
 
         // if the platform-specific asset is configured, use its name
@@ -428,19 +436,17 @@ mod tests {
 
     #[test]
     fn macos_candidates_prefer_tar_archives_and_tie_break_by_name() {
+        let release = release_with_assets(vec![
+            asset("tool-b-aarch64-apple-darwin.zip"),
+            asset("tool-z-aarch64-apple-darwin.tar.gz"),
+            asset("tool-a-aarch64-apple-darwin.tar.gz"),
+        ]);
         let platform = PlatformInfo { os: "macos", arch: "aarch64" };
-        let mut candidates = vec![
-            (asset("tool-b-aarch64-apple-darwin.zip"), 0),
-            (asset("tool-z-aarch64-apple-darwin.tar.gz"), 0),
-            (asset("tool-a-aarch64-apple-darwin.tar.gz"), 0),
-        ];
 
-        for (asset, score) in &mut candidates {
-            *score = calculate_heuristic_score(asset, &platform);
-        }
-        candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+        let (assets, match_kind) = release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
 
-        let names: Vec<_> = candidates.into_iter().map(|(asset, _)| asset.name).collect();
+        let names: Vec<_> = assets.into_iter().map(|asset| asset.name.as_str()).collect();
+        assert_eq!(match_kind, MatchKind::PlatformHeuristic);
         assert_eq!(
             names,
             vec![
@@ -449,5 +455,17 @@ mod tests {
                 "tool-b-aarch64-apple-darwin.zip",
             ]
         );
+    }
+
+    #[test]
+    fn macos_candidates_include_extensionless_binary_assets() {
+        let release = release_with_assets(vec![asset("chsrc-aarch64-macos")]);
+        let platform = PlatformInfo { os: "macos", arch: "aarch64" };
+
+        let (assets, match_kind) = release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
+
+        assert_eq!(match_kind, MatchKind::PlatformHeuristic);
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "chsrc-aarch64-macos");
     }
 }
