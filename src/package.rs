@@ -692,25 +692,25 @@ repo = "example/codex"
         assert_eq!(pkg_def.bin.len(), 3);
 
         // Resolve and check that it works for current platform
-        let resolved = pkg_def.resolve("codex");
+        let _resolved = pkg_def.resolve("codex");
 
         #[cfg(target_os = "linux")]
         {
             // Only the linux-specific binary should be kept
-            assert_eq!(resolved.bin.len(), 1);
-            assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
-            assert_eq!(resolved.bin[0].link, "codex");
+            assert_eq!(_resolved.bin.len(), 1);
+            assert_eq!(_resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
+            assert_eq!(_resolved.bin[0].link, "codex");
         }
 
         #[cfg(target_os = "windows")]
         {
-            assert_eq!(resolved.bin.len(), 3);
+            assert_eq!(_resolved.bin.len(), 3);
             // All three binaries should match
-            assert_eq!(resolved.bin.len(), 3);
-            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
-            assert_eq!(resolved.bin[0].link, "codex.exe");
-            assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
-            assert_eq!(resolved.bin[2].name, "codex-command-runner.exe");
+            assert_eq!(_resolved.bin.len(), 3);
+            assert_eq!(_resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
+            assert_eq!(_resolved.bin[0].link, "codex.exe");
+            assert_eq!(_resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
+            assert_eq!(_resolved.bin[2].name, "codex-command-runner.exe");
         }
     }
 

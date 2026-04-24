@@ -1,4 +1,3 @@
-use std::cmp::Reverse;
 use std::collections::HashMap;
 use std::env;
 
@@ -141,7 +140,7 @@ impl Release {
             return Ok((fallback_assets, MatchKind::Fallback));
         }
 
-        candidates.sort_by_key(|b| Reverse(b.1));
+        candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
         let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
         Ok((sorted_assets, MatchKind::PlatformHeuristic))
     }
@@ -176,6 +175,14 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
         }
 
         if [".tar.gz", ".tgz", ".tar.xz", ".txz"].iter().any(|ext| name.ends_with(ext)) {
+            score += 2;
+        }
+    }
+
+    if platform.os == "macos" {
+        if [".tar.gz", ".tgz", ".tar.xz", ".txz"].iter().any(|ext| name.ends_with(ext)) {
+            score += 5;
+        } else if name.ends_with(".zip") {
             score += 2;
         }
     }
@@ -417,5 +424,30 @@ mod tests {
         assert_eq!(match_kind, MatchKind::Fallback);
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].name, "tool.tar.gz");
+    }
+
+    #[test]
+    fn macos_candidates_prefer_tar_archives_and_tie_break_by_name() {
+        let platform = PlatformInfo { os: "macos", arch: "aarch64" };
+        let mut candidates = vec![
+            (asset("tool-b-aarch64-apple-darwin.zip"), 0),
+            (asset("tool-z-aarch64-apple-darwin.tar.gz"), 0),
+            (asset("tool-a-aarch64-apple-darwin.tar.gz"), 0),
+        ];
+
+        for (asset, score) in &mut candidates {
+            *score = calculate_heuristic_score(asset, &platform);
+        }
+        candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+
+        let names: Vec<_> = candidates.into_iter().map(|(asset, _)| asset.name).collect();
+        assert_eq!(
+            names,
+            vec![
+                "tool-a-aarch64-apple-darwin.tar.gz",
+                "tool-z-aarch64-apple-darwin.tar.gz",
+                "tool-b-aarch64-apple-darwin.zip",
+            ]
+        );
     }
 }
