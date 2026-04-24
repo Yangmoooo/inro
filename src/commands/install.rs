@@ -11,6 +11,7 @@ use crate::package::{PkgError, PkgReceipt};
 use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
+use crate::reporter::print_error_chain;
 use crate::utils::{parse_package_version, unique};
 use crate::warn;
 
@@ -114,12 +115,14 @@ impl CommandHandler for InstallCommand {
                         }
                         Err(e) => {
                             task.progress.finish_error(&e.to_string());
+                            print_error_chain(&e);
                             fail_count += 1;
                         }
                     }
                 }
                 Err(e) => {
                     task.progress.finish_error(&e.to_string());
+                    print_error_chain(&e);
                     fail_count += 1;
                 }
             }
@@ -153,6 +156,7 @@ impl CommandHandler for InstallCommand {
                                 }
                                 Err(e) => {
                                     task.progress.finish_error(&e.to_string());
+                                    print_error_chain(&e);
                                     None
                                 }
                             }

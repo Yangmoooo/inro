@@ -82,6 +82,39 @@ pub fn print_step(msg: &str) { print_with_prefix("==>".cyan().bold(), msg); }
 #[doc(hidden)]
 pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
 
+#[doc(hidden)]
+pub fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> Vec<String> {
+    let mut messages = Vec::new();
+    let mut source = error.source();
+
+    while let Some(err) = source {
+        let message = err.to_string();
+        if messages.last() != Some(&message) {
+            messages.push(message);
+        }
+        source = err.source();
+    }
+
+    messages
+}
+
+#[doc(hidden)]
+pub fn print_error_chain(error: &(dyn std::error::Error + 'static)) {
+    if crate::VERBOSITY.load(std::sync::atomic::Ordering::Relaxed) == 0 {
+        return;
+    }
+
+    let messages = format_error_chain(error);
+    if messages.is_empty() {
+        return;
+    }
+
+    print_detail("Caused by:");
+    for (idx, message) in messages.iter().enumerate() {
+        print_detail(&format!("  {}. {}", idx + 1, message));
+    }
+}
+
 fn print_with_prefix(prefix: impl std::fmt::Display, msg: &str) {
     let mut stderr = io::stderr();
     if let Some(rest) = msg.strip_prefix('\n') {
@@ -89,5 +122,44 @@ fn print_with_prefix(prefix: impl std::fmt::Display, msg: &str) {
         writeln!(stderr, "{prefix} {rest}").ok();
     } else {
         writeln!(stderr, "{prefix} {msg}").ok();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("outer")]
+    struct Outer(#[source] Inner);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("inner")]
+    struct Inner;
+
+    #[test]
+    fn format_error_chain_returns_sources() {
+        let error = Outer(Inner);
+
+        assert_eq!(format_error_chain(&error), vec!["inner".to_string()]);
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("top")]
+    struct DuplicateTop(#[source] DuplicateOuter);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("same")]
+    struct DuplicateOuter(#[source] DuplicateInner);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("same")]
+    struct DuplicateInner;
+
+    #[test]
+    fn format_error_chain_deduplicates_consecutive_messages() {
+        let error = DuplicateTop(DuplicateOuter(DuplicateInner));
+
+        assert_eq!(format_error_chain(&error), vec!["same".to_string()]);
     }
 }
