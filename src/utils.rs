@@ -592,20 +592,50 @@ pub fn terminal_link(text: &str, url: &str) -> String {
 /// version tag `v15.1.0`, strips the version portion to produce a keyword
 /// like `x86_64-apple-darwin.tar.gz` that matches future versions via
 /// `contains()`.
+///
+/// When the version appears at the end of the asset name (nothing follows it),
+/// the prefix before the version is used instead (e.g. `tool-1.0.0` →
+/// `tool`). This avoids writing a version-pinned string to the local config.
 pub fn derive_asset_keyword(asset_name: &str, version_tag: &str) -> String {
-    // Try both with and without 'v' prefix
     let ver_bare = version_tag.strip_prefix('v').unwrap_or(version_tag);
 
-    // Find the version string in the asset name
-    if let Some(pos) = asset_name.find(ver_bare) {
-        let after = &asset_name[pos + ver_bare.len()..];
-        let trimmed = after.trim_start_matches(['-', '_', '.']);
-        if !trimmed.is_empty() {
-            return trimmed.to_string();
+    // Build the list of version strings to search for. Try with the 'v'
+    // prefix first so that, when the asset name contains `tool-v1.0.0`, the
+    // extracted prefix (`tool`) does not retain the stray 'v' character.
+    let candidates: &[&str] = if ver_bare != version_tag {
+        &[version_tag, ver_bare]
+    } else {
+        &[ver_bare]
+    };
+
+    // Track the first non-empty prefix found across all candidates so that
+    // we can fall back to it when no candidate yields a non-empty suffix.
+    let mut best_prefix: Option<&str> = None;
+
+    for ver in candidates {
+        if let Some(pos) = asset_name.find(ver) {
+            // Suffix after the version
+            let after = &asset_name[pos + ver.len()..];
+            let trimmed_after = after.trim_start_matches(['-', '_', '.']);
+            if !trimmed_after.is_empty() {
+                return trimmed_after.to_string();
+            }
+            // Nothing after the version — record the prefix for this match.
+            if best_prefix.is_none() {
+                let before = &asset_name[..pos];
+                let trimmed_before = before.trim_end_matches(['-', '_', '.']);
+                if !trimmed_before.is_empty() {
+                    best_prefix = Some(trimmed_before);
+                }
+            }
         }
     }
 
-    // Fallback: use full asset name
+    if let Some(prefix) = best_prefix {
+        return prefix.to_string();
+    }
+
+    // Fallback: use full asset name (version not found in name at all)
     asset_name.to_string()
 }
 
@@ -990,8 +1020,20 @@ mod tests {
     }
 
     #[test]
-    fn derive_keyword_version_at_end_falls_back() {
-        // Version at the very end with nothing after it
-        assert_eq!(derive_asset_keyword("tool-1.0.0", "v1.0.0"), "tool-1.0.0");
+    fn derive_keyword_version_at_end_uses_prefix() {
+        // Version at the very end with nothing after it - use prefix instead
+        assert_eq!(derive_asset_keyword("tool-1.0.0", "v1.0.0"), "tool");
+    }
+
+    #[test]
+    fn derive_keyword_v_prefix_in_name_uses_prefix() {
+        // 'v' prefix is part of the version string in the asset name
+        assert_eq!(derive_asset_keyword("tool-v1.0.0", "v1.0.0"), "tool");
+    }
+
+    #[test]
+    fn derive_keyword_version_at_end_bare_tag_uses_prefix() {
+        // Same as above but version tag has no 'v'
+        assert_eq!(derive_asset_keyword("tool-1.0.0", "1.0.0"), "tool");
     }
 }
