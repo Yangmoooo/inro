@@ -142,6 +142,7 @@ pub enum FileType {
     // Binary
     Pe,
     Elf,
+    MachO,
 }
 
 impl FileType {
@@ -193,6 +194,15 @@ impl FileType {
         if data.starts_with(&[0x4D, 0x5A]) {
             return Ok(Some(Self::Pe));
         }
+        if data.starts_with(&[0xFE, 0xED, 0xFA, 0xCE])
+            || data.starts_with(&[0xFE, 0xED, 0xFA, 0xCF])
+            || data.starts_with(&[0xCE, 0xFA, 0xED, 0xFE])
+            || data.starts_with(&[0xCF, 0xFA, 0xED, 0xFE])
+            || data.starts_with(&[0xCA, 0xFE, 0xBA, 0xBE])
+            || data.starts_with(&[0xCA, 0xFE, 0xBA, 0xBF])
+        {
+            return Ok(Some(Self::MachO));
+        }
 
         Ok(None)
     }
@@ -226,7 +236,7 @@ pub fn extract_file(file_path: &Path, dest_dir: &Path) -> Result<FileType> {
         FileType::Zip => {
             extract_zip_buffered(file_path, dest_dir).context("Failed to extract zip archive")?;
         }
-        FileType::Pe | FileType::Elf => {
+        FileType::Pe | FileType::Elf | FileType::MachO => {
             let file_name = file_path.file_name().ok_or(anyhow!("Binary file name invalid"))?;
             let dest_file_path = dest_dir.join(file_name);
             fs::copy(file_path, &dest_file_path)?;
@@ -799,6 +809,45 @@ mod tests {
     fn filetype_from_extension_unknown() {
         let path = Path::new("binary-linux-x86_64");
         assert!(FileType::from_extension(path).is_none());
+    }
+
+    #[test]
+    fn filetype_from_magic_bytes_macho_64() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("chsrc-aarch64-macos");
+        fs::write(&path, [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]).unwrap();
+
+        assert!(matches!(FileType::detect(&path).unwrap(), FileType::MachO));
+    }
+
+    #[test]
+    fn filetype_from_magic_bytes_macho_fat() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("universal-macos");
+        fs::write(&path, [0xca, 0xfe, 0xba, 0xbe, 0, 0, 0, 0]).unwrap();
+
+        assert!(matches!(FileType::detect(&path).unwrap(), FileType::MachO));
+    }
+
+    #[test]
+    fn extract_file_copies_macho_binary() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("chsrc-aarch64-macos");
+        let dst = tmp.path().join("out");
+        fs::create_dir_all(&dst).unwrap();
+        fs::write(&src, [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]).unwrap();
+
+        let file_type = extract_file(&src, &dst).unwrap();
+
+        assert!(matches!(file_type, FileType::MachO));
+        let copied = dst.join("chsrc-aarch64-macos");
+        assert!(copied.exists());
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(copied).unwrap().permissions().mode();
+            assert_ne!(mode & 0o111, 0);
+        }
     }
 
     // ==================== safe_join_path() ====================

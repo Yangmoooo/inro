@@ -197,7 +197,7 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
     })?;
 
     // If asset is a single bin, rename it to the name of the package
-    if let FileType::Pe | FileType::Elf = ft {
+    if let FileType::Pe | FileType::Elf | FileType::MachO = ft {
         rename_single_file(dst_dir, &pkg.bin[0].name)?;
     }
 
@@ -212,6 +212,8 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::package::ResolvedBin;
+    use crate::remotes::{GitHubAssetDef, RemoteType};
 
     #[test]
     fn heuristic_single_candidate_does_not_write_back() {
@@ -275,5 +277,27 @@ mod tests {
         };
 
         assert!(error.to_string().contains("Multiple fallback assets found"));
+    }
+
+    #[test]
+    fn unpack_and_process_renames_macho_binary_to_resolved_bin_name() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("chsrc-aarch64-macos");
+        let dst = tmp.path().join("out");
+        let pkg = ResolvedPkg {
+            ver: Some("v1.0.0".to_string()),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "RubyMetric/chsrc".to_string(),
+                asset: Default::default(),
+            }),
+            bin: vec![ResolvedBin { name: "chsrc".to_string(), link: "chsrc".to_string() }],
+        };
+        fs::write(&src, [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+
+        unpack_and_process(&src, &dst, &pkg).unwrap();
+
+        assert!(dst.join("chsrc").exists());
+        assert!(!dst.join("chsrc-aarch64-macos").exists());
     }
 }

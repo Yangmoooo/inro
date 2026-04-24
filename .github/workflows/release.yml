@@ -34,6 +34,12 @@ jobs:
             bin_name: inro.exe
             archive_ext: .zip
 
+          - os: macos-latest
+            target: aarch64-apple-darwin
+            platform: macos-aarch64-darwin
+            bin_name: inro
+            archive_ext: .tar.xz
+
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
