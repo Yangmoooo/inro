@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-04-24
+
+### Added
+
+- **Interactive Asset Selection**: Prompt users to choose from multiple GitHub release assets and persist explicit choices to local registry overrides.
+- **macOS Support**: Add CI and release artifact support for macOS aarch64.
+- **Mach-O Binaries**: Support installing standalone macOS Mach-O binaries without treating them as archives.
+- **Verbose Diagnostics**: Improve `-v` output with error cause chains and GitHub asset matching details.
+
+### Changed
+
+- **Asset Discovery**: Fall back to supported release assets when platform heuristics cannot find an OS/Arch match.
+- **Local Overrides**: Write selected GitHub assets using compact dotted TOML tables for more readable local configuration.
+
+### Fixed
+
+- **Remote Errors**: Preserve specific GitHub error messages instead of replacing them with generic upstream fetch failures.
+- **Asset Persistence**: Make local asset selection write-back safer across platforms and preserve upstream package definitions when merging overrides.
+
 ## [0.4.2] - 2026-04-22
 
 ### Fixed
