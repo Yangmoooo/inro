@@ -76,8 +76,7 @@ impl Registry {
             content.parse().map_err(|e| anyhow!("Failed to parse local.toml: {e}"))?;
 
         for sel in selections {
-            let pkg_table =
-                get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;
+            let pkg_table = get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;
             let remote_table = get_or_create_table(pkg_table, "remote", true)?;
             let github_table = get_or_create_table(remote_table, "github", true)?;
             let asset_table = get_or_create_table(github_table, "asset", false)?;
@@ -204,9 +203,10 @@ link = "tool"
         let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
 
         assert!(local_toml.contains("[codex.remote.github.asset]"));
-        assert!(local_toml.contains(&format!(
-            r#"{platform_key} = "codex-aarch64-apple-darwin.tar.gz""#
-        )));
+        assert!(
+            local_toml
+                .contains(&format!(r#"{platform_key} = "codex-aarch64-apple-darwin.tar.gz""#))
+        );
         assert!(!local_toml.contains("[codex]\n\n"));
         assert!(!local_toml.contains("[codex.remote]\n\n"));
         assert!(!local_toml.contains("[codex.remote.github]\n\n"));
