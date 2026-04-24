@@ -27,8 +27,8 @@ pub struct PkgDef {
 pub enum PlatformAwareString {
     /// A plain string value that applies to all platforms
     Literal(String),
-    /// A platform-specific mapping, e.g., {"windows-x86_64": "codex.exe",
-    /// "linux-x86_64": "codex"}
+    /// A platform-specific mapping, e.g., {"linux-x86_64": "codex",
+    /// "macos-aarch64": "codex", "windows-x86_64": "codex.exe"}
     ByPlatform(HashMap<String, String>),
 }
 
@@ -622,6 +622,7 @@ mod tests {
         let toml = r#"
             [name]
             "linux-x86_64" = "linux-bin"
+            "macos-aarch64" = "macos-bin"
             "windows-x86_64" = "windows-bin.exe"
         "#;
 
@@ -632,6 +633,7 @@ mod tests {
 
         if let Some(PlatformAwareString::ByPlatform(map)) = bin_def.name {
             assert_eq!(map.get("linux-x86_64"), Some(&"linux-bin".to_string()));
+            assert_eq!(map.get("macos-aarch64"), Some(&"macos-bin".to_string()));
             assert_eq!(map.get("windows-x86_64"), Some(&"windows-bin.exe".to_string()));
         } else {
             panic!("Expected PlatformAwareString::ByPlatform");
@@ -643,10 +645,12 @@ mod tests {
         let toml = r#"
             [name]
             "linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+            "macos-aarch64" = "codex-aarch64-apple-darwin"
             "windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
 
             [link]
             "linux-x86_64" = "codex"
+            "macos-aarch64" = "codex"
             "windows-x86_64" = "codex"
         "#;
 
@@ -669,10 +673,12 @@ repo = "example/codex"
 [[bin]]
 [bin.name]
 "linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+"macos-aarch64" = "codex-aarch64-apple-darwin"
 "windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe"
 
 [bin.link]
 "linux-x86_64" = "codex"
+"macos-aarch64" = "codex"
 "windows-x86_64" = "codex"
 
 [[bin]]
@@ -692,25 +698,33 @@ repo = "example/codex"
         assert_eq!(pkg_def.bin.len(), 3);
 
         // Resolve and check that it works for current platform
-        let _resolved = pkg_def.resolve("codex");
+        let resolved = pkg_def.resolve("codex");
 
         #[cfg(target_os = "linux")]
         {
             // Only the linux-specific binary should be kept
-            assert_eq!(_resolved.bin.len(), 1);
-            assert_eq!(_resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
-            assert_eq!(_resolved.bin[0].link, "codex");
+            assert_eq!(resolved.bin.len(), 1);
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-unknown-linux-musl");
+            assert_eq!(resolved.bin[0].link, "codex");
+        }
+
+        #[cfg(target_os = "macos")]
+        {
+            // Only the macOS-specific binary should be kept
+            assert_eq!(resolved.bin.len(), 1);
+            assert_eq!(resolved.bin[0].name, "codex-aarch64-apple-darwin");
+            assert_eq!(resolved.bin[0].link, "codex");
         }
 
         #[cfg(target_os = "windows")]
         {
-            assert_eq!(_resolved.bin.len(), 3);
+            assert_eq!(resolved.bin.len(), 3);
             // All three binaries should match
-            assert_eq!(_resolved.bin.len(), 3);
-            assert_eq!(_resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
-            assert_eq!(_resolved.bin[0].link, "codex.exe");
-            assert_eq!(_resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
-            assert_eq!(_resolved.bin[2].name, "codex-command-runner.exe");
+            assert_eq!(resolved.bin.len(), 3);
+            assert_eq!(resolved.bin[0].name, "codex-x86_64-pc-windows-msvc.exe");
+            assert_eq!(resolved.bin[0].link, "codex.exe");
+            assert_eq!(resolved.bin[1].name, "codex-windows-sandbox-setup.exe");
+            assert_eq!(resolved.bin[2].name, "codex-command-runner.exe");
         }
     }
 
