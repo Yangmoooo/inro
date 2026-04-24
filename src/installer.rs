@@ -78,10 +78,7 @@ fn select_candidate_with_interactivity(
         return Ok(AssetSelection { candidate, write_back: None });
     }
 
-    if result.match_kind == MatchKind::Fallback
-        && result.candidates.len() > 1
-        && !interactive
-    {
+    if result.match_kind == MatchKind::Fallback && result.candidates.len() > 1 && !interactive {
         return Err(PkgError::Other(
             "Multiple fallback assets found; run in an interactive terminal or configure an asset \
              explicitly"
