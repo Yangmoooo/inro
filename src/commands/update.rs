@@ -118,7 +118,8 @@ impl CommandHandler for UpdateCommand {
         for (task, result) in fetch_results {
             match result {
                 Ok(candidate_result) => {
-                    // Check up-to-date before selection (use first candidate's version)
+                    // All candidates come from the same release, so compare the release tag before
+                    // prompting for an asset choice.
                     if let Some(first) = candidate_result.candidates.first()
                         && first.version == task.current_version
                     {

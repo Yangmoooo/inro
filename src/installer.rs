@@ -67,7 +67,7 @@ pub fn select_candidate(
     }
 
     // Heuristic with multiple candidates
-    if !std::io::stderr().is_terminal() {
+    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         // Non-interactive: auto-select first (highest score)
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
         return Ok(AssetSelection { candidate, write_back: None });
@@ -77,7 +77,11 @@ pub fn select_candidate(
     let items: Vec<String> = result
         .candidates
         .iter()
-        .map(|c| format!("{}  ({})", c.asset_name, format_size(c.size, BINARY)))
+        .enumerate()
+        .map(|(idx, c)| {
+            let recommended = if idx == 0 { " recommended" } else { "" };
+            format!("{}  ({}){recommended}", c.asset_name, format_size(c.size, BINARY))
+        })
         .collect();
 
     eprintln!();
@@ -193,6 +197,24 @@ mod tests {
                 size: 1024,
             }],
             explicit: false,
+        };
+
+        let selection = select_candidate("tool", result).unwrap();
+
+        assert_eq!(selection.candidate.asset_name, "tool-v1.0.0-linux-x86_64.tar.gz");
+        assert!(selection.write_back.is_none());
+    }
+
+    #[test]
+    fn explicit_candidate_does_not_write_back() {
+        let result = CandidateResult {
+            candidates: vec![InstallCandidate {
+                version: "v1.0.0".to_string(),
+                asset_name: "tool-v1.0.0-linux-x86_64.tar.gz".to_string(),
+                download_url: "https://example.com/tool.tar.gz".to_string(),
+                size: 1024,
+            }],
+            explicit: true,
         };
 
         let selection = select_candidate("tool", result).unwrap();
