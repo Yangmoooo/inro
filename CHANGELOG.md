@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-04-24
+
+### Fixed
+
+- **macOS Release Binary**: Statically link `liblzma` for `.tar.xz` support so the macOS release artifact no longer depends on Homebrew's `xz` library path.
+
 ## [0.5.0] - 2026-04-24
 
 ### Added
