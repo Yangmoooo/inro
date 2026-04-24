@@ -12,6 +12,7 @@ use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::platform::PlatformInfo;
 use crate::progress::{OpPhase, PkgProgress};
+use crate::registry::AssetSelectionWriteBack;
 use crate::remotes::{CandidateResult, InstallCandidate, MatchKind, create_provider};
 use crate::utils::*;
 use crate::warn;
@@ -36,14 +37,7 @@ pub async fn find_candidates(
 /// Result of asset selection, with optional write-back info.
 pub struct AssetSelection {
     pub candidate: InstallCandidate,
-    pub write_back: Option<WriteBackInfo>,
-}
-
-/// Information needed for writing the asset selection back to local registry.
-pub struct WriteBackInfo {
-    pub pkg_name: String,
-    pub platform_key: String,
-    pub keyword: String,
+    pub write_back: Option<AssetSelectionWriteBack>,
 }
 
 /// Select a candidate from the result, prompting interactively if needed.
@@ -124,7 +118,11 @@ fn select_candidate_with_interactivity(
     let keyword = derive_asset_keyword(&candidate.asset_name, &candidate.version);
 
     Ok(AssetSelection {
-        write_back: Some(WriteBackInfo { pkg_name: pkg_name.to_string(), platform_key, keyword }),
+        write_back: Some(AssetSelectionWriteBack {
+            pkg_name: pkg_name.to_string(),
+            platform_key,
+            keyword,
+        }),
         candidate,
     })
 }

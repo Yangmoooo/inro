@@ -4,12 +4,12 @@ use futures::stream::{self, StreamExt};
 
 use super::CommandHandler;
 use crate::config::Config;
-use crate::installer::{WriteBackInfo, find_candidates, install_candidate, select_candidate};
+use crate::installer::{find_candidates, install_candidate, select_candidate};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::{PkgError, PkgReceipt};
 use crate::progress::{PkgProgress, ProgressManager};
-use crate::registry::Registry;
+use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
 use crate::utils::{parse_package_version, unique};
 use crate::warn;
@@ -150,7 +150,7 @@ impl CommandHandler for UpdateCommand {
         let install_tasks_count = install_tasks.len();
         let mut updated = 0usize;
 
-        let results: Vec<Option<(PkgReceipt, Option<WriteBackInfo>)>> = rt.block_on(async {
+        let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> = rt.block_on(async {
             stream::iter(install_tasks)
                 .map(|(task, candidate, write_back)| {
                     let registry = &registry;

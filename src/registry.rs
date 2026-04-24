@@ -10,9 +10,15 @@ use serde::Deserialize;
 use toml_edit::{DocumentMut, Item, Table};
 
 use crate::config::Config;
-use crate::installer::WriteBackInfo;
 use crate::layout::InroLayout;
 use crate::package::PkgDef;
+
+/// Information needed for writing an asset selection back to a local registry.
+pub struct AssetSelectionWriteBack {
+    pub pkg_name: String,
+    pub platform_key: String,
+    pub keyword: String,
+}
 
 #[derive(Debug, Default, Deserialize)]
 pub struct Registry {
@@ -64,7 +70,10 @@ impl Registry {
     /// Creates or updates `local.toml` in `local_registry_dir`, setting
     /// `[pkg_name.remote.github.asset].<platform_key> = keyword` for each
     /// entry.
-    pub fn write_asset_selections(layout: &InroLayout, selections: &[WriteBackInfo]) -> Result<()> {
+    pub fn write_asset_selections(
+        layout: &InroLayout,
+        selections: &[AssetSelectionWriteBack],
+    ) -> Result<()> {
         if selections.is_empty() {
             return Ok(());
         }
@@ -72,8 +81,9 @@ impl Registry {
         let file_path = layout.local_registry_dir.join("local.toml");
         let content =
             if file_path.exists() { fs::read_to_string(&file_path)? } else { String::new() };
-        let mut doc: DocumentMut =
-            content.parse().map_err(|e| anyhow!("Failed to parse local.toml: {e}"))?;
+        let mut doc: DocumentMut = content
+            .parse()
+            .map_err(|e| anyhow!("Failed to parse {}: {e}", file_path.display()))?;
 
         for sel in selections {
             let pkg_table = get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;
@@ -87,6 +97,12 @@ impl Registry {
         fs::create_dir_all(&layout.local_registry_dir)?;
         let temp_path = file_path.with_extension("tmp");
         fs::write(&temp_path, doc.to_string())?;
+        if file_path.exists()
+            && let Err(e) = fs::remove_file(&file_path)
+            && e.kind() != io::ErrorKind::NotFound
+        {
+            return Err(e.into());
+        }
         fs::rename(&temp_path, &file_path)?;
 
         Ok(())
@@ -127,7 +143,6 @@ mod tests {
     use std::fs;
 
     use super::*;
-    use crate::installer::WriteBackInfo;
     use crate::layout::InroLayout;
     use crate::platform::PlatformInfo;
     use crate::remotes::RemoteType;
@@ -165,7 +180,7 @@ link = "tool"
         let platform_key = PlatformInfo::current().key();
         Registry::write_asset_selections(
             &layout,
-            &[WriteBackInfo {
+            &[AssetSelectionWriteBack {
                 pkg_name: "tool".to_string(),
                 platform_key: platform_key.clone(),
                 keyword: "linux-x86_64.tar.gz".to_string(),
@@ -195,7 +210,7 @@ link = "tool"
 
         Registry::write_asset_selections(
             &layout,
-            &[WriteBackInfo {
+            &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
                 keyword: "codex-aarch64-apple-darwin.tar.gz".to_string(),
@@ -213,5 +228,56 @@ link = "tool"
         assert!(!local_toml.contains("[codex]\n\n"));
         assert!(!local_toml.contains("[codex.remote]\n\n"));
         assert!(!local_toml.contains("[codex.remote.github]\n\n"));
+    }
+
+    #[test]
+    fn write_asset_selection_updates_existing_local_file() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        let platform_key = PlatformInfo::current().key();
+
+        Registry::write_asset_selections(
+            &layout,
+            &[AssetSelectionWriteBack {
+                pkg_name: "codex".to_string(),
+                platform_key: platform_key.clone(),
+                keyword: "old.tar.gz".to_string(),
+            }],
+        )
+        .unwrap();
+        Registry::write_asset_selections(
+            &layout,
+            &[AssetSelectionWriteBack {
+                pkg_name: "codex".to_string(),
+                platform_key: platform_key.clone(),
+                keyword: "new.tar.gz".to_string(),
+            }],
+        )
+        .unwrap();
+
+        let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
+        assert!(local_toml.contains(&format!(r#"{platform_key} = "new.tar.gz""#)));
+        assert!(!local_toml.contains("old.tar.gz"));
+    }
+
+    #[test]
+    fn write_asset_selection_parse_error_includes_path() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        fs::create_dir_all(&layout.local_registry_dir).unwrap();
+        let local_path = layout.local_registry_dir.join("local.toml");
+        fs::write(&local_path, "not valid toml =").unwrap();
+
+        let error = Registry::write_asset_selections(
+            &layout,
+            &[AssetSelectionWriteBack {
+                pkg_name: "codex".to_string(),
+                platform_key: PlatformInfo::current().key(),
+                keyword: "codex.tar.gz".to_string(),
+            }],
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains(&local_path.display().to_string()));
     }
 }
