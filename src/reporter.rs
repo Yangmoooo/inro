@@ -88,7 +88,10 @@ pub fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> Vec<Stri
     let mut source = error.source();
 
     while let Some(err) = source {
-        messages.push(err.to_string());
+        let message = err.to_string();
+        if messages.last() != Some(&message) {
+            messages.push(message);
+        }
         source = err.source();
     }
 
@@ -138,6 +141,25 @@ mod tests {
     fn format_error_chain_returns_sources() {
         let error = Outer(Inner);
 
-        assert_eq!(format_error_chain(&error), vec!["inner"]);
+        assert_eq!(format_error_chain(&error), vec!["inner".to_string()]);
+    }
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("top")]
+    struct DuplicateTop(#[source] DuplicateOuter);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("same")]
+    struct DuplicateOuter(#[source] DuplicateInner);
+
+    #[derive(Debug, thiserror::Error)]
+    #[error("same")]
+    struct DuplicateInner;
+
+    #[test]
+    fn format_error_chain_deduplicates_consecutive_messages() {
+        let error = DuplicateTop(DuplicateOuter(DuplicateInner));
+
+        assert_eq!(format_error_chain(&error), vec!["same".to_string()]);
     }
 }
