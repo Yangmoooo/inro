@@ -257,7 +257,7 @@ pub enum PkgError {
     #[error("No suitable release found for this platform")]
     NoCandidates,
 
-    #[error("Failed to fetch from the upstream: '{0}'")]
+    #[error("Remote error: {0}")]
     Remote(#[from] crate::remotes::Error),
 
     #[error("Download failed: '{0}'")]
@@ -283,7 +283,7 @@ pub enum PkgError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remotes::GitHubAssetDef;
+    use crate::remotes::{self, GitHubAssetDef};
 
     fn make_pkg_def(bins: Vec<BinDef>) -> PkgDef {
         PkgDef {
@@ -294,6 +294,23 @@ mod tests {
             }),
             bin: bins,
         }
+    }
+
+    #[test]
+    fn remote_error_display_includes_specific_cause() {
+        let error =
+            PkgError::Remote(remotes::Error::GitHub(remotes::github::Error::NoMatchingAsset {
+                repo: "owner/tool".to_string(),
+                tag: "v1.0.0".to_string(),
+                keyword: "macos-aarch64".to_string(),
+            }));
+
+        let message = error.to_string();
+
+        assert!(message.contains("owner/tool"));
+        assert!(message.contains("macos-aarch64"));
+        assert!(!message.contains("Failed to fetch from the upstream"));
+        assert!(!message.contains("Failed fetching from GitHub"));
     }
 
     // ==================== PkgDef::resolve() ====================

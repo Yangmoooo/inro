@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, thiserror::Error)]
 pub enum Error {
-    #[error("Failed fetching from GitHub")]
+    #[error(transparent)]
     GitHub(#[from] github::Error),
 
     #[error("Filesystem IO error: {0}")]
@@ -81,5 +81,25 @@ pub fn create_provider(remote: &RemoteType) -> Result<github::GitHubProvider> {
             let gh_provider = github::GitHubProvider::new().map_err(Error::GitHub)?;
             Ok(gh_provider)
         } // RemoteType::Direct(_) => { ... }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn github_error_display_includes_specific_cause() {
+        let error = Error::GitHub(github::Error::NoMatchingAsset {
+            repo: "owner/tool".to_string(),
+            tag: "v1.0.0".to_string(),
+            keyword: "macos-aarch64".to_string(),
+        });
+
+        let message = error.to_string();
+
+        assert!(message.contains("owner/tool"));
+        assert!(message.contains("macos-aarch64"));
+        assert!(!message.contains("Failed fetching from GitHub"));
     }
 }
