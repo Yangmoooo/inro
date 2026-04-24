@@ -47,10 +47,24 @@ pub struct GitHubAssetDef {
 #[derive(Debug, Clone)]
 pub struct InstallCandidate {
     pub version: String,
-    #[allow(dead_code)]
     pub asset_name: String,
     pub download_url: String,
     pub size: u64,
+}
+
+/// Result of candidate discovery, carrying both candidates and how they were
+/// matched.
+#[derive(Debug)]
+pub struct CandidateResult {
+    pub candidates: Vec<InstallCandidate>,
+    pub match_kind: MatchKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchKind {
+    Explicit,
+    PlatformHeuristic,
+    Fallback,
 }
 
 #[derive(Debug, Clone)]

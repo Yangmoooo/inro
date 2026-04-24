@@ -5,7 +5,7 @@ use std::env;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{InstallCandidate, RemoteType};
+use super::{CandidateResult, InstallCandidate, MatchKind, RemoteType};
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
@@ -76,7 +76,8 @@ impl Release {
     fn is_available(&self) -> bool { !self.draft && !self.assets.is_empty() }
 
     /// Find assets matching the given asset map or platform information.
-    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<Vec<&Asset>> {
+    /// Returns the matched assets and how they were matched.
+    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<(Vec<&Asset>, MatchKind)> {
         let platform = PlatformInfo::current();
         let platform_key = platform.key();
 
@@ -97,7 +98,7 @@ impl Release {
                     keyword: keyword.clone(),
                 });
             }
-            return Ok(matching_assets);
+            return Ok((matching_assets, MatchKind::Explicit));
         }
 
         // if not configured, use the os and arch to match the asset name
@@ -120,16 +121,29 @@ impl Release {
             .collect();
 
         if candidates.is_empty() {
-            return Err(Error::NoMatchingAsset {
-                repo: self.repo.clone(),
-                tag: self.tag_name.clone(),
-                keyword: platform_key,
-            });
+            let fallback_assets: Vec<&Asset> = self
+                .assets
+                .iter()
+                .filter(|asset| {
+                    let name_lower = asset.name.to_lowercase();
+                    is_supported_format(&name_lower) && !is_ignored_format(&name_lower)
+                })
+                .collect();
+
+            if fallback_assets.is_empty() {
+                return Err(Error::NoMatchingAsset {
+                    repo: self.repo.clone(),
+                    tag: self.tag_name.clone(),
+                    keyword: platform_key,
+                });
+            }
+
+            return Ok((fallback_assets, MatchKind::Fallback));
         }
 
         candidates.sort_by_key(|b| Reverse(b.1));
         let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
-        Ok(sorted_assets)
+        Ok((sorted_assets, MatchKind::PlatformHeuristic))
     }
 }
 
@@ -268,7 +282,7 @@ impl GitHubProvider {
         &self,
         pkg: &PkgDef,
         ver: Option<&str>,
-    ) -> super::Result<Vec<InstallCandidate>> {
+    ) -> super::Result<CandidateResult> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -278,7 +292,7 @@ impl GitHubProvider {
             if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
 
         let RemoteType::GitHub(asset_def) = &pkg.remote;
-        let assets = release.find_assets(&asset_def.asset)?;
+        let (assets, match_kind) = release.find_assets(&asset_def.asset)?;
 
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
@@ -289,7 +303,7 @@ impl GitHubProvider {
                 size: asset.size,
             })
             .collect();
-        Ok(candidates)
+        Ok(CandidateResult { candidates, match_kind })
     }
 
     // ==================== Sync versions (for info/source) ====================
@@ -360,5 +374,48 @@ impl GitHubProvider {
             .collect();
 
         Ok(versions)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::remotes::MatchKind;
+
+    fn asset(name: &str) -> Asset {
+        Asset {
+            name: name.to_string(),
+            size: 1024,
+            browser_download_url: format!("https://example.com/{name}"),
+        }
+    }
+
+    fn release_with_assets(assets: Vec<Asset>) -> Release {
+        Release {
+            repo: "owner/tool".to_string(),
+            tag_name: "v1.0.0".to_string(),
+            html_url: "https://example.com/release".to_string(),
+            prerelease: false,
+            draft: false,
+            created_at: Utc::now(),
+            published_at: Some(Utc::now()),
+            assets,
+        }
+    }
+
+    #[test]
+    fn falls_back_to_supported_assets_when_platform_matching_finds_none() {
+        let release = release_with_assets(vec![
+            asset("tool.tar.gz"),
+            asset("tool.sha256"),
+            asset("tool.dmg"),
+            asset("README.md"),
+        ]);
+
+        let (assets, match_kind) = release.find_assets(&HashMap::new()).unwrap();
+
+        assert_eq!(match_kind, MatchKind::Fallback);
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "tool.tar.gz");
     }
 }

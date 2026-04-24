@@ -576,6 +576,29 @@ pub fn terminal_link(text: &str, url: &str) -> String {
     }
 }
 
+/// Derive a version-agnostic keyword from an asset filename.
+///
+/// Given an asset like `ripgrep-15.1.0-x86_64-apple-darwin.tar.gz` and
+/// version tag `v15.1.0`, strips the version portion to produce a keyword
+/// like `x86_64-apple-darwin.tar.gz` that matches future versions via
+/// `contains()`.
+pub fn derive_asset_keyword(asset_name: &str, version_tag: &str) -> String {
+    // Try both with and without 'v' prefix
+    let ver_bare = version_tag.strip_prefix('v').unwrap_or(version_tag);
+
+    // Find the version string in the asset name
+    if let Some(pos) = asset_name.find(ver_bare) {
+        let after = &asset_name[pos + ver_bare.len()..];
+        let trimmed = after.trim_start_matches(['-', '_', '.']);
+        if !trimmed.is_empty() {
+            return trimmed.to_string();
+        }
+    }
+
+    // Fallback: use full asset name
+    asset_name.to_string()
+}
+
 /// Parses "package" or "package@version".
 pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
     if let Some((name, version)) = input.split_once('@') {
@@ -887,5 +910,39 @@ mod tests {
 
         let result = find_binary_in_dir(root, "tool").unwrap();
         assert_eq!(result, exec);
+    }
+
+    // ==================== derive_asset_keyword() ====================
+
+    #[test]
+    fn derive_keyword_strips_v_prefixed_version() {
+        assert_eq!(
+            derive_asset_keyword("ripgrep-15.1.0-x86_64-apple-darwin.tar.gz", "v15.1.0"),
+            "x86_64-apple-darwin.tar.gz"
+        );
+    }
+
+    #[test]
+    fn derive_keyword_strips_bare_version() {
+        assert_eq!(
+            derive_asset_keyword("delta-0.18.2-x86_64-apple-darwin.tar.gz", "0.18.2"),
+            "x86_64-apple-darwin.tar.gz"
+        );
+    }
+
+    #[test]
+    fn derive_keyword_with_underscore_separator() {
+        assert_eq!(derive_asset_keyword("fd_10.2.0_amd64.deb", "v10.2.0"), "amd64.deb");
+    }
+
+    #[test]
+    fn derive_keyword_fallback_when_version_not_in_name() {
+        assert_eq!(derive_asset_keyword("tool-linux-amd64", "v1.0.0"), "tool-linux-amd64");
+    }
+
+    #[test]
+    fn derive_keyword_version_at_end_falls_back() {
+        // Version at the very end with nothing after it
+        assert_eq!(derive_asset_keyword("tool-1.0.0", "v1.0.0"), "tool-1.0.0");
     }
 }
