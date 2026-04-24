@@ -51,6 +51,18 @@ pub fn select_candidate(
     pkg_name: &str,
     result: CandidateResult,
 ) -> Result<AssetSelection, PkgError> {
+    select_candidate_with_interactivity(
+        pkg_name,
+        result,
+        std::io::stdin().is_terminal() && std::io::stderr().is_terminal(),
+    )
+}
+
+fn select_candidate_with_interactivity(
+    pkg_name: &str,
+    result: CandidateResult,
+    interactive: bool,
+) -> Result<AssetSelection, PkgError> {
     let platform_key = PlatformInfo::current().key();
 
     // Explicit config: auto-select, no write-back needed
@@ -68,7 +80,7 @@ pub fn select_candidate(
 
     if result.match_kind == MatchKind::Fallback
         && result.candidates.len() > 1
-        && (!std::io::stdin().is_terminal() || !std::io::stderr().is_terminal())
+        && !interactive
     {
         return Err(PkgError::Other(
             "Multiple fallback assets found; run in an interactive terminal or configure an asset \
@@ -79,7 +91,7 @@ pub fn select_candidate(
 
     // Heuristic with multiple candidates, or fallback in non-interactive mode with
     // one candidate.
-    if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
+    if !interactive {
         // Non-interactive: auto-select first (highest score)
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
         return Ok(AssetSelection { candidate, write_back: None });
@@ -262,7 +274,7 @@ mod tests {
             match_kind: MatchKind::Fallback,
         };
 
-        let error = match select_candidate("tool", result) {
+        let error = match select_candidate_with_interactivity("tool", result, false) {
             Ok(_) => panic!("expected fallback selection to fail"),
             Err(error) => error,
         };

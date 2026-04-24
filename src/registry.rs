@@ -181,7 +181,10 @@ link = "tool"
         assert_eq!(github.asset.get(&platform_key), Some(&"linux-x86_64.tar.gz".to_string()));
         assert_eq!(pkg.bin.len(), 1);
         let resolved = pkg.clone().resolve("tool");
+        #[cfg(not(windows))]
         assert_eq!(resolved.bin[0].link, "tool");
+        #[cfg(windows)]
+        assert_eq!(resolved.bin[0].link, "tool.exe");
     }
 
     #[test]
