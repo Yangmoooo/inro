@@ -99,18 +99,32 @@ impl Release {
                 })
                 .collect();
             if matching_assets.is_empty() {
+                detail!(
+                    "No GitHub assets matched explicit keyword '{keyword}'. Available assets: {}",
+                    format_asset_names(&self.assets)
+                );
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
                     keyword: keyword.clone(),
                 });
             }
+            detail!(
+                "Matched {} GitHub asset(s) by explicit configuration: {}",
+                matching_assets.len(),
+                format_asset_refs(&matching_assets)
+            );
             return Ok((matching_assets, MatchKind::Explicit));
         }
 
         // if not configured, use the os and arch to match the asset name
         let os_aliases = platform.os_aliases();
         let arch_aliases = platform.arch_aliases();
+        detail!(
+            "Selecting GitHub asset for platform '{platform_key}' using OS aliases [{}] and arch aliases [{}]",
+            os_aliases.join(", "),
+            arch_aliases.join(", ")
+        );
 
         let mut candidates: Vec<(&Asset, i32)> = self
             .assets
@@ -128,6 +142,10 @@ impl Release {
             .collect();
 
         if candidates.is_empty() {
+            detail!(
+                "No platform-specific GitHub assets matched. Falling back to supported assets from: {}",
+                format_asset_names(&self.assets)
+            );
             let fallback_assets: Vec<&Asset> = self
                 .assets
                 .iter()
@@ -138,6 +156,7 @@ impl Release {
                 .collect();
 
             if fallback_assets.is_empty() {
+                detail!("No supported GitHub assets remained after filtering ignored formats");
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
@@ -145,13 +164,39 @@ impl Release {
                 });
             }
 
+            detail!(
+                "Found {} fallback GitHub asset(s): {}",
+                fallback_assets.len(),
+                format_asset_refs(&fallback_assets)
+            );
             return Ok((fallback_assets, MatchKind::Fallback));
         }
 
         candidates.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+        detail!(
+            "Found {} platform GitHub asset candidate(s): {}",
+            candidates.len(),
+            format_scored_asset_refs(&candidates)
+        );
         let sorted_assets = candidates.into_iter().map(|(asset, _)| asset).collect();
         Ok((sorted_assets, MatchKind::PlatformHeuristic))
     }
+}
+
+fn format_asset_names(assets: &[Asset]) -> String {
+    assets.iter().map(|asset| asset.name.as_str()).collect::<Vec<_>>().join(", ")
+}
+
+fn format_asset_refs(assets: &[&Asset]) -> String {
+    assets.iter().map(|asset| asset.name.as_str()).collect::<Vec<_>>().join(", ")
+}
+
+fn format_scored_asset_refs(assets: &[(&Asset, i32)]) -> String {
+    assets
+        .iter()
+        .map(|(asset, score)| format!("{} (score {score})", asset.name))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
 
 /// Calculate a heuristic score for how well an asset matches the platform.
