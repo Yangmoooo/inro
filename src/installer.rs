@@ -12,7 +12,7 @@ use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::platform::PlatformInfo;
 use crate::progress::{OpPhase, PkgProgress};
-use crate::remotes::{CandidateResult, InstallCandidate, create_provider};
+use crate::remotes::{CandidateResult, InstallCandidate, MatchKind, create_provider};
 use crate::utils::*;
 use crate::warn;
 
@@ -54,19 +54,31 @@ pub fn select_candidate(
     let platform_key = PlatformInfo::current().key();
 
     // Explicit config: auto-select, no write-back needed
-    if result.explicit {
+    if result.match_kind == MatchKind::Explicit {
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
         return Ok(AssetSelection { candidate, write_back: None });
     }
 
     // Heuristic with single candidate: auto-select, but don't write back.
     // Only explicit user choices should become persistent local config.
-    if result.candidates.len() == 1 {
+    if result.match_kind == MatchKind::PlatformHeuristic && result.candidates.len() == 1 {
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
         return Ok(AssetSelection { candidate, write_back: None });
     }
 
-    // Heuristic with multiple candidates
+    if result.match_kind == MatchKind::Fallback
+        && result.candidates.len() > 1
+        && (!std::io::stdin().is_terminal() || !std::io::stderr().is_terminal())
+    {
+        return Err(PkgError::Other(
+            "Multiple fallback assets found; run in an interactive terminal or configure an asset \
+             explicitly"
+                .to_string(),
+        ));
+    }
+
+    // Heuristic with multiple candidates, or fallback in non-interactive mode with
+    // one candidate.
     if !std::io::stdin().is_terminal() || !std::io::stderr().is_terminal() {
         // Non-interactive: auto-select first (highest score)
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
@@ -74,7 +86,7 @@ pub fn select_candidate(
     }
 
     // Interactive: prompt user to select
-    let items: Vec<String> = result
+    let mut items: Vec<String> = result
         .candidates
         .iter()
         .enumerate()
@@ -83,6 +95,9 @@ pub fn select_candidate(
             format!("{}  ({}){recommended}", c.asset_name, format_size(c.size, BINARY))
         })
         .collect();
+    if result.match_kind == MatchKind::Fallback {
+        items.push("Cancel".to_string());
+    }
 
     eprintln!();
     let selection = Select::new()
@@ -91,6 +106,10 @@ pub fn select_candidate(
         .default(0)
         .interact()
         .map_err(|e| PkgError::Other(e.to_string()))?;
+
+    if result.match_kind == MatchKind::Fallback && selection == result.candidates.len() {
+        return Err(PkgError::Other("Asset selection cancelled".to_string()));
+    }
 
     let candidate = result.candidates.into_iter().nth(selection).ok_or(PkgError::NoCandidates)?;
     let keyword = derive_asset_keyword(&candidate.asset_name, &candidate.version);
@@ -196,7 +215,7 @@ mod tests {
                 download_url: "https://example.com/tool.tar.gz".to_string(),
                 size: 1024,
             }],
-            explicit: false,
+            match_kind: MatchKind::PlatformHeuristic,
         };
 
         let selection = select_candidate("tool", result).unwrap();
@@ -214,12 +233,40 @@ mod tests {
                 download_url: "https://example.com/tool.tar.gz".to_string(),
                 size: 1024,
             }],
-            explicit: true,
+            match_kind: MatchKind::Explicit,
         };
 
         let selection = select_candidate("tool", result).unwrap();
 
         assert_eq!(selection.candidate.asset_name, "tool-v1.0.0-linux-x86_64.tar.gz");
         assert!(selection.write_back.is_none());
+    }
+
+    #[test]
+    fn non_interactive_multiple_fallback_candidates_error() {
+        let result = CandidateResult {
+            candidates: vec![
+                InstallCandidate {
+                    version: "v1.0.0".to_string(),
+                    asset_name: "tool.tar.gz".to_string(),
+                    download_url: "https://example.com/tool.tar.gz".to_string(),
+                    size: 1024,
+                },
+                InstallCandidate {
+                    version: "v1.0.0".to_string(),
+                    asset_name: "tool.zip".to_string(),
+                    download_url: "https://example.com/tool.zip".to_string(),
+                    size: 2048,
+                },
+            ],
+            match_kind: MatchKind::Fallback,
+        };
+
+        let error = match select_candidate("tool", result) {
+            Ok(_) => panic!("expected fallback selection to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("Multiple fallback assets found"));
     }
 }

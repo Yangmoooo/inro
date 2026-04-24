@@ -57,9 +57,14 @@ pub struct InstallCandidate {
 #[derive(Debug)]
 pub struct CandidateResult {
     pub candidates: Vec<InstallCandidate>,
-    /// `true` if matched via explicit platform keyword in registry config (Path
-    /// A). `false` if matched via OS/arch heuristic scoring (Path B).
-    pub explicit: bool,
+    pub match_kind: MatchKind,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MatchKind {
+    Explicit,
+    PlatformHeuristic,
+    Fallback,
 }
 
 #[derive(Debug, Clone)]
