@@ -8,9 +8,11 @@ ver = "vX.Y.Z"
 repo = "example/example"
 
 # platform-specific asset file names
+# String selectors are minimal glob patterns matched against the full asset name
+# Array selectors are all-of tokens; every token must appear in the asset name
 [example.remote.github.asset]
-"linux-x86_64" = "example-x86_64-unknown-linux-musl.tar.gz"
-"windows-x86_64" = "example-x86_64-pc-windows-msvc.zip"
+"linux-x86_64" = "example-*-x86_64-unknown-linux-musl.tar.gz"
+"windows-x86_64" = ["example", "x86_64", "windows", "msvc", "zip"]
 
 # binaries
 [[example.bin]]
@@ -22,19 +24,22 @@ link = "example"
 
 ### packages
 
-[btop]
-[btop.remote.github]
-repo = "aristocratos/btop"
+[aria2]
+[aria2.remote.github]
+repo = "aria2/aria2"
+# [aria2.remote.github.asset]
+# "linux-x86_64" = "aria2-*.tar.xz"
+# "windows-x86_64" = ["aria2", "win", "64bit", "zip"]
+[[aria2.bin]]
+name = "aria2c"
 
 [codex]
 [codex.remote.github]
 repo = "openai/codex"
-[codex.remote.github.asset]
-"linux-x86_64" = "codex-x86_64-unknown-linux-musl.tar.gz"
-"windows-x86_64" = "codex-x86_64-pc-windows-msvc.exe.zip"
 [[codex.bin]]
 [codex.bin.name]
 "linux-x86_64" = "codex-x86_64-unknown-linux-musl"
+"macos-aarch64" = "codex-aarch64-apple-darwin"
 "windows-x86_64" = "codex-x86_64-pc-windows-msvc"
 [codex.bin.link]
 "linux-x86_64" = "codex"
@@ -50,22 +55,11 @@ repo = "openai/codex"
 [eza.remote.github]
 repo = "eza-community/eza"
 
-[onefetch]
-[onefetch.remote.github]
-repo = "o2sh/onefetch"
-[onefetch.remote.github.asset]
-"linux-x86_64" = "onefetch-linux.tar.gz"
-"windows-x86_64" = "onefetch-win.tar.gz"
-
 [ripgrep]
 [ripgrep.remote.github]
 repo = "BurntSushi/ripgrep"
 [[ripgrep.bin]]
 name = "rg"
-
-[tldr]
-[tldr.remote.github]
-repo = "tealdeer-rs/tealdeer"
 
 [tokei]
 [tokei.remote.github]

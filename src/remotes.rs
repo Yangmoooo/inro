@@ -41,7 +41,23 @@ impl fmt::Display for RemoteType {
 pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
-    pub asset: HashMap<String, String>,
+    pub asset: HashMap<String, AssetSelector>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(untagged)]
+pub enum AssetSelector {
+    Glob(String),
+    Tokens(Vec<String>),
+}
+
+impl fmt::Display for AssetSelector {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            AssetSelector::Glob(pattern) => write!(f, "{pattern}"),
+            AssetSelector::Tokens(tokens) => write!(f, "{}", tokens.join(", ")),
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -57,7 +73,9 @@ pub struct InstallCandidate {
 #[derive(Debug)]
 pub struct CandidateResult {
     pub candidates: Vec<InstallCandidate>,
+    pub asset_names: Vec<String>,
     pub match_kind: MatchKind,
+    pub matched_selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -93,7 +111,7 @@ mod tests {
         let error = Error::GitHub(github::Error::NoMatchingAsset {
             repo: "owner/tool".to_string(),
             tag: "v1.0.0".to_string(),
-            keyword: "macos-aarch64".to_string(),
+            selector: "macos-aarch64".to_string(),
         });
 
         let message = error.to_string();

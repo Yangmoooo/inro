@@ -4,11 +4,11 @@ use std::env;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{CandidateResult, InstallCandidate, MatchKind, RemoteType};
+use super::{AssetSelector, CandidateResult, InstallCandidate, MatchKind, RemoteType};
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
 use crate::remotes::VersionInfo;
-use crate::utils::{is_ignored_format, is_supported_format};
+use crate::utils::{asset_matches_selector, is_ignored_format, is_supported_format};
 use crate::{client, detail};
 
 const GITHUB_RELEASES_PER_PAGE: u32 = 20;
@@ -41,9 +41,9 @@ pub enum Error {
     NoReleaseFound { repo: String, tag: String },
 
     #[error(
-        "In release tag '{tag}' for repo '{repo}', no asset was found matching the keyword '{keyword}'"
+        "In release tag '{tag}' for repo '{repo}', no asset was found matching the selector '{selector}'"
     )]
-    NoMatchingAsset { repo: String, tag: String, keyword: String },
+    NoMatchingAsset { repo: String, tag: String, selector: String },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -76,39 +76,50 @@ impl Release {
 
     /// Find assets matching the given asset map or platform information.
     /// Returns the matched assets and how they were matched.
-    fn find_assets(&self, asset_map: &HashMap<String, String>) -> Result<(Vec<&Asset>, MatchKind)> {
+    fn find_assets(
+        &self,
+        asset_map: &HashMap<String, AssetSelector>,
+    ) -> Result<(Vec<&Asset>, MatchKind)> {
         let platform = PlatformInfo::current();
         self.find_assets_for_platform(asset_map, &platform)
     }
 
     fn find_assets_for_platform(
         &self,
-        asset_map: &HashMap<String, String>,
+        asset_map: &HashMap<String, AssetSelector>,
         platform: &PlatformInfo,
     ) -> Result<(Vec<&Asset>, MatchKind)> {
         let platform_key = platform.key();
 
-        // if the platform-specific asset is configured, use its name
-        if let Some(keyword) = asset_map.get(&platform_key) {
-            detail!("Using explicit configuration for platform '{platform_key}': '{keyword}'");
-            let matching_assets: Vec<&Asset> = self
+        // if the platform-specific asset is configured, use its selector
+        if let Some(selector) = asset_map.get(&platform_key) {
+            detail!("Using explicit configuration for platform '{platform_key}': '{selector}'");
+            let mut matching_assets: Vec<(&Asset, i32)> = self
                 .assets
                 .iter()
                 .filter(|asset| {
-                    asset.name.contains(keyword) && !is_ignored_format(&asset.name.to_lowercase())
+                    asset_matches_selector(&asset.name, selector)
+                        && !is_ignored_format(&asset.name.to_lowercase())
+                })
+                .map(|asset| {
+                    let score = calculate_heuristic_score(asset, platform);
+                    (asset, score)
                 })
                 .collect();
             if matching_assets.is_empty() {
                 detail!(
-                    "No GitHub assets matched explicit keyword '{keyword}'. Available assets: {}",
+                    "No GitHub assets matched explicit selector '{selector}'. Available assets: {}",
                     format_asset_names(&self.assets)
                 );
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
-                    keyword: keyword.clone(),
+                    selector: selector.to_string(),
                 });
             }
+            matching_assets.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
+            let matching_assets: Vec<&Asset> =
+                matching_assets.into_iter().map(|(asset, _)| asset).collect();
             detail!(
                 "Matched {} GitHub asset(s) by explicit configuration: {}",
                 matching_assets.len(),
@@ -160,7 +171,7 @@ impl Release {
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
-                    keyword: platform_key,
+                    selector: platform_key,
                 });
             }
 
@@ -354,6 +365,7 @@ impl GitHubProvider {
         let RemoteType::GitHub(asset_def) = &pkg.remote;
         let (assets, match_kind) = release.find_assets(&asset_def.asset)?;
 
+        let asset_names = release.assets.iter().map(|asset| asset.name.clone()).collect();
         let candidates: Vec<InstallCandidate> = assets
             .into_iter()
             .map(|asset| InstallCandidate {
@@ -363,7 +375,14 @@ impl GitHubProvider {
                 size: asset.size,
             })
             .collect();
-        Ok(CandidateResult { candidates, match_kind })
+        let matched_selector = match (&pkg.remote, match_kind) {
+            (RemoteType::GitHub(asset_def), MatchKind::Explicit) => {
+                let platform_key = PlatformInfo::current().key();
+                asset_def.asset.get(&platform_key).map(ToString::to_string)
+            }
+            _ => None,
+        };
+        Ok(CandidateResult { candidates, asset_names, match_kind, matched_selector })
     }
 
     // ==================== Sync versions (for info/source) ====================
