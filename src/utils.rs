@@ -621,15 +621,18 @@ pub fn derive_asset_selector_from_assets(
         }
     }
 
-    unique_candidates.sort_by(|a, b| {
-        score_asset_selector(b, asset_name, version_tag, all_asset_names).cmp(
-            &score_asset_selector(a, asset_name, version_tag, all_asset_names),
-        )
-    });
-
-    unique_candidates
+    let mut scored_candidates: Vec<_> = unique_candidates
         .into_iter()
-        .find(|selector| asset_matches_selector(asset_name, selector))
+        .map(|selector| {
+            let score = score_asset_selector(&selector, asset_name, version_tag, all_asset_names);
+            (selector, score)
+        })
+        .collect();
+    scored_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+
+    scored_candidates
+        .into_iter()
+        .find_map(|(selector, score)| (score > i32::MIN).then_some(selector))
         .unwrap_or_else(|| AssetSelector::Glob(glob_escape(asset_name)))
 }
 
