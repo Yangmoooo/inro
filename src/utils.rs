@@ -639,7 +639,9 @@ pub fn derive_asset_selector_from_assets(
 pub fn asset_matches_selector(asset_name: &str, selector: &AssetSelector) -> bool {
     match selector {
         AssetSelector::Glob(pattern) => glob_match(pattern, asset_name),
-        AssetSelector::Tokens(tokens) => tokens.iter().all(|token| asset_name.contains(token)),
+        AssetSelector::Tokens(tokens) => {
+            !tokens.is_empty() && tokens.iter().all(|token| asset_name.contains(token))
+        }
     }
 }
 
