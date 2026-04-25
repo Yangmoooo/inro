@@ -1,6 +1,6 @@
 [package]
 name = "inro"
-version = "0.5.1"
+version = "0.6.0"
 edition = "2024"
 
 [dependencies]
@@ -45,7 +45,7 @@ walkdir = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-humanize = "0.2"
 supports-hyperlinks = "3.2"
-sevenz-rust2 = "0.20"
+sevenz-rust2 = "0.21"
 humansize = "2.1"
 fs_extra = "1.3"
 
