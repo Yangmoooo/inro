@@ -74,8 +74,7 @@ jobs:
       - name: Create archive
         shell: bash
         run: |
-          VERSION="${GITHUB_REF_NAME#v}"
-          ARCHIVE_NAME="inro-$VERSION-${{ matrix.platform }}${{ matrix.archive_ext }}"
+          ARCHIVE_NAME="inro-${{ matrix.platform }}${{ matrix.archive_ext }}"
 
           cd dist
           if [ "${{ matrix.archive_ext }}" = ".tar.xz" ]; then
