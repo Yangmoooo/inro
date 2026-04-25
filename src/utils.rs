@@ -628,7 +628,7 @@ pub fn derive_asset_selector_from_assets(
             (selector, score)
         })
         .collect();
-    scored_candidates.sort_by(|a, b| b.1.cmp(&a.1));
+    scored_candidates.sort_by_key(|b| std::cmp::Reverse(b.1));
 
     scored_candidates
         .into_iter()
