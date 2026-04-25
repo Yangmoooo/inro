@@ -477,12 +477,11 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 /// When multiple files share the same name (e.g. an executable in `usr/bin/`
 /// and a bash-completion script in `usr/share/bash-completion/completions/`),
 /// the function prefers files that are executable or reside under a directory
-/// whose name is `bin` (e.g. `/usr/bin`, `/usr/local/bin`).
+/// whose name is `bin` (e.g. `/usr/bin`, `/usr/local/bin`). Plain data files
+/// with the same name are ignored.
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
     let walker = WalkDir::new(root).into_iter();
     let target = bin_name.to_lowercase();
-
-    let mut fallback: Option<PathBuf> = None;
 
     for entry in walker.filter_map(Result::ok) {
         let path = entry.path();
@@ -495,17 +494,21 @@ pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
             if is_likely_binary(path) {
                 return Some(path.to_path_buf());
             }
-            if fallback.is_none() {
-                fallback = Some(path.to_path_buf());
-            }
         }
     }
-    fallback
+    None
 }
 
 /// Heuristic: returns `true` when the file looks like a real binary rather
 /// than a data/completion file.
 fn is_likely_binary(path: &Path) -> bool {
+    if matches!(
+        FileType::from_magic_bytes(path),
+        Ok(Some(FileType::Elf | FileType::MachO | FileType::Pe))
+    ) {
+        return true;
+    }
+
     // Check if any parent directory is named "bin" (skip the file itself)
     if let Some(parent) = path.parent()
         && parent.ancestors().any(|a| a.file_name().and_then(|n| n.to_str()) == Some("bin"))
@@ -1197,17 +1200,46 @@ mod tests {
     }
 
     #[test]
-    fn find_binary_returns_only_match() {
+    fn find_binary_ignores_only_plain_match() {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
-        // Single file not under a bin/ directory should still be found
+        // A same-name plain data file should not be treated as an installable binary.
         let some_dir = root.join("usr/share/data");
         fs::create_dir_all(&some_dir).unwrap();
         fs::write(some_dir.join("mytool"), b"data").unwrap();
 
-        let result = find_binary_in_dir(root, "mytool").unwrap();
-        assert_eq!(result, some_dir.join("mytool"));
+        assert!(find_binary_in_dir(root, "mytool").is_none());
+    }
+
+    #[test]
+    fn find_binary_ignores_completion_only_match() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        let comp_dir = root.join("aria2/release-1.37.0/doc/bash_completion");
+        fs::create_dir_all(&comp_dir).unwrap();
+        fs::write(comp_dir.join("aria2c"), b"# completion script").unwrap();
+
+        assert!(find_binary_in_dir(root, "aria2c").is_none());
+    }
+
+    #[test]
+    fn find_binary_accepts_magic_binary_without_exec_bit() {
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        let tool = root.join("tool");
+        fs::write(&tool, b"\x7fELF binary").unwrap();
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&tool, fs::Permissions::from_mode(0o644)).unwrap();
+        }
+
+        let result = find_binary_in_dir(root, "tool").unwrap();
+        assert_eq!(result, tool);
     }
 
     #[test]
