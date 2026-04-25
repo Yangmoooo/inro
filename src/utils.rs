@@ -603,38 +603,34 @@ pub fn derive_asset_selector_from_assets(
     version_tag: &str,
     all_asset_names: &[String],
 ) -> AssetSelector {
-    let mut glob_candidates = asset_glob_candidates(asset_name, version_tag);
-    glob_candidates.push(glob_escape(asset_name));
-    glob_candidates.sort();
-    glob_candidates.dedup();
-    glob_candidates.sort_by(|a, b| {
-        score_asset_selector(
-            &AssetSelector::Glob(b.clone()),
-            asset_name,
-            version_tag,
-            all_asset_names,
-        )
-        .cmp(&score_asset_selector(
-            &AssetSelector::Glob(a.clone()),
-            asset_name,
-            version_tag,
-            all_asset_names,
-        ))
-    });
-
-    if let Some(pattern) = glob_candidates
+    let mut candidates: Vec<AssetSelector> = asset_glob_candidates(asset_name, version_tag)
         .into_iter()
-        .find(|pattern| asset_matches_selector(asset_name, &AssetSelector::Glob(pattern.clone())))
-    {
-        return AssetSelector::Glob(pattern);
-    }
+        .map(AssetSelector::Glob)
+        .collect();
+    candidates.push(AssetSelector::Glob(glob_escape(asset_name)));
 
     let tokens = stable_asset_tokens(asset_name, version_tag);
     if !tokens.is_empty() {
-        return AssetSelector::Tokens(tokens);
+        candidates.push(AssetSelector::Tokens(tokens));
     }
 
-    AssetSelector::Glob(glob_escape(asset_name))
+    let mut unique_candidates = Vec::new();
+    for candidate in candidates {
+        if !unique_candidates.contains(&candidate) {
+            unique_candidates.push(candidate);
+        }
+    }
+
+    unique_candidates.sort_by(|a, b| {
+        score_asset_selector(b, asset_name, version_tag, all_asset_names).cmp(
+            &score_asset_selector(a, asset_name, version_tag, all_asset_names),
+        )
+    });
+
+    unique_candidates
+        .into_iter()
+        .find(|selector| asset_matches_selector(asset_name, selector))
+        .unwrap_or_else(|| AssetSelector::Glob(glob_escape(asset_name)))
 }
 
 pub fn asset_matches_selector(asset_name: &str, selector: &AssetSelector) -> bool {
@@ -782,27 +778,52 @@ fn glob_escape(s: &str) -> String {
 }
 
 pub fn glob_match(pattern: &str, text: &str) -> bool {
-    fn inner(pattern: &[char], text: &[char]) -> bool {
-        if pattern.is_empty() {
-            return text.is_empty();
-        }
-        match pattern[0] {
-            '*' => inner(&pattern[1..], text) || (!text.is_empty() && inner(pattern, &text[1..])),
-            '?' => !text.is_empty() && inner(&pattern[1..], &text[1..]),
-            '\\' => {
-                if pattern.len() < 2 {
-                    !text.is_empty() && text[0] == '\\' && inner(&pattern[1..], &text[1..])
-                } else {
-                    !text.is_empty() && text[0] == pattern[1] && inner(&pattern[2..], &text[1..])
-                }
-            }
-            ch => !text.is_empty() && text[0] == ch && inner(&pattern[1..], &text[1..]),
+    #[derive(Clone, Copy)]
+    enum GlobToken {
+        Star,
+        Any,
+        Literal(char),
+    }
+
+    let mut tokens = Vec::new();
+    let mut chars = pattern.chars();
+    while let Some(ch) = chars.next() {
+        match ch {
+            '*' => tokens.push(GlobToken::Star),
+            '?' => tokens.push(GlobToken::Any),
+            '\\' => tokens.push(GlobToken::Literal(chars.next().unwrap_or('\\'))),
+            literal => tokens.push(GlobToken::Literal(literal)),
         }
     }
 
-    let pattern: Vec<char> = pattern.chars().collect();
     let text: Vec<char> = text.chars().collect();
-    inner(&pattern, &text)
+    let mut previous = vec![false; text.len() + 1];
+    previous[0] = true;
+
+    for token in tokens {
+        let mut current = vec![false; text.len() + 1];
+        match token {
+            GlobToken::Star => {
+                current[0] = previous[0];
+                for idx in 1..=text.len() {
+                    current[idx] = current[idx - 1] || previous[idx];
+                }
+            }
+            GlobToken::Any => {
+                for idx in 1..=text.len() {
+                    current[idx] = previous[idx - 1];
+                }
+            }
+            GlobToken::Literal(ch) => {
+                for idx in 1..=text.len() {
+                    current[idx] = previous[idx - 1] && text[idx - 1] == ch;
+                }
+            }
+        }
+        previous = current;
+    }
+
+    previous[text.len()]
 }
 
 fn score_asset_selector(
@@ -827,6 +848,10 @@ fn score_asset_selector(
 
     let selector_text = selector.to_string();
     let selector_lower = selector_text.to_lowercase();
+
+    if matches!(selector, AssetSelector::Glob(_)) {
+        score += 50;
+    }
 
     for version in version_variants(version_tag) {
         if selector_lower.contains(&version.to_lowercase()) {
@@ -1341,5 +1366,14 @@ mod tests {
         assert!(glob_match("tool-?.zip", "tool-a.zip"));
         assert!(!glob_match("tool-?.zip", "tool-ab.zip"));
         assert!(glob_match(r"literal-\*.zip", "literal-*.zip"));
+    }
+
+    #[test]
+    fn glob_match_handles_many_stars_iteratively() {
+        let pattern = "*a*a*a*a*a*a*a*a*a*a*z";
+        let text = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaz";
+
+        assert!(glob_match(pattern, text));
+        assert!(!glob_match(pattern, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
     }
 }
