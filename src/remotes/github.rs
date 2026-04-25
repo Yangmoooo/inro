@@ -41,9 +41,9 @@ pub enum Error {
     NoReleaseFound { repo: String, tag: String },
 
     #[error(
-        "In release tag '{tag}' for repo '{repo}', no asset was found matching the keyword '{keyword}'"
+        "In release tag '{tag}' for repo '{repo}', no asset was found matching the selector '{selector}'"
     )]
-    NoMatchingAsset { repo: String, tag: String, keyword: String },
+    NoMatchingAsset { repo: String, tag: String, selector: String },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -114,7 +114,7 @@ impl Release {
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
-                    keyword: selector.to_string(),
+                    selector: selector.to_string(),
                 });
             }
             matching_assets.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.name.cmp(&b.0.name)));
@@ -171,7 +171,7 @@ impl Release {
                 return Err(Error::NoMatchingAsset {
                     repo: self.repo.clone(),
                     tag: self.tag_name.clone(),
-                    keyword: platform_key,
+                    selector: platform_key,
                 });
             }
 
@@ -375,14 +375,14 @@ impl GitHubProvider {
                 size: asset.size,
             })
             .collect();
-        let matched_keyword = match (&pkg.remote, match_kind) {
+        let matched_selector = match (&pkg.remote, match_kind) {
             (RemoteType::GitHub(asset_def), MatchKind::Explicit) => {
                 let platform_key = PlatformInfo::current().key();
                 asset_def.asset.get(&platform_key).map(ToString::to_string)
             }
             _ => None,
         };
-        Ok(CandidateResult { candidates, asset_names, match_kind, matched_keyword })
+        Ok(CandidateResult { candidates, asset_names, match_kind, matched_selector })
     }
 
     // ==================== Sync versions (for info/source) ====================

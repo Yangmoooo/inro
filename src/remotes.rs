@@ -75,7 +75,7 @@ pub struct CandidateResult {
     pub candidates: Vec<InstallCandidate>,
     pub asset_names: Vec<String>,
     pub match_kind: MatchKind,
-    pub matched_keyword: Option<String>,
+    pub matched_selector: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -111,7 +111,7 @@ mod tests {
         let error = Error::GitHub(github::Error::NoMatchingAsset {
             repo: "owner/tool".to_string(),
             tag: "v1.0.0".to_string(),
-            keyword: "macos-aarch64".to_string(),
+            selector: "macos-aarch64".to_string(),
         });
 
         let message = error.to_string();

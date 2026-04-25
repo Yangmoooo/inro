@@ -302,7 +302,7 @@ mod tests {
             PkgError::Remote(remotes::Error::GitHub(remotes::github::Error::NoMatchingAsset {
                 repo: "owner/tool".to_string(),
                 tag: "v1.0.0".to_string(),
-                keyword: "macos-aarch64".to_string(),
+                selector: "macos-aarch64".to_string(),
             }));
 
         let message = error.to_string();

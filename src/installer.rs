@@ -78,15 +78,15 @@ fn select_candidate_with_interactivity(
     {
         let reason = if result.match_kind == MatchKind::Explicit {
             format!(
-                "Configured asset keyword '{}' matched multiple assets",
-                result.matched_keyword.as_deref().unwrap_or("<unknown>")
+                "Configured asset selector '{}' matched multiple assets",
+                result.matched_selector.as_deref().unwrap_or("<unknown>")
             )
         } else {
             "Multiple fallback assets found".to_string()
         };
         return Err(PkgError::Other(format!(
             "{reason}; run in an interactive terminal or configure a more specific asset \
-                 keyword"
+                 selector"
         )));
     }
 
@@ -101,8 +101,8 @@ fn select_candidate_with_interactivity(
     // Interactive: prompt user to select
     let prompt = match result.match_kind {
         MatchKind::Explicit => format!(
-            "Configured asset keyword '{}' matched multiple assets for '{pkg_name}' ({platform_key}). Select one",
-            result.matched_keyword.as_deref().unwrap_or("<unknown>")
+            "Configured asset selector '{}' matched multiple assets for '{pkg_name}' ({platform_key}). Select one",
+            result.matched_selector.as_deref().unwrap_or("<unknown>")
         ),
         MatchKind::Fallback => {
             format!(
@@ -266,7 +266,7 @@ mod tests {
             candidates,
             asset_names,
             match_kind,
-            matched_keyword: if match_kind == MatchKind::Explicit {
+            matched_selector: if match_kind == MatchKind::Explicit {
                 Some("tool".to_string())
             } else {
                 None
@@ -330,7 +330,7 @@ mod tests {
             Err(error) => error,
         };
 
-        assert!(error.to_string().contains("Configured asset keyword"));
+        assert!(error.to_string().contains("Configured asset selector"));
         assert!(error.to_string().contains("matched multiple assets"));
     }
 
