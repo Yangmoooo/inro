@@ -813,9 +813,7 @@ pub fn glob_match(pattern: &str, text: &str) -> bool {
                 }
             }
             GlobToken::Any => {
-                for idx in 1..=text.len() {
-                    current[idx] = previous[idx - 1];
-                }
+                current[1..=text.len()].copy_from_slice(&previous[..text.len()]);
             }
             GlobToken::Literal(ch) => {
                 for idx in 1..=text.len() {
