@@ -12,12 +12,13 @@ use toml_edit::{DocumentMut, Item, Table};
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::PkgDef;
+use crate::remotes::AssetSelector;
 
 /// Information needed for writing an asset selection back to a local registry.
 pub struct AssetSelectionWriteBack {
     pub pkg_name: String,
     pub platform_key: String,
-    pub keyword: String,
+    pub selector: AssetSelector,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -68,7 +69,7 @@ impl Registry {
     /// Write asset selections back to the local registry file.
     ///
     /// Creates or updates `local.toml` in `local_registry_dir`, setting
-    /// `[pkg_name.remote.github.asset].<platform_key> = keyword` for each
+    /// `[pkg_name.remote.github.asset].<platform_key> = selector` for each
     /// entry.
     pub fn write_asset_selections(
         layout: &InroLayout,
@@ -90,7 +91,17 @@ impl Registry {
             let github_table = get_or_create_table(remote_table, "github", true)?;
             let asset_table = get_or_create_table(github_table, "asset", false)?;
 
-            asset_table.insert(&sel.platform_key, toml_edit::value(&sel.keyword));
+            let value = match &sel.selector {
+                AssetSelector::Glob(pattern) => toml_edit::value(pattern),
+                AssetSelector::Tokens(tokens) => {
+                    let mut array = toml_edit::Array::new();
+                    for token in tokens {
+                        array.push(token.as_str());
+                    }
+                    toml_edit::Item::Value(toml_edit::Value::Array(array))
+                }
+            };
+            asset_table.insert(&sel.platform_key, value);
         }
 
         fs::create_dir_all(&layout.local_registry_dir)?;
@@ -182,7 +193,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "tool".to_string(),
                 platform_key: platform_key.clone(),
-                keyword: "linux-x86_64.tar.gz".to_string(),
+                selector: AssetSelector::Glob("*linux-x86_64.tar.gz".to_string()),
             }],
         )
         .unwrap();
@@ -192,7 +203,10 @@ link = "tool"
 
         let RemoteType::GitHub(github) = &pkg.remote;
         assert_eq!(github.repo, "owner/tool");
-        assert_eq!(github.asset.get(&platform_key), Some(&"linux-x86_64.tar.gz".to_string()));
+        assert_eq!(
+            github.asset.get(&platform_key),
+            Some(&AssetSelector::Glob("*linux-x86_64.tar.gz".to_string()))
+        );
         assert_eq!(pkg.bin.len(), 1);
         let resolved = pkg.clone().resolve("tool");
         #[cfg(not(windows))]
@@ -212,7 +226,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                keyword: "codex-aarch64-apple-darwin.tar.gz".to_string(),
+                selector: AssetSelector::Glob("codex-*-aarch64-apple-darwin.tar.gz".to_string()),
             }],
         )
         .unwrap();
@@ -222,7 +236,7 @@ link = "tool"
         assert!(local_toml.contains("[codex.remote.github.asset]"));
         assert!(
             local_toml
-                .contains(&format!(r#"{platform_key} = "codex-aarch64-apple-darwin.tar.gz""#))
+                .contains(&format!(r#"{platform_key} = "codex-*-aarch64-apple-darwin.tar.gz""#))
         );
         assert!(!local_toml.contains("[codex]\n\n"));
         assert!(!local_toml.contains("[codex.remote]\n\n"));
@@ -240,7 +254,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                keyword: "old.tar.gz".to_string(),
+                selector: AssetSelector::Glob("old.tar.gz".to_string()),
             }],
         )
         .unwrap();
@@ -249,7 +263,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                keyword: "new.tar.gz".to_string(),
+                selector: AssetSelector::Glob("new.tar.gz".to_string()),
             }],
         )
         .unwrap();
@@ -272,7 +286,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: PlatformInfo::current().key(),
-                keyword: "codex.tar.gz".to_string(),
+                selector: AssetSelector::Glob("codex.tar.gz".to_string()),
             }],
         )
         .unwrap_err();

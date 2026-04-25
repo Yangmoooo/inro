@@ -59,8 +59,8 @@ fn select_candidate_with_interactivity(
 ) -> Result<AssetSelection, PkgError> {
     let platform_key = PlatformInfo::current().key();
 
-    // Explicit config: auto-select, no write-back needed
-    if result.match_kind == MatchKind::Explicit {
+    // Explicit config with a unique match: auto-select, no write-back needed.
+    if result.match_kind == MatchKind::Explicit && result.candidates.len() == 1 {
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
         return Ok(AssetSelection { candidate, write_back: None });
     }
@@ -72,12 +72,22 @@ fn select_candidate_with_interactivity(
         return Ok(AssetSelection { candidate, write_back: None });
     }
 
-    if result.match_kind == MatchKind::Fallback && result.candidates.len() > 1 && !interactive {
-        return Err(PkgError::Other(
-            "Multiple fallback assets found; run in an interactive terminal or configure an asset \
-             explicitly"
-                .to_string(),
-        ));
+    if matches!(result.match_kind, MatchKind::Fallback | MatchKind::Explicit)
+        && result.candidates.len() > 1
+        && !interactive
+    {
+        let reason = if result.match_kind == MatchKind::Explicit {
+            format!(
+                "Configured asset keyword '{}' matched multiple assets",
+                result.matched_keyword.as_deref().unwrap_or("<unknown>")
+            )
+        } else {
+            "Multiple fallback assets found".to_string()
+        };
+        return Err(PkgError::Other(format!(
+            "{reason}; run in an interactive terminal or configure a more specific asset \
+                 keyword"
+        )));
     }
 
     // Heuristic with multiple candidates, or fallback in non-interactive mode with
@@ -89,6 +99,21 @@ fn select_candidate_with_interactivity(
     }
 
     // Interactive: prompt user to select
+    let prompt = match result.match_kind {
+        MatchKind::Explicit => format!(
+            "Configured asset keyword '{}' matched multiple assets for '{pkg_name}' ({platform_key}). Select one",
+            result.matched_keyword.as_deref().unwrap_or("<unknown>")
+        ),
+        MatchKind::Fallback => {
+            format!(
+                "No platform-specific asset found for '{pkg_name}' ({platform_key}). Select one"
+            )
+        }
+        MatchKind::PlatformHeuristic => {
+            format!("Multiple assets found for '{pkg_name}' ({platform_key}). Select one")
+        }
+    };
+
     let mut items: Vec<String> = result
         .candidates
         .iter()
@@ -104,7 +129,7 @@ fn select_candidate_with_interactivity(
 
     eprintln!();
     let selection = Select::new()
-        .with_prompt(format!("Multiple assets found for '{pkg_name}' ({platform_key}). Select one"))
+        .with_prompt(prompt)
         .items(&items)
         .default(0)
         .interact()
@@ -115,13 +140,21 @@ fn select_candidate_with_interactivity(
     }
 
     let candidate = result.candidates.into_iter().nth(selection).ok_or(PkgError::NoCandidates)?;
-    let keyword = derive_asset_keyword(&candidate.asset_name, &candidate.version);
+    let selector = if result.asset_names.is_empty() {
+        derive_asset_selector(&candidate.asset_name, &candidate.version)
+    } else {
+        derive_asset_selector_from_assets(
+            &candidate.asset_name,
+            &candidate.version,
+            &result.asset_names,
+        )
+    };
 
     Ok(AssetSelection {
         write_back: Some(AssetSelectionWriteBack {
             pkg_name: pkg_name.to_string(),
             platform_key,
-            keyword,
+            selector,
         }),
         candidate,
     })
@@ -215,17 +248,38 @@ mod tests {
     use crate::package::ResolvedBin;
     use crate::remotes::{GitHubAssetDef, RemoteType};
 
+    fn candidate(asset_name: &str) -> InstallCandidate {
+        InstallCandidate {
+            version: "v1.0.0".to_string(),
+            asset_name: asset_name.to_string(),
+            download_url: format!("https://example.com/{asset_name}"),
+            size: 1024,
+        }
+    }
+
+    fn candidate_result(
+        candidates: Vec<InstallCandidate>,
+        match_kind: MatchKind,
+    ) -> CandidateResult {
+        let asset_names = candidates.iter().map(|candidate| candidate.asset_name.clone()).collect();
+        CandidateResult {
+            candidates,
+            asset_names,
+            match_kind,
+            matched_keyword: if match_kind == MatchKind::Explicit {
+                Some("tool".to_string())
+            } else {
+                None
+            },
+        }
+    }
+
     #[test]
     fn heuristic_single_candidate_does_not_write_back() {
-        let result = CandidateResult {
-            candidates: vec![InstallCandidate {
-                version: "v1.0.0".to_string(),
-                asset_name: "tool-v1.0.0-linux-x86_64.tar.gz".to_string(),
-                download_url: "https://example.com/tool.tar.gz".to_string(),
-                size: 1024,
-            }],
-            match_kind: MatchKind::PlatformHeuristic,
-        };
+        let result = candidate_result(
+            vec![candidate("tool-v1.0.0-linux-x86_64.tar.gz")],
+            MatchKind::PlatformHeuristic,
+        );
 
         let selection = select_candidate("tool", result).unwrap();
 
@@ -235,15 +289,10 @@ mod tests {
 
     #[test]
     fn explicit_candidate_does_not_write_back() {
-        let result = CandidateResult {
-            candidates: vec![InstallCandidate {
-                version: "v1.0.0".to_string(),
-                asset_name: "tool-v1.0.0-linux-x86_64.tar.gz".to_string(),
-                download_url: "https://example.com/tool.tar.gz".to_string(),
-                size: 1024,
-            }],
-            match_kind: MatchKind::Explicit,
-        };
+        let result = candidate_result(
+            vec![candidate("tool-v1.0.0-linux-x86_64.tar.gz")],
+            MatchKind::Explicit,
+        );
 
         let selection = select_candidate("tool", result).unwrap();
 
@@ -253,23 +302,10 @@ mod tests {
 
     #[test]
     fn non_interactive_multiple_fallback_candidates_error() {
-        let result = CandidateResult {
-            candidates: vec![
-                InstallCandidate {
-                    version: "v1.0.0".to_string(),
-                    asset_name: "tool.tar.gz".to_string(),
-                    download_url: "https://example.com/tool.tar.gz".to_string(),
-                    size: 1024,
-                },
-                InstallCandidate {
-                    version: "v1.0.0".to_string(),
-                    asset_name: "tool.zip".to_string(),
-                    download_url: "https://example.com/tool.zip".to_string(),
-                    size: 2048,
-                },
-            ],
-            match_kind: MatchKind::Fallback,
-        };
+        let result = candidate_result(
+            vec![candidate("tool.tar.gz"), candidate("tool.zip")],
+            MatchKind::Fallback,
+        );
 
         let error = match select_candidate_with_interactivity("tool", result, false) {
             Ok(_) => panic!("expected fallback selection to fail"),
@@ -277,6 +313,25 @@ mod tests {
         };
 
         assert!(error.to_string().contains("Multiple fallback assets found"));
+    }
+
+    #[test]
+    fn non_interactive_multiple_explicit_candidates_error() {
+        let result = candidate_result(
+            vec![
+                candidate("tool-v1.0.0-linux-x86_64.tar.gz"),
+                candidate("tool-v1.0.0-linux-aarch64.tar.gz"),
+            ],
+            MatchKind::Explicit,
+        );
+
+        let error = match select_candidate_with_interactivity("tool", result, false) {
+            Ok(_) => panic!("expected explicit multi-match selection to fail"),
+            Err(error) => error,
+        };
+
+        assert!(error.to_string().contains("Configured asset keyword"));
+        assert!(error.to_string().contains("matched multiple assets"));
     }
 
     #[test]
