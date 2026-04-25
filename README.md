@@ -85,7 +85,7 @@ repo = "aria2/aria2"
 
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
-- If an old local override no longer matches, remove `~/.config/inro/sources.list.d/local.toml` and run the install/update command again to let inro create a new selector.
+- If an old local override no longer matches, remove the `local.toml` file from your platform's `sources.list.d` directory (see the platform-specific paths above), then run the install/update command again to let inro create a new selector.
 
 ## Notice
 
