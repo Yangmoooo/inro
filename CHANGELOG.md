@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**BREAKING CHANGE!** Please do not continue using the outdated 0.5.x version; upgrade to the latest version as soon as possible according to the instructions.
+
+### Changed
+
+- **Asset Selectors**: GitHub `remote.github.asset` strings are now glob patterns matched against the full asset name, and arrays are supported as all-of token selectors. Old local substring-based overrides should be removed from `~/.config/inro/sources.list.d/local.toml` so inro can regenerate them.
+
 ## [0.5.1] - 2026-04-24
 
 ### Fixed

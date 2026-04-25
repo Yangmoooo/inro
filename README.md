@@ -70,6 +70,23 @@ Inro is configuration-driven. You can override defaults or add custom sources.
   - Linux: `~/.config/inro/sources.list.d/foobar.toml`
   - Windows: `%APPDATA%\inro\sources.list.d\foobar.toml`
 
+### Asset Selectors
+
+GitHub packages can define platform-specific asset selectors when automatic asset discovery is ambiguous.
+
+```toml
+[aria2.remote.github]
+repo = "aria2/aria2"
+
+[aria2.remote.github.asset]
+"linux-x86_64" = "aria2-*.tar.xz"
+"windows-x86_64" = ["aria2", "win", "64bit", "zip"]
+```
+
+- String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
+- Array selectors are all-of tokens. Every token must appear in the asset name.
+- If an old local override no longer matches, remove `~/.config/inro/sources.list.d/local.toml` and run the install/update command again to let inro create a new selector.
+
 ## Notice
 
 On Windows, inro requires that your account is [allowed to create symbolic links][windows-symlinks]. You can grant this permission in one of the following ways:
