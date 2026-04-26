@@ -11,7 +11,11 @@ use crate::remotes::VersionInfo;
 use crate::utils::{asset_matches_selector, is_ignored_format, is_supported_format};
 use crate::{client, detail};
 
-const GITHUB_RELEASES_PER_PAGE: u32 = 20;
+/// 100 is GitHub's per-page maximum. We never paginate beyond the first
+/// page; for the 99% of repos with fewer than 100 releases this is the
+/// whole list, and for the rest a clear "tag not found in latest 100
+/// releases" surfaces faster than walking dozens of pages.
+const GITHUB_RELEASES_PER_PAGE: u32 = 100;
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -47,6 +51,9 @@ pub enum Error {
         "In release tag '{tag}' for repo '{repo}', no asset was found matching the selector '{selector}'"
     )]
     NoMatchingAsset { repo: String, tag: String, selector: String },
+
+    #[error("GitHub API rate limit exceeded for '{repo}'. {hint}")]
+    RateLimited { repo: String, hint: String },
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -213,6 +220,57 @@ fn format_scored_asset_refs(assets: &[(&Asset, i32)]) -> String {
         .join(", ")
 }
 
+/// Convert a 403/429 response with GitHub rate-limit headers into a
+/// dedicated `Error::RateLimited`. Other 403s (bad token, repo-level
+/// permission denial) fall through and are surfaced via
+/// `error_for_status` with their original cause intact.
+fn check_rate_limit(response: &reqwest::Response, repo: &str) -> Option<Error> {
+    let status = response.status().as_u16();
+    if !matches!(status, 403 | 429) {
+        return None;
+    }
+
+    let headers = response.headers();
+    let header = |name: &str| headers.get(name).and_then(|v| v.to_str().ok());
+    let remaining: Option<u64> = header("x-ratelimit-remaining").and_then(|s| s.parse().ok());
+
+    // A 403 only counts as rate limiting when the remaining counter is 0.
+    // Without that hint it is more likely a bad-token / forbidden response.
+    if status == 403 && remaining != Some(0) {
+        return None;
+    }
+
+    let reset_secs: Option<i64> = header("x-ratelimit-reset").and_then(|s| s.parse().ok());
+    let retry_after_secs: Option<i64> = header("retry-after").and_then(|s| s.parse().ok());
+    let has_token = env::var("INRO_GITHUB_TOKEN").is_ok() || env::var("GITHUB_TOKEN").is_ok();
+
+    let resets_in_secs = retry_after_secs.or_else(|| {
+        reset_secs.map(|ts| (ts - Utc::now().timestamp()).max(0))
+    });
+    Some(Error::RateLimited {
+        repo: repo.to_string(),
+        hint: format_rate_hint(resets_in_secs, has_token),
+    })
+}
+
+/// Build a human-readable hint that explains when the limit resets and
+/// what to do about it.
+fn format_rate_hint(resets_in_secs: Option<i64>, has_token: bool) -> String {
+    let token_hint = if has_token {
+        "The token may be invalid or you have hit the per-token limit."
+    } else {
+        "Set INRO_GITHUB_TOKEN or GITHUB_TOKEN to raise the limit (60->5000 req/h)."
+    };
+    match resets_in_secs {
+        Some(secs) => {
+            let dt = Utc::now() + chrono::Duration::seconds(secs);
+            let when = chrono_humanize::HumanTime::from(dt);
+            format!("Resets {when}. {token_hint}")
+        }
+        None => token_hint.to_string(),
+    }
+}
+
 /// Calculate a heuristic score for how well an asset matches the platform.
 fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
     let name = asset.name.to_lowercase();
@@ -337,6 +395,9 @@ impl GitHubProvider {
             .send()
             .await
             .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
+        if let Some(rate_err) = check_rate_limit(&response, repo) {
+            return Err(rate_err);
+        }
         let response = response
             .error_for_status()
             .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
@@ -497,5 +558,37 @@ mod tests {
         assert_eq!(match_kind, MatchKind::PlatformHeuristic);
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].name, "chsrc-aarch64-macos");
+    }
+
+    // ==================== Rate-limit hint ====================
+
+    #[test]
+    fn rate_hint_with_reset_and_no_token_recommends_setting_one() {
+        // SAFETY: Tests run single-threaded for env var manipulation.
+        unsafe {
+            env::remove_var("INRO_GITHUB_TOKEN");
+            env::remove_var("GITHUB_TOKEN");
+        }
+
+        let hint = format_rate_hint(Some(60 * 23), false);
+
+        assert!(hint.contains("Resets in"), "missing reset clause: {hint}");
+        assert!(hint.contains("INRO_GITHUB_TOKEN"), "missing token suggestion: {hint}");
+    }
+
+    #[test]
+    fn rate_hint_with_token_blames_the_token() {
+        let hint = format_rate_hint(Some(60), true);
+
+        assert!(hint.contains("token may be invalid"), "expected token-specific hint: {hint}");
+        assert!(!hint.contains("Set INRO_GITHUB_TOKEN"), "should not suggest setting a token");
+    }
+
+    #[test]
+    fn rate_hint_without_reset_still_returns_token_advice() {
+        let hint = format_rate_hint(None, false);
+
+        assert!(!hint.contains("Resets"), "should not claim a reset time we do not know: {hint}");
+        assert!(hint.contains("INRO_GITHUB_TOKEN"), "must still suggest token: {hint}");
     }
 }
