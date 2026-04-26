@@ -43,7 +43,7 @@ impl CommandHandler for UninstallCommand {
         let mut failures = Vec::new();
 
         for name in &names {
-            match do_uninstall(name, self.all, &mut manifest, &config.bin_dir) {
+            match do_uninstall(name, self.all, &mut manifest, &config.bin_dir, &layout.pkgs_dir) {
                 Ok(Some(receipt)) => successes.push(receipt),
                 Ok(None) => {
                     // package is not installed
@@ -123,6 +123,7 @@ fn do_uninstall(
     for_all: bool,
     manifest: &mut Manifest,
     bin_dir: &Path,
+    pkgs_dir: &Path,
 ) -> Result<Option<UninstallReceipt>> {
     let (name, requested_ver) = parse_package_version(raw_name);
 
@@ -199,7 +200,7 @@ fn do_uninstall(
 
                 // get receipt and relink
                 if let Some(new_receipt) = state.versions.get_mut(&next_ver) {
-                    if let Err(e) = new_receipt.relink(bin_dir) {
+                    if let Err(e) = new_receipt.relink(bin_dir, pkgs_dir) {
                         warn!("Failed to auto-switch symlinks: {e:?}");
                     } else {
                         state.current_version = Some(next_ver.clone());

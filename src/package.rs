@@ -198,7 +198,11 @@ impl PkgReceipt {
     }
 
     /// Relink the binaries to the target directory.
-    pub fn relink(&mut self, target_dir: &Path) -> Result<()> {
+    ///
+    /// `owned_root` is the path inro considers its own (typically the
+    /// layout's `pkgs_dir`). It is forwarded to `create_symlink` so a
+    /// pre-existing foreign file at the link path is not silently replaced.
+    pub fn relink(&mut self, target_dir: &Path, owned_root: &Path) -> Result<()> {
         fs::create_dir_all(target_dir)
             .with_context(|| format!("Failed to create bin dir: {}", target_dir.display()))?;
 
@@ -215,7 +219,7 @@ impl PkgReceipt {
 
             // Create new and update
             let target = target_dir.join(&bin.name);
-            create_symlink(&bin.bin_path, &target)?;
+            create_symlink(&bin.bin_path, &target, owned_root)?;
             bin.link_path = target;
         }
         Ok(())
@@ -810,8 +814,143 @@ link = "simple-link"
             }],
         };
 
-        let err = receipt.relink(&unreachable_dir).unwrap_err();
+        let err = receipt.relink(&unreachable_dir, tmp.path()).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Failed to create bin dir"), "unexpected error chain: {msg}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relink_refuses_to_overwrite_foreign_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        // Pretend the user has a pre-existing tool from another package manager
+        // sitting at the destination.
+        let foreign_path = bin_dir.join("tool");
+        fs::write(&foreign_path, b"\x7fELF foreign binary").unwrap();
+
+        // inro's own binary lives under pkgs_dir.
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let mut receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_dir,
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_path,
+                link_path: PathBuf::new(),
+            }],
+        };
+
+        let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Refusing to overwrite"), "unexpected error: {msg}");
+        // Foreign file must remain intact.
+        assert_eq!(fs::read(&foreign_path).unwrap(), b"\x7fELF foreign binary");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relink_replaces_existing_inro_owned_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        // An older inro install: link points at v0.9.0 inside pkgs_dir.
+        let old_install = pkgs_dir.join("tool/v0.9.0");
+        fs::create_dir_all(&old_install).unwrap();
+        let old_target = old_install.join("tool");
+        fs::write(&old_target, b"\x7fELF old").unwrap();
+        let link_path = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&old_target, &link_path).unwrap();
+
+        // Now relink to a fresh v1.0.0.
+        let new_install = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&new_install).unwrap();
+        let new_target = new_install.join("tool");
+        fs::write(&new_target, b"\x7fELF new").unwrap();
+
+        let mut receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_dir: new_install,
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_path: new_target.clone(),
+                link_path: PathBuf::new(),
+            }],
+        };
+
+        receipt.relink(&bin_dir, &pkgs_dir).unwrap();
+
+        let resolved = std::fs::read_link(&link_path).unwrap();
+        assert_eq!(resolved, new_target);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relink_refuses_symlink_pointing_outside_pkgs_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        let elsewhere = tmp.path().join("elsewhere");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&elsewhere).unwrap();
+
+        // A symlink at the destination, but pointing outside pkgs_dir
+        // (e.g. user's own custom symlink).
+        let foreign_target = elsewhere.join("tool");
+        fs::write(&foreign_target, b"\x7fELF custom").unwrap();
+        let link_path = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&foreign_target, &link_path).unwrap();
+
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let mut receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_dir,
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_path,
+                link_path: PathBuf::new(),
+            }],
+        };
+
+        let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Refusing to replace"), "unexpected error: {msg}");
+        // Original symlink must still be there.
+        assert!(link_path.is_symlink());
+        assert_eq!(std::fs::read_link(&link_path).unwrap(), foreign_target);
     }
 }

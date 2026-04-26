@@ -204,7 +204,7 @@ impl CommandHandler for DoctorCommand {
                                 mismatches += 1;
 
                                 if self.fix {
-                                    match receipt.relink(bin_dir) {
+                                    match receipt.relink(bin_dir, &layout.pkgs_dir) {
                                         Ok(()) => {
                                             done!("re-linked {pkg_name} → {}", bin_dir.display());
                                             fixed += 1;

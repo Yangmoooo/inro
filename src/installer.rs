@@ -215,7 +215,7 @@ pub async fn install_candidate(
         install_dir: pkg_install_dir,
         binaries: binaries_result?,
     };
-    receipt.relink(&config.bin_dir)?;
+    receipt.relink(&config.bin_dir, &layout.pkgs_dir)?;
 
     Ok(receipt)
 }

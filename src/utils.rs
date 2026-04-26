@@ -556,15 +556,41 @@ fn score_binary_candidate(path: &Path) -> Option<i32> {
     likely.then_some(score)
 }
 
-/// Create a symlink from `link` to `original`, replacing existing link/file if
-/// necessary.
-pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
-    if link.exists() || link.is_symlink() {
-        if link.is_dir() {
-            fs::remove_dir_all(link)?;
+/// Create a symlink from `link` to `original`, refusing to overwrite anything
+/// that is not already a symlink managed by inro.
+///
+/// `owned_root` is the path inro considers its own (typically the layout's
+/// `pkgs_dir`). An existing entry is replaced silently only when it is a
+/// symlink whose target lies within `owned_root`. Foreign symlinks and
+/// regular files trigger a hard error so the user's pre-existing tools do
+/// not vanish behind inro's back.
+pub fn create_symlink(original: &Path, link: &Path, owned_root: &Path) -> Result<()> {
+    if link.is_symlink() {
+        let raw_target = fs::read_link(link)
+            .with_context(|| format!("Failed to read existing symlink: {}", link.display()))?;
+        let abs_target = if raw_target.is_absolute() {
+            raw_target.clone()
         } else {
-            fs::remove_file(link)?;
+            link.parent().unwrap_or(Path::new(".")).join(&raw_target)
+        };
+        let normalized_target = canonicalize_or_lexical(&abs_target);
+        let normalized_owned = canonicalize_or_lexical(owned_root);
+        if !normalized_target.starts_with(&normalized_owned) {
+            bail!(
+                "Refusing to replace '{}': it is a symlink pointing to '{}', outside inro's \
+                 package directory. Remove it manually or change `bin_dir` in your config.",
+                link.display(),
+                raw_target.display()
+            );
         }
+        fs::remove_file(link)
+            .with_context(|| format!("Failed to remove existing symlink: {}", link.display()))?;
+    } else if link.exists() {
+        bail!(
+            "Refusing to overwrite '{}': it is not a symlink managed by inro. Remove it \
+             manually or change `bin_dir` in your config.",
+            link.display()
+        );
     }
 
     #[cfg(unix)]
@@ -592,6 +618,29 @@ pub fn create_symlink(original: &Path, link: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Resolve `p` to an absolute, normalized form: prefers `fs::canonicalize`
+/// (which follows existing symlinks), falling back to a purely lexical
+/// normalization for paths whose target does not exist (e.g. broken
+/// symlinks).
+fn canonicalize_or_lexical(p: &Path) -> PathBuf {
+    fs::canonicalize(p).unwrap_or_else(|_| normalize_lexical(p))
+}
+
+fn normalize_lexical(p: &Path) -> PathBuf {
+    use std::path::Component;
+    let mut out = PathBuf::new();
+    for component in p.components() {
+        match component {
+            Component::ParentDir => {
+                out.pop();
+            }
+            Component::CurDir => {}
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 /// Sanitize version string to be filesystem-safe.

@@ -27,7 +27,7 @@ impl CommandHandler for UseCommand {
         if let Some(receipt) = state.versions.get_mut(&self.version) {
             step!("Switching '{}' to version '{}'...", self.name, self.version);
 
-            if let Err(e) = receipt.relink(&config.bin_dir) {
+            if let Err(e) = receipt.relink(&config.bin_dir, &layout.pkgs_dir) {
                 fail!("Failed to update symlinks: {e}");
                 return Err(e);
             }
