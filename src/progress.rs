@@ -137,11 +137,7 @@ impl ProgressManager {
     where
         F: FnOnce() -> R,
     {
-        if let Some(multi) = &self.multi {
-            multi.suspend(f)
-        } else {
-            f()
-        }
+        if let Some(multi) = &self.multi { multi.suspend(f) } else { f() }
     }
 
     /// Add a package to track.
