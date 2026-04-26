@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Verbose Mode**: Use detail lines rather than progress bar in verbose mode.
+
 ## [0.6.2] - 2026-04-26
 
 ### Fixed

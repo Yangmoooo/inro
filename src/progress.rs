@@ -3,6 +3,7 @@
 //! Provides multi-progress bar display for install/update commands.
 
 use std::sync::Arc;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -30,12 +31,20 @@ impl OpPhase {
             OpPhase::Extracting => "extracting...",
         }
     }
+
+    fn plain_message(self) -> &'static str {
+        match self {
+            OpPhase::Fetching => "fetching release...",
+            OpPhase::Downloading => "downloading...",
+            OpPhase::Extracting => "extracting...",
+        }
+    }
 }
 
 /// A handle to update a single package's progress.
 #[derive(Clone)]
 pub struct PkgProgress {
-    bar: ProgressBar,
+    bar: Option<ProgressBar>,
     name: String,
     max_name_width: usize,
 }
@@ -48,45 +57,66 @@ impl PkgProgress {
         let name = &self.name;
         let w = self.max_name_width;
 
+        let Some(bar) = &self.bar else {
+            crate::reporter::print_detail(&format!("{name:<w$}  {}", phase.plain_message()));
+            return;
+        };
+
         match phase {
             OpPhase::Downloading => {
-                self.bar.set_style(download_style());
-                self.bar.set_message(format!("{name:<w$}"));
+                bar.set_style(download_style());
+                bar.set_message(format!("{name:<w$}"));
             }
             _ => {
-                self.bar.set_style(spinner_style());
-                self.bar.enable_steady_tick(Duration::from_millis(80));
-                self.bar.set_message(format!("{symbol} {name:<w$}  {msg}"));
+                bar.set_style(spinner_style());
+                bar.enable_steady_tick(Duration::from_millis(80));
+                bar.set_message(format!("{symbol} {name:<w$}  {msg}"));
             }
         }
     }
 
     /// Set the total size for download progress.
-    pub fn set_length(&self, len: u64) { self.bar.set_length(len); }
+    pub fn set_length(&self, len: u64) {
+        if let Some(bar) = &self.bar {
+            bar.set_length(len);
+        }
+    }
 
     /// Increment download progress.
-    pub fn inc(&self, delta: u64) { self.bar.inc(delta); }
+    pub fn inc(&self, delta: u64) {
+        if let Some(bar) = &self.bar {
+            bar.inc(delta);
+        }
+    }
 
     /// Mark as completed with version.
     pub fn finish_success(&self, version: &str) {
         let name = &self.name;
         let w = self.max_name_width;
-        self.bar.set_style(status_style());
-        self.bar.finish_with_message(format!("✓ {name:<w$}  {version}"));
+        if let Some(bar) = &self.bar {
+            bar.set_style(status_style());
+            bar.finish_with_message(format!("✓ {name:<w$}  {version}"));
+        } else {
+            crate::reporter::print_done(&format!("{name:<w$}  {version}"));
+        }
     }
 
     /// Mark as failed with error message.
     pub fn finish_error(&self, err: &str) {
         let name = &self.name;
         let w = self.max_name_width;
-        self.bar.set_style(status_style());
-        self.bar.finish_with_message(format!("✗ {name:<w$}  {err}"));
+        if let Some(bar) = &self.bar {
+            bar.set_style(status_style());
+            bar.finish_with_message(format!("✗ {name:<w$}  {err}"));
+        } else {
+            crate::reporter::print_fail(&format!("{name:<w$}  {err}"));
+        }
     }
 }
 
 /// Manager for multi-package progress display.
 pub struct ProgressManager {
-    multi: Arc<MultiProgress>,
+    multi: Option<Arc<MultiProgress>>,
     name_width: usize,
 }
 
@@ -94,7 +124,12 @@ impl ProgressManager {
     /// Create a new progress manager with calculated name width.
     pub fn new(pkg_names: &[&str]) -> Self {
         let name_width = pkg_names.iter().map(|n| n.len()).max().unwrap_or(0);
-        Self { multi: Arc::new(MultiProgress::new()), name_width }
+        let multi = if crate::VERBOSITY.load(Ordering::Relaxed) > 0 {
+            None
+        } else {
+            Some(Arc::new(MultiProgress::new()))
+        };
+        Self { multi, name_width }
     }
 
     /// Temporarily suspend progress bars for interactive prompts.
@@ -102,19 +137,28 @@ impl ProgressManager {
     where
         F: FnOnce() -> R,
     {
-        self.multi.suspend(f)
+        if let Some(multi) = &self.multi {
+            multi.suspend(f)
+        } else {
+            f()
+        }
     }
 
     /// Add a package to track.
     pub fn add_package(&self, name: &str) -> PkgProgress {
-        let bar = self.multi.add(ProgressBar::new(0));
-        bar.set_style(spinner_style());
-
         let w = self.name_width;
-        bar.set_message(format!("◦ {name:<w$}  pending"));
+        let bar = self.multi.as_ref().map(|multi| {
+            let bar = multi.add(ProgressBar::new(0));
+            bar.set_style(spinner_style());
+            bar.set_message(format!("◦ {name:<w$}  pending"));
+            bar
+        });
 
         PkgProgress { bar, name: name.to_string(), max_name_width: self.name_width }
     }
+
+    #[cfg(test)]
+    fn is_plain_mode(&self) -> bool { self.multi.is_none() }
 }
 
 fn spinner_style() -> ProgressStyle {
@@ -130,4 +174,45 @@ fn download_style() -> ProgressStyle {
         .template("  ↓ {msg}  [{bar:20.cyan/dim}] {bytes}/{total_bytes} ({bytes_per_sec})")
         .expect("invalid template")
         .progress_chars("━╸─")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::atomic::Ordering;
+    use std::sync::{LazyLock, Mutex, MutexGuard};
+
+    use super::*;
+
+    static VERBOSITY_TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct VerbosityReset<'a> {
+        _guard: MutexGuard<'a, ()>,
+        previous: u8,
+    }
+
+    impl Drop for VerbosityReset<'_> {
+        fn drop(&mut self) { crate::VERBOSITY.store(self.previous, Ordering::Relaxed); }
+    }
+
+    fn set_test_verbosity(level: u8) -> VerbosityReset<'static> {
+        let guard = VERBOSITY_TEST_LOCK.lock().unwrap();
+        let previous = crate::VERBOSITY.swap(level, Ordering::Relaxed);
+        VerbosityReset { _guard: guard, previous }
+    }
+
+    #[test]
+    fn progress_manager_uses_bars_without_verbose() {
+        let _reset = set_test_verbosity(0);
+        let manager = ProgressManager::new(&["tool"]);
+
+        assert!(!manager.is_plain_mode());
+    }
+
+    #[test]
+    fn progress_manager_uses_plain_output_with_verbose() {
+        let _reset = set_test_verbosity(1);
+        let manager = ProgressManager::new(&["tool"]);
+
+        assert!(manager.is_plain_mode());
+    }
 }
