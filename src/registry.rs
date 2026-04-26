@@ -107,12 +107,9 @@ impl Registry {
         fs::create_dir_all(&layout.local_registry_dir)?;
         let temp_path = file_path.with_extension("tmp");
         fs::write(&temp_path, doc.to_string())?;
-        if file_path.exists()
-            && let Err(e) = fs::remove_file(&file_path)
-            && e.kind() != io::ErrorKind::NotFound
-        {
-            return Err(e.into());
-        }
+        // Atomic replace: `fs::rename` overwrites an existing file on Linux,
+        // macOS, and modern Windows, so the local registry never appears to
+        // be missing or partially written from another process's view.
         fs::rename(&temp_path, &file_path)?;
 
         Ok(())
@@ -271,6 +268,32 @@ link = "tool"
         let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
         assert!(local_toml.contains(&format!(r#"{platform_key} = "new.tar.gz""#)));
         assert!(!local_toml.contains("old.tar.gz"));
+    }
+
+    #[test]
+    fn write_asset_selection_leaves_no_temp_file_after_success() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        let platform_key = PlatformInfo::current().key();
+
+        // Write twice so the second invocation exercises the rename-over-existing
+        // path that previously deleted the destination before renaming.
+        for selector in ["first.tar.gz", "second.tar.gz"] {
+            Registry::write_asset_selections(
+                &layout,
+                &[AssetSelectionWriteBack {
+                    pkg_name: "codex".to_string(),
+                    platform_key: platform_key.clone(),
+                    selector: AssetSelector::Glob(selector.to_string()),
+                }],
+            )
+            .unwrap();
+
+            let local_toml_exists = layout.local_registry_dir.join("local.toml").exists();
+            let temp_left_behind = layout.local_registry_dir.join("local.tmp").exists();
+            assert!(local_toml_exists, "local.toml should always exist after a successful write");
+            assert!(!temp_left_behind, "local.tmp must be renamed in one step, not left behind");
+        }
     }
 
     #[test]
