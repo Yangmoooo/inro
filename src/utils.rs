@@ -12,7 +12,7 @@ use walkdir::WalkDir;
 
 use crate::progress::PkgProgress;
 use crate::remotes::AssetSelector;
-use crate::{client, detail};
+use crate::{client, detail, warn};
 
 /// Buffer size for file I/O operations (1 MB).
 /// Using a large buffer significantly reduces system calls for large files.
@@ -385,7 +385,13 @@ fn extract_zip_buffered(file_path: &Path, dest_dir: &Path) -> Result<()> {
         let mut zip_file = archive.by_index(i)?;
         let out_path = match zip_file.enclosed_name() {
             Some(path) => dest_dir.join(path),
-            None => continue,
+            None => {
+                warn!(
+                    "Skipping zip entry with suspicious path: '{}'",
+                    zip_file.name()
+                );
+                continue;
+            }
         };
 
         if zip_file.is_dir() {
