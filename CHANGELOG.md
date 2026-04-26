@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **No More Clobbering Foreign Files**: Installing or updating a package whose binary name collides with an existing file in your `bin_dir` (for example, an apt-/brew-/cargo-installed `rg`) used to silently delete that file and replace it with inro's own symlink. inro now refuses to touch anything that is not already a symlink it manages, and tells you the conflicting path so you can decide what to do.
+- **Failed Installs Don't Damage Existing Versions**: `inro install` now stages every install in a sibling directory and only swaps it into place after the download, extraction, and binary discovery all succeed. A network blip or bad archive no longer leaves a half-built version directory on disk, and reinstalling the currently-active version is safe — a failure halfway through can no longer leave you with a dangling symlink and a manifest entry pointing at nothing.
 
 ## [0.6.1] - 2026-04-26
 
