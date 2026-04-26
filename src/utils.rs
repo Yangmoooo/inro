@@ -491,58 +491,72 @@ pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
 ///
 /// When multiple files share the same name (e.g. an executable in `usr/bin/`
 /// and a bash-completion script in `usr/share/bash-completion/completions/`),
-/// the function prefers files that are executable or reside under a directory
-/// whose name is `bin` (e.g. `/usr/bin`, `/usr/local/bin`). Plain data files
-/// with the same name are ignored.
+/// every candidate that looks like a real binary is scored and the highest
+/// scorer wins. Plain data files with the same name are ignored. Ties are
+/// broken deterministically by path depth and then lexicographically so the
+/// result does not depend on filesystem traversal order.
 pub fn find_binary_in_dir(root: &Path, bin_name: &str) -> Option<PathBuf> {
-    let walker = WalkDir::new(root).into_iter();
     let target = bin_name.to_lowercase();
+    let mut candidates: Vec<(PathBuf, i32)> = Vec::new();
 
-    for entry in walker.filter_map(Result::ok) {
+    for entry in WalkDir::new(root).into_iter().filter_map(Result::ok) {
         let path = entry.path();
-        if path.is_file()
-            && let Some(fname) = path.file_name().and_then(|s| s.to_str())
-            && fname.to_lowercase() == target
-        {
-            // Prefer candidates that sit under a `bin/` directory or are
-            // executable on Unix.
-            if is_likely_binary(path) {
-                return Some(path.to_path_buf());
-            }
+        if !path.is_file() {
+            continue;
+        }
+        let Some(fname) = path.file_name().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if fname.to_lowercase() != target {
+            continue;
+        }
+        if let Some(score) = score_binary_candidate(path) {
+            candidates.push((path.to_path_buf(), score));
         }
     }
-    None
+
+    candidates.sort_by(|a, b| {
+        b.1.cmp(&a.1)
+            .then_with(|| a.0.components().count().cmp(&b.0.components().count()))
+            .then_with(|| a.0.cmp(&b.0))
+    });
+    candidates.into_iter().next().map(|(path, _)| path)
 }
 
-/// Heuristic: returns `true` when the file looks like a real binary rather
-/// than a data/completion file.
-fn is_likely_binary(path: &Path) -> bool {
+/// Score a same-name candidate so we can pick the most likely binary.
+/// Returns `None` for files that show no positive signal (plain data /
+/// completion scripts), so they are filtered out entirely.
+fn score_binary_candidate(path: &Path) -> Option<i32> {
+    let mut score = 0;
+    let mut likely = false;
+
     if matches!(
         FileType::from_magic_bytes(path),
         Ok(Some(FileType::Elf | FileType::MachO | FileType::Pe))
     ) {
-        return true;
+        score += 100;
+        likely = true;
     }
 
-    // Check if any parent directory is named "bin" (skip the file itself)
     if let Some(parent) = path.parent()
         && parent.ancestors().any(|a| a.file_name().and_then(|n| n.to_str()) == Some("bin"))
     {
-        return true;
+        score += 50;
+        likely = true;
     }
 
-    // On Unix, check for the executable permission bit
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         if let Ok(meta) = path.metadata()
             && meta.permissions().mode() & 0o111 != 0
         {
-            return true;
+            score += 20;
+            likely = true;
         }
     }
 
-    false
+    likely.then_some(score)
 }
 
 /// Create a symlink from `link` to `original`, replacing existing link/file if
@@ -1261,6 +1275,56 @@ mod tests {
     fn find_binary_none_when_missing() {
         let tmp = tempfile::tempdir().unwrap();
         assert!(find_binary_in_dir(tmp.path(), "nonexistent").is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_binary_prefers_strongest_signal_over_traversal_order() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Three same-name candidates, all "likely binary" by at least one
+        // signal but with different strengths. The real ELF + bin/ + exec
+        // entry must win regardless of which one WalkDir yields first.
+        let exec_only = root.join("a/libexec/tool"); // exec bit only (+20)
+        let bin_no_magic = root.join("z/bin/tool"); // bin/ + exec  (+70)
+        let real_elf = root.join("m/usr/bin/tool"); // magic + bin/ + exec (+170)
+        for p in [&exec_only, &bin_no_magic, &real_elf] {
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+        }
+        fs::write(&exec_only, b"#!/bin/sh\necho hi\n").unwrap();
+        fs::write(&bin_no_magic, b"# script\n").unwrap();
+        fs::write(&real_elf, b"\x7fELF binary").unwrap();
+        for p in [&exec_only, &bin_no_magic, &real_elf] {
+            fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let result = find_binary_in_dir(root, "tool").unwrap();
+        assert_eq!(result, real_elf);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn find_binary_breaks_score_ties_by_shallower_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path();
+
+        // Two equally-strong candidates (both ELF magic + exec, neither in a
+        // bin/ ancestor). The shallower path wins for determinism.
+        let shallow = root.join("tool");
+        let deep = root.join("nested/dir/tool");
+        fs::create_dir_all(deep.parent().unwrap()).unwrap();
+        for p in [&shallow, &deep] {
+            fs::write(p, b"\x7fELF").unwrap();
+            fs::set_permissions(p, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+
+        let result = find_binary_in_dir(root, "tool").unwrap();
+        assert_eq!(result, shallow);
     }
 
     #[cfg(unix)]
