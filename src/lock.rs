@@ -49,18 +49,15 @@ pub fn acquire(layout: &InroLayout) -> Result<StateLock> {
                 .with_context(|| format!("Failed to acquire lock: {}", lock_path.display()))?;
         }
         Err(TryLockError::Error(e)) => {
-            return Err(e).with_context(|| {
-                format!("Failed to lock state file: {}", lock_path.display())
-            });
+            return Err(e)
+                .with_context(|| format!("Failed to lock state file: {}", lock_path.display()));
         }
     }
 
     Ok(StateLock { _file: file })
 }
 
-fn lock_path(layout: &InroLayout) -> PathBuf {
-    layout.manifest_path.with_file_name("inro.lock")
-}
+fn lock_path(layout: &InroLayout) -> PathBuf { layout.manifest_path.with_file_name("inro.lock") }
 
 #[cfg(test)]
 mod tests {

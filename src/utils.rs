@@ -393,10 +393,7 @@ fn extract_zip_buffered(file_path: &Path, dest_dir: &Path) -> Result<()> {
         let out_path = match zip_file.enclosed_name() {
             Some(path) => dest_dir.join(path),
             None => {
-                warn!(
-                    "Skipping zip entry with suspicious path: '{}'",
-                    zip_file.name()
-                );
+                warn!("Skipping zip entry with suspicious path: '{}'", zip_file.name());
                 continue;
             }
         };

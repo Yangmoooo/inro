@@ -244,9 +244,8 @@ fn check_rate_limit(response: &reqwest::Response, repo: &str) -> Option<Error> {
     let retry_after_secs: Option<i64> = header("retry-after").and_then(|s| s.parse().ok());
     let has_token = env::var("INRO_GITHUB_TOKEN").is_ok() || env::var("GITHUB_TOKEN").is_ok();
 
-    let resets_in_secs = retry_after_secs.or_else(|| {
-        reset_secs.map(|ts| (ts - Utc::now().timestamp()).max(0))
-    });
+    let resets_in_secs =
+        retry_after_secs.or_else(|| reset_secs.map(|ts| (ts - Utc::now().timestamp()).max(0)));
     Some(Error::RateLimited {
         repo: repo.to_string(),
         hint: format_rate_hint(resets_in_secs, has_token),
