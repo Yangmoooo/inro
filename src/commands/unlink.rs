@@ -18,7 +18,7 @@ impl CommandHandler for UnlinkCommand {
         if let Some(receipt) = manifest.unlink_package(&self.name) {
             step!("Unlinking '{}' ({}) ...", self.name, receipt.version);
 
-            if let Err(e) = receipt.unlink() {
+            if let Err(e) = receipt.unlink(&layout.pkgs_dir) {
                 warn!("Failed to remove symlinks: {e}");
             }
 

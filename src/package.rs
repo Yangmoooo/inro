@@ -8,7 +8,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::platform::PlatformInfo;
 use crate::remotes::RemoteType;
-use crate::utils::create_symlink;
+use crate::utils::{create_symlink, is_inro_managed_symlink};
+use crate::warn;
 
 /// Package definition as specified in the registry.
 #[derive(Clone, Debug, Deserialize)]
@@ -207,14 +208,21 @@ impl PkgReceipt {
             .with_context(|| format!("Failed to create bin dir: {}", target_dir.display()))?;
 
         for bin in &mut self.binaries {
-            // Clean up
-            // If the old entry is still at there and its parent dir is not the target_dir
-            // Thats say the config bin_dir is changed, remove the old link
+            // Clean up the previous link path when `bin_dir` has been changed
+            // since the last install. Only touch links inro itself created;
+            // anything the user replaced by hand is left alone.
             if let Some(parent) = bin.link_path.parent()
                 && parent != target_dir
-                && bin.link_path.exists()
+                && (bin.link_path.exists() || bin.link_path.is_symlink())
             {
-                let _ = fs::remove_file(&bin.link_path);
+                if is_inro_managed_symlink(&bin.link_path, owned_root) {
+                    let _ = fs::remove_file(&bin.link_path);
+                } else {
+                    warn!(
+                        "Leaving stale link '{}' in place: it is not a symlink managed by inro",
+                        bin.link_path.display()
+                    );
+                }
             }
 
             // Create new and update
@@ -226,13 +234,26 @@ impl PkgReceipt {
     }
 
     /// Unlink the binaries from the target directory.
-    pub fn unlink(&self) -> Result<()> {
+    ///
+    /// Only entries that are still symlinks pointing inside `owned_root`
+    /// (typically the layout's `pkgs_dir`) are removed. If the user has
+    /// replaced inro's symlink with a regular file or pointed it elsewhere,
+    /// inro leaves it alone and warns instead of clobbering the user's data.
+    pub fn unlink(&self, owned_root: &Path) -> Result<()> {
         for bin in &self.binaries {
-            if bin.link_path.exists() || bin.link_path.is_symlink() {
-                fs::remove_file(&bin.link_path).with_context(|| {
-                    format!("Failed to remove link: {}", bin.link_path.display())
-                })?;
+            if !bin.link_path.exists() && !bin.link_path.is_symlink() {
+                continue;
             }
+            if !is_inro_managed_symlink(&bin.link_path, owned_root) {
+                warn!(
+                    "Skipping '{}': it is not a symlink managed by inro",
+                    bin.link_path.display()
+                );
+                continue;
+            }
+            fs::remove_file(&bin.link_path).with_context(|| {
+                format!("Failed to remove link: {}", bin.link_path.display())
+            })?;
         }
         Ok(())
     }
@@ -952,5 +973,105 @@ link = "simple-link"
         // Original symlink must still be there.
         assert!(link_path.is_symlink());
         assert_eq!(std::fs::read_link(&link_path).unwrap(), foreign_target);
+    }
+
+    // ==================== PkgReceipt::unlink() ====================
+
+    #[cfg(unix)]
+    fn make_receipt_with_link(link_path: PathBuf, bin_path: PathBuf) -> PkgReceipt {
+        PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_dir: PathBuf::new(),
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_path,
+                link_path,
+            }],
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlink_removes_inro_managed_symlink() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let link_path = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&bin_path, &link_path).unwrap();
+
+        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
+        receipt.unlink(&pkgs_dir).unwrap();
+
+        assert!(!link_path.exists() && !link_path.is_symlink(), "managed symlink should be gone");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlink_skips_foreign_regular_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        // User replaced inro's symlink with their own binary at the same path.
+        let link_path = bin_dir.join("tool");
+        fs::write(&link_path, b"user's own binary").unwrap();
+
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
+        // Must succeed (not fail), but must NOT delete the foreign file.
+        receipt.unlink(&pkgs_dir).unwrap();
+
+        assert_eq!(fs::read(&link_path).unwrap(), b"user's own binary");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlink_skips_symlink_pointing_outside_pkgs_dir() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        let elsewhere = tmp.path().join("elsewhere");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::create_dir_all(&elsewhere).unwrap();
+
+        // The link in bin_dir now points outside pkgs_dir (e.g. user pointed
+        // it at a custom build).
+        let foreign_target = elsewhere.join("tool");
+        fs::write(&foreign_target, b"custom").unwrap();
+        let link_path = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&foreign_target, &link_path).unwrap();
+
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
+        receipt.unlink(&pkgs_dir).unwrap();
+
+        // Foreign symlink must remain intact.
+        assert!(link_path.is_symlink());
+        assert_eq!(fs::read_link(&link_path).unwrap(), foreign_target);
     }
 }

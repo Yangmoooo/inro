@@ -620,6 +620,29 @@ pub fn create_symlink(original: &Path, link: &Path, owned_root: &Path) -> Result
     Ok(())
 }
 
+/// Whether `link` is a symlink whose target resolves under `owned_root`.
+/// Returns `false` for anything that is not a symlink (regular file,
+/// directory, missing entry) or for symlinks pointing outside
+/// `owned_root`. Use this to decide whether inro is allowed to remove an
+/// entry it once linked, without risking deletion of a file the user
+/// later replaced by hand.
+pub fn is_inro_managed_symlink(link: &Path, owned_root: &Path) -> bool {
+    if !link.is_symlink() {
+        return false;
+    }
+    let Ok(raw_target) = fs::read_link(link) else {
+        return false;
+    };
+    let abs_target = if raw_target.is_absolute() {
+        raw_target
+    } else {
+        link.parent().unwrap_or(Path::new(".")).join(&raw_target)
+    };
+    let target_norm = canonicalize_or_lexical(&abs_target);
+    let owned_norm = canonicalize_or_lexical(owned_root);
+    target_norm.starts_with(&owned_norm)
+}
+
 /// Resolve `p` to an absolute, normalized form: prefers `fs::canonicalize`
 /// (which follows existing symlinks), falling back to a purely lexical
 /// normalization for paths whose target does not exist (e.g. broken
