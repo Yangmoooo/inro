@@ -170,6 +170,14 @@ pub async fn install_candidate(
     layout: &InroLayout,
     progress: &PkgProgress,
 ) -> Result<PkgReceipt, PkgError> {
+    if pkg.bin.is_empty() {
+        return Err(PkgError::Other(format!(
+            "Package '{name}' has no binary defined for the current platform ({}); check the \
+             registry's [bin] entries",
+            crate::platform::PlatformInfo::current().key()
+        )));
+    }
+
     let safe_version = sanitize_version(&candidate.version);
     let pkg_install_dir = layout.pkgs_dir.join(name).join(&safe_version);
 
@@ -230,8 +238,10 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
     })?;
 
     // If asset is a single bin, rename it to the name of the package
-    if let FileType::Pe | FileType::Elf | FileType::MachO = ft {
-        rename_single_file(dst_dir, &pkg.bin[0].name)?;
+    if let FileType::Pe | FileType::Elf | FileType::MachO = ft
+        && let Some(first_bin) = pkg.bin.first()
+    {
+        rename_single_file(dst_dir, &first_bin.name)?;
     }
 
     // If there is only one directory, flatten it
@@ -332,6 +342,29 @@ mod tests {
 
         assert!(error.to_string().contains("Configured asset selector"));
         assert!(error.to_string().contains("matched multiple assets"));
+    }
+
+    #[test]
+    fn unpack_and_process_with_empty_bin_does_not_panic() {
+        // When PlatformAwareString filters out every binary, `pkg.bin` is empty.
+        // Extracting a standalone binary asset must NOT panic on `pkg.bin[0]`.
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("standalone-binary");
+        let dst = tmp.path().join("out");
+        let pkg = ResolvedPkg {
+            ver: Some("v1.0.0".to_string()),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/empty".to_string(),
+                asset: Default::default(),
+            }),
+            bin: vec![],
+        };
+        fs::write(&src, [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]).unwrap();
+        fs::create_dir_all(&dst).unwrap();
+
+        // Should complete without panic; the binary stays under its original name.
+        unpack_and_process(&src, &dst, &pkg).unwrap();
+        assert!(dst.join("standalone-binary").exists());
     }
 
     #[test]
