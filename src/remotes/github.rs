@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 use std::env;
-use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -20,6 +19,9 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub enum Error {
     #[error("Failed to build HTTP client")]
     HttpClientBuild(#[from] reqwest::Error),
+
+    #[error("Failed to start tokio runtime for synchronous GitHub call")]
+    RuntimeBuild(#[source] std::io::Error),
 
     #[error("API request to GitHub for repo '{repo}' failed")]
     RequestFailed {
@@ -386,60 +388,19 @@ impl GitHubProvider {
         Ok(CandidateResult { candidates, asset_names, match_kind, matched_selector })
     }
 
-    // ==================== Sync versions (for info/source) ====================
-
-    fn fetch_releases_sync(&self, repo: &str) -> Result<Releases> {
-        let api_url = format!("https://api.github.com/repos/{repo}/releases");
-
-        let client = reqwest::blocking::Client::builder()
-            .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
-            .connect_timeout(Duration::from_secs(30))
-            .timeout(Duration::from_secs(60))
-            .build()
-            .map_err(Error::HttpClientBuild)?;
-
-        let mut request_builder = client
-            .get(&api_url)
-            .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
-
-        if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
-            detail!("Using INRO_GITHUB_TOKEN for authentication");
-            request_builder = request_builder.bearer_auth(token);
-        } else if let Ok(token) = env::var("GITHUB_TOKEN") {
-            detail!("Using GITHUB_TOKEN for authentication");
-            request_builder = request_builder.bearer_auth(token);
-        } else {
-            detail!(
-                "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
-            );
-        }
-
-        detail!("Fetching releases from GitHub repository '{repo}'...");
-
-        let response = request_builder
-            .send()
-            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
-        let response = response
-            .error_for_status()
-            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
-
-        let mut release_vec: Vec<Release> =
-            response.json().map_err(|e| Error::JsonParse { repo: repo.to_string(), source: e })?;
-        for release in &mut release_vec {
-            release.repo = repo.to_string();
-        }
-
-        Ok(Releases(release_vec))
-    }
+    // ==================== Sync facade (for info/source) ====================
 
     pub fn list_versions(&self, pkg: &PkgDef) -> super::Result<Vec<VersionInfo>> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
-        let releases = self.fetch_releases_sync(repo)?;
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .map_err(Error::RuntimeBuild)?;
+        let releases = runtime.block_on(self.fetch_releases_async(repo))?;
+
         let versions = releases
             .0
             .iter()
