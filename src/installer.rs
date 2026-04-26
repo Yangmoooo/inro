@@ -179,54 +179,134 @@ pub async fn install_candidate(
     }
 
     let safe_version = sanitize_version(&candidate.version);
-    let pkg_install_dir = layout.pkgs_dir.join(name).join(&safe_version);
+    let pkg_dir = layout.pkgs_dir.join(name);
+    let final_install_dir = pkg_dir.join(&safe_version);
+    fs::create_dir_all(&pkg_dir).map_err(PkgError::Io)?;
 
-    prepare_install_dir(&pkg_install_dir)?;
+    // Stage all work in a sibling directory on the same filesystem. Any
+    // failure before the final rename leaves the existing installation
+    // (if any) untouched and removes the half-built staging dir on drop.
+    let staging_dir = tempfile::Builder::new()
+        .prefix(&format!("{safe_version}.staging."))
+        .rand_bytes(8)
+        .tempdir_in(&pkg_dir)
+        .map_err(PkgError::Io)?;
 
-    // Download with progress
     progress.set_phase(OpPhase::Downloading);
-    let temp_dir = TempDir::new().map_err(PkgError::Io)?;
+    let download_dir = TempDir::new().map_err(PkgError::Io)?;
     let downloaded_file = download_file_with_progress(
         &candidate.download_url,
-        temp_dir.path(),
+        download_dir.path(),
         candidate.size,
         progress,
     )
     .await?;
 
-    // Extract
     progress.set_phase(OpPhase::Extracting);
-    unpack_and_process(&downloaded_file, &pkg_install_dir, pkg)?;
+    unpack_and_process(&downloaded_file, staging_dir.path(), pkg)?;
 
-    let binaries_result: Result<Vec<InstalledBin>, PkgError> = pkg
+    let staged_binaries: Vec<InstalledBin> = pkg
         .bin
         .iter()
         .map(|b| {
-            let bin_path = find_binary_in_dir(&pkg_install_dir, &b.name)
+            let bin_path = find_binary_in_dir(staging_dir.path(), &b.name)
                 .ok_or_else(|| PkgError::BinaryNotFoundInArchive(b.name.clone()))?;
-            Ok(InstalledBin { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
+            Ok(InstalledBin {
+                name: b.link.clone(),
+                bin_path,
+                link_path: PathBuf::new(),
+            })
+        })
+        .collect::<Result<_, PkgError>>()?;
+
+    // Take ownership of the staging path, dismissing TempDir's auto-cleanup
+    // so it survives the rename below. From here on, any error before the
+    // rename completes must remove the staging dir explicitly.
+    let staging_path = staging_dir.keep();
+    let backup = match promote_install_dir(&staging_path, &final_install_dir) {
+        Ok(b) => b,
+        Err(e) => {
+            let _ = fs::remove_dir_all(&staging_path);
+            return Err(e);
+        }
+    };
+    if let Some(backup_path) = backup {
+        // Best-effort: a leftover backup dir is harmless; `clean` can sweep it.
+        let _ = fs::remove_dir_all(&backup_path);
+    }
+
+    // Re-anchor the binary paths from the staging tree to the final location.
+    let binaries: Vec<InstalledBin> = staged_binaries
+        .into_iter()
+        .map(|bin| InstalledBin {
+            bin_path: bin
+                .bin_path
+                .strip_prefix(&staging_path)
+                .map(|rel| final_install_dir.join(rel))
+                .unwrap_or(bin.bin_path),
+            ..bin
         })
         .collect();
+
     let mut receipt = PkgReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
         remote: pkg.remote.clone(),
         installed_at: Utc::now(),
-        install_dir: pkg_install_dir,
-        binaries: binaries_result?,
+        install_dir: final_install_dir,
+        binaries,
     };
     receipt.relink(&config.bin_dir, &layout.pkgs_dir)?;
 
     Ok(receipt)
 }
 
-/// Prepare the installation directory by removing it if it exists and creating
-/// a new one.
-fn prepare_install_dir(dir: &Path) -> Result<(), PkgError> {
-    if dir.exists() {
-        fs::remove_dir_all(dir)?;
+/// Atomically move `staging` into `final_dir`. If `final_dir` already
+/// exists, swap it aside to a sibling backup directory first so the rename
+/// can succeed on platforms where it cannot replace a non-empty directory.
+///
+/// On success returns `Some(backup_path)` if a previous installation was
+/// swapped aside (so the caller can drop it), or `None` otherwise. On
+/// failure the previous installation, if any, is restored and the original
+/// error is returned; the caller is still responsible for removing
+/// `staging`.
+fn promote_install_dir(staging: &Path, final_dir: &Path) -> Result<Option<PathBuf>, PkgError> {
+    let backup = if final_dir.exists() {
+        let parent = final_dir.parent().ok_or_else(|| {
+            PkgError::Other(format!(
+                "Cannot determine parent of install dir '{}'",
+                final_dir.display()
+            ))
+        })?;
+        let placeholder = tempfile::Builder::new()
+            .prefix(&format!(
+                "{}.backup.",
+                final_dir.file_name().unwrap_or_default().to_string_lossy()
+            ))
+            .rand_bytes(8)
+            .tempdir_in(parent)
+            .map_err(PkgError::Io)?;
+        // Take the placeholder's path and remove it so `rename` can take its
+        // place. Dropping the TempDir directly would race with the rename.
+        let backup_path = placeholder.keep();
+        fs::remove_dir_all(&backup_path).map_err(PkgError::Io)?;
+        fs::rename(final_dir, &backup_path).map_err(PkgError::Io)?;
+        Some(backup_path)
+    } else {
+        None
+    };
+
+    if let Err(e) = fs::rename(staging, final_dir) {
+        if let Some(ref backup_path) = backup {
+            // Restore the previous install. If this restore itself fails the
+            // user is left with the backup dir on disk, which `clean` will
+            // pick up; we still surface the original rename error.
+            let _ = fs::rename(backup_path, final_dir);
+        }
+        return Err(PkgError::Io(e));
     }
-    Ok(fs::create_dir_all(dir)?)
+
+    Ok(backup)
 }
 
 /// Unpack the downloaded file and perform post-processing like renaming and
@@ -365,6 +445,85 @@ mod tests {
         // Should complete without panic; the binary stays under its original name.
         unpack_and_process(&src, &dst, &pkg).unwrap();
         assert!(dst.join("standalone-binary").exists());
+    }
+
+    // ==================== promote_install_dir ====================
+
+    #[test]
+    fn promote_into_empty_parent_just_renames_staging() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+
+        let staging = pkg_dir.join("v1.0.0.staging.abc");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("rg"), b"new").unwrap();
+
+        let final_dir = pkg_dir.join("v1.0.0");
+        let backup = promote_install_dir(&staging, &final_dir).unwrap();
+
+        assert!(backup.is_none());
+        assert!(!staging.exists());
+        assert_eq!(fs::read(final_dir.join("rg")).unwrap(), b"new");
+    }
+
+    #[test]
+    fn promote_swaps_aside_existing_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+
+        let final_dir = pkg_dir.join("v1.0.0");
+        fs::create_dir_all(&final_dir).unwrap();
+        fs::write(final_dir.join("rg"), b"old").unwrap();
+
+        let staging = pkg_dir.join("v1.0.0.staging.abc");
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("rg"), b"new").unwrap();
+
+        let backup = promote_install_dir(&staging, &final_dir).unwrap();
+
+        let backup_path = backup.expect("expected a backup of the previous install");
+        assert!(backup_path.exists(), "backup must remain on disk for the caller to delete");
+        assert_eq!(fs::read(backup_path.join("rg")).unwrap(), b"old");
+        assert_eq!(fs::read(final_dir.join("rg")).unwrap(), b"new");
+        assert!(!staging.exists());
+    }
+
+    #[test]
+    fn install_failure_before_promote_keeps_existing_install_intact() {
+        // Simulate the "extract succeeded into staging but binary not found"
+        // scenario by promoting only after we artificially abort: we drop the
+        // staging tempdir without calling promote, mirroring an early `?`
+        // bail. The previous install at final_dir must be untouched.
+        let tmp = tempfile::tempdir().unwrap();
+        let pkg_dir = tmp.path().join("pkg");
+        fs::create_dir_all(&pkg_dir).unwrap();
+
+        let final_dir = pkg_dir.join("v1.0.0");
+        fs::create_dir_all(&final_dir).unwrap();
+        fs::write(final_dir.join("rg"), b"original").unwrap();
+
+        {
+            let staging_dir = tempfile::Builder::new()
+                .prefix("v1.0.0.staging.")
+                .rand_bytes(8)
+                .tempdir_in(&pkg_dir)
+                .unwrap();
+            fs::write(staging_dir.path().join("rg-broken"), b"partial").unwrap();
+            // staging_dir drops here without promote, simulating an error path.
+        }
+
+        // Existing install must still be intact.
+        assert_eq!(fs::read(final_dir.join("rg")).unwrap(), b"original");
+        // No staging residue should remain in the package dir.
+        let leftovers: Vec<_> = fs::read_dir(&pkg_dir)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .map(|e| e.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".staging."))
+            .collect();
+        assert!(leftovers.is_empty(), "staging dirs leaked: {leftovers:?}");
     }
 
     #[test]
