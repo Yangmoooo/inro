@@ -7,6 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-04-26
+
+### Fixed
+
+- **Tar Symlinks**: Tarballs containing ordinary relative symlinks were rejected as if they tried to escape the destination. They now extract correctly while real traversal attempts and absolute targets are still blocked.
+- **Network Hangs**: A slow DNS resolver, unreachable host, or stalled server could keep `install`, `update`, or `source update` waiting forever. All HTTP requests now enforce sensible connect and read timeouts.
+- **GitHub Rate Limits**: Hitting the API limit used to return a generic HTTP error. inro now reports when the limit resets and suggests setting `INRO_GITHUB_TOKEN` / `GITHUB_TOKEN` (or, if one is already set, points at the token).
+- **Concurrent Runs**: Two `inro` invocations at the same time could silently corrupt shared state. The second one now waits for the first to finish, with a brief notice while it waits.
+- **Older Versions Reachable**: `inro show` and `inro install pkg@<tag>` only saw the latest 20 releases, hiding older versions on fast-moving projects. They now look at the latest 100.
+- **Empty Binary Crash**: Installing a package whose `[bin]` entries were all filtered out for the current platform crashed; you now get a clear error naming the platform.
+- **Deterministic Binary Pick**: When several extracted files share the requested binary name, inro picks based on file signature and location instead of whichever the filesystem yielded first.
+- **Clearer Setup Errors**: Failure to create the configured `bin_dir` is now reported directly, instead of surfacing later as a confusing symlink error.
+- **Silent Skips**: Skipped zip entries with suspicious paths, and failures to write the per-install receipt, now produce warnings instead of disappearing.
+
 ## [0.6.0] - 2026-04-26
 
 **BREAKING CHANGE!** Please do not continue using the outdated 0.5.x version; upgrade to the latest version as soon as possible according to the instructions.
