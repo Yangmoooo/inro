@@ -12,6 +12,7 @@ pub struct UnlinkCommand {
 impl CommandHandler for UnlinkCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         if let Some(receipt) = manifest.unlink_package(&self.name) {

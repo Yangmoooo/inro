@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod installer;
 mod layout;
+mod lock;
 mod manifest;
 mod package;
 mod platform;

@@ -28,6 +28,7 @@ struct UpdateTask {
 impl CommandHandler for UpdateCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let config = Config::load(&layout)?;
         let registry = Registry::load(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;

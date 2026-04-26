@@ -16,6 +16,7 @@ pub struct UnpinCommand {
 impl CommandHandler for PinCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         match manifest.pkgs.get_mut(&self.name) {
@@ -37,6 +38,7 @@ impl CommandHandler for PinCommand {
 impl CommandHandler for UnpinCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         match manifest.pkgs.get_mut(&self.name) {

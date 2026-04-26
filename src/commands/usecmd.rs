@@ -15,6 +15,7 @@ pub struct UseCommand {
 impl CommandHandler for UseCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
         let config = Config::load(&layout)?;
 

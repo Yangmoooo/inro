@@ -31,6 +31,7 @@ impl CommandHandler for InstallCommand {
         let names = unique(&self.names);
 
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let config = Config::load(&layout)?;
         let registry = Registry::load(&layout)?;
         if registry.pkgs.is_empty() {

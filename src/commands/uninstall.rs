@@ -29,6 +29,7 @@ impl CommandHandler for UninstallCommand {
         hint!("Starting uninstallation of {} package(s)...", names.len());
 
         let layout = InroLayout::new()?;
+        let _lock = crate::lock::acquire(&layout)?;
         let config = Config::load(&layout)?;
         let manifest_path = &layout.manifest_path;
         let mut manifest = Manifest::load(manifest_path)?;

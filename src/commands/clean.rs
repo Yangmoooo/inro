@@ -18,6 +18,7 @@ pub struct CleanCommand {
 impl CommandHandler for CleanCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = if self.dry_run { None } else { Some(crate::lock::acquire(&layout)?) };
         let mut manifest = Manifest::load(&layout.manifest_path)?;
         let pkgs_root = layout.pkgs_dir;
 

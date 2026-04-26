@@ -19,6 +19,7 @@ pub struct DoctorCommand {
 impl CommandHandler for DoctorCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = if self.fix { Some(crate::lock::acquire(&layout)?) } else { None };
         let mut warnings = 0usize;
         let mut failed = 0usize;
 

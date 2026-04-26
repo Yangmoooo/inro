@@ -19,6 +19,10 @@ pub struct SourceCommand {
 impl CommandHandler for SourceCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        let _lock = match &self.command {
+            SourceSubCommand::List { .. } => None,
+            _ => Some(crate::lock::acquire(&layout)?),
+        };
         let config = Config::load(&layout)?;
         let upstreams = &config.upstreams;
         let upstream_registry_dir = &layout.upstream_registry_dir;
