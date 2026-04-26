@@ -251,9 +251,8 @@ impl PkgReceipt {
                 );
                 continue;
             }
-            fs::remove_file(&bin.link_path).with_context(|| {
-                format!("Failed to remove link: {}", bin.link_path.display())
-            })?;
+            fs::remove_file(&bin.link_path)
+                .with_context(|| format!("Failed to remove link: {}", bin.link_path.display()))?;
         }
         Ok(())
     }
@@ -988,11 +987,7 @@ link = "simple-link"
             }),
             installed_at: Utc::now(),
             install_dir: PathBuf::new(),
-            binaries: vec![InstalledBin {
-                name: "tool".to_string(),
-                bin_path,
-                link_path,
-            }],
+            binaries: vec![InstalledBin { name: "tool".to_string(), bin_path, link_path }],
         }
     }
 

@@ -211,11 +211,7 @@ pub async fn install_candidate(
         .map(|b| {
             let bin_path = find_binary_in_dir(staging_dir.path(), &b.name)
                 .ok_or_else(|| PkgError::BinaryNotFoundInArchive(b.name.clone()))?;
-            Ok(InstalledBin {
-                name: b.link.clone(),
-                bin_path,
-                link_path: PathBuf::new(),
-            })
+            Ok(InstalledBin { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
         })
         .collect::<Result<_, PkgError>>()?;
 
