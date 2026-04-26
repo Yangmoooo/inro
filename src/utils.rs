@@ -337,10 +337,12 @@ fn extract_tar_buffered<R: Read>(reader: R, dest_dir: &Path) -> Result<()> {
                     fs::create_dir_all(parent)?;
                 }
                 if let Some(target) = entry.link_name()? {
-                    // Validate: resolve the symlink target relative to the link's parent
-                    let link_parent = out_path.parent().unwrap_or(dest_dir);
+                    // Resolve the symlink target relative to the entry's parent
+                    // *inside the archive* (a relative path), then validate it
+                    // stays within `dest_dir`.
+                    let entry_parent = entry_path.parent().unwrap_or(Path::new(""));
                     if target.is_absolute()
-                        || safe_join_path(dest_dir, &link_parent.join(&target)).is_none()
+                        || safe_join_path(dest_dir, &entry_parent.join(&target)).is_none()
                     {
                         bail!(
                             "tar symlink '{}' -> '{}' would escape destination directory",
@@ -1410,5 +1412,92 @@ mod tests {
 
         assert!(glob_match(pattern, text));
         assert!(!glob_match(pattern, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    }
+
+    // ==================== tar symlink extraction ====================
+
+    #[cfg(unix)]
+    fn build_tar_with_symlink(tar_path: &Path, link_name: &str, target: &str) {
+        let file = File::create(tar_path).unwrap();
+        let mut builder = tar::Builder::new(file);
+
+        // Real file the link points at (when target is "real.txt").
+        let mut real_header = tar::Header::new_gnu();
+        real_header.set_path("real.txt").unwrap();
+        real_header.set_size(5);
+        real_header.set_mode(0o644);
+        real_header.set_entry_type(tar::EntryType::Regular);
+        real_header.set_cksum();
+        builder.append(&real_header, &b"hello"[..]).unwrap();
+
+        let mut link_header = tar::Header::new_gnu();
+        link_header.set_path(link_name).unwrap();
+        link_header.set_size(0);
+        link_header.set_mode(0o777);
+        link_header.set_entry_type(tar::EntryType::Symlink);
+        link_header.set_link_name(target).unwrap();
+        link_header.set_cksum();
+        builder.append(&link_header, std::io::empty()).unwrap();
+
+        builder.into_inner().unwrap().sync_all().unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_tar_preserves_relative_symlink_within_dest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tar_path = tmp.path().join("with-symlink.tar");
+        let dest = tmp.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+
+        // sub/link -> ../real.txt resolves inside dest_dir
+        build_tar_with_symlink(&tar_path, "sub/link", "../real.txt");
+
+        let file = File::open(&tar_path).unwrap();
+        extract_tar_buffered(file, &dest).expect("symlink within dest must extract");
+
+        let link_path = dest.join("sub/link");
+        assert!(link_path.is_symlink(), "expected symlink at {}", link_path.display());
+        let resolved_target = std::fs::read_link(&link_path).unwrap();
+        assert_eq!(resolved_target, PathBuf::from("../real.txt"));
+        // Following the symlink should land on the file inside dest.
+        assert_eq!(fs::read_to_string(link_path).unwrap(), "hello");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_tar_rejects_symlink_escaping_dest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tar_path = tmp.path().join("escaping.tar");
+        let dest = tmp.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+
+        // link -> ../../etc/passwd escapes dest_dir
+        build_tar_with_symlink(&tar_path, "link", "../../etc/passwd");
+
+        let file = File::open(&tar_path).unwrap();
+        let err = extract_tar_buffered(file, &dest).unwrap_err();
+        assert!(
+            err.to_string().contains("escape destination directory"),
+            "unexpected error: {err}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn extract_tar_rejects_absolute_symlink_target() {
+        let tmp = tempfile::tempdir().unwrap();
+        let tar_path = tmp.path().join("absolute.tar");
+        let dest = tmp.path().join("out");
+        fs::create_dir_all(&dest).unwrap();
+
+        build_tar_with_symlink(&tar_path, "link", "/etc/passwd");
+
+        let file = File::open(&tar_path).unwrap();
+        let err = extract_tar_buffered(file, &dest).unwrap_err();
+        assert!(
+            err.to_string().contains("escape destination directory"),
+            "unexpected error: {err}"
+        );
     }
 }
