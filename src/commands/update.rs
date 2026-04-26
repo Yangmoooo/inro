@@ -150,7 +150,6 @@ impl CommandHandler for UpdateCommand {
         }
 
         // Phase 3: Parallel install
-        let install_tasks_count = install_tasks.len();
         let mut updated = 0usize;
 
         let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> =
@@ -194,15 +193,19 @@ impl CommandHandler for UpdateCommand {
             });
 
         let mut write_backs = Vec::new();
-        for (receipt, write_back) in results.into_iter().flatten() {
-            receipt.save_to_install_dir().ok();
-            manifest.add(receipt);
-            if let Some(wb) = write_back {
-                write_backs.push(wb);
+        for result in results {
+            match result {
+                Some((receipt, write_back)) => {
+                    receipt.save_to_install_dir().ok();
+                    manifest.add(receipt);
+                    if let Some(wb) = write_back {
+                        write_backs.push(wb);
+                    }
+                    updated += 1;
+                }
+                None => failed += 1,
             }
-            updated += 1;
         }
-        failed += install_tasks_count - updated;
 
         if !write_backs.is_empty()
             && let Err(e) = Registry::write_asset_selections(&layout, &write_backs)

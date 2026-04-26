@@ -51,7 +51,6 @@ impl CommandHandler for InstallCommand {
             })
             .collect();
         let pkg_names: Vec<&str> = parsed.iter().map(|(_, p, _)| p.as_str()).collect();
-        let total_count = pkg_names.len();
         let pm = ProgressManager::new(&pkg_names);
 
         // Validate and create tasks
@@ -170,15 +169,19 @@ impl CommandHandler for InstallCommand {
         // Process results
         let mut success_count = 0usize;
         let mut write_backs = Vec::new();
-        for (receipt, write_back) in results.into_iter().flatten() {
-            receipt.save_to_install_dir().ok();
-            manifest.add(receipt);
-            if let Some(wb) = write_back {
-                write_backs.push(wb);
+        for result in results {
+            match result {
+                Some((receipt, write_back)) => {
+                    receipt.save_to_install_dir().ok();
+                    manifest.add(receipt);
+                    if let Some(wb) = write_back {
+                        write_backs.push(wb);
+                    }
+                    success_count += 1;
+                }
+                None => fail_count += 1,
             }
-            success_count += 1;
         }
-        fail_count += total_count - success_count - fail_count;
 
         if !write_backs.is_empty()
             && let Err(e) = Registry::write_asset_selections(&layout, &write_backs)
