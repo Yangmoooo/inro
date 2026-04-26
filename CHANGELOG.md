@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **No More Clobbering Foreign Files**: Installing or updating a package whose binary name collides with an existing file in your `bin_dir` (for example, an apt-/brew-/cargo-installed `rg`) used to silently delete that file and replace it with inro's own symlink. inro now refuses to touch anything that is not already a symlink it manages, and tells you the conflicting path so you can decide what to do.
+
 ## [0.6.1] - 2026-04-26
 
 ### Fixed
