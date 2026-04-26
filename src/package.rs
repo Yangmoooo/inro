@@ -199,10 +199,8 @@ impl PkgReceipt {
 
     /// Relink the binaries to the target directory.
     pub fn relink(&mut self, target_dir: &Path) -> Result<()> {
-        if !target_dir.exists() {
-            let _ = fs::create_dir_all(target_dir)
-                .with_context(|| format!("Failed to create bin dir: {}", target_dir.display()));
-        }
+        fs::create_dir_all(target_dir)
+            .with_context(|| format!("Failed to create bin dir: {}", target_dir.display()))?;
 
         for bin in &mut self.binaries {
             // Clean up
@@ -776,5 +774,44 @@ link = "simple-link"
             assert_eq!(resolved.bin[0].name, "simple-bin.exe");
             assert_eq!(resolved.bin[0].link, "simple-link.exe");
         }
+    }
+
+    // ==================== PkgReceipt::relink() ====================
+
+    #[cfg(unix)]
+    #[test]
+    fn relink_propagates_target_dir_creation_failure() {
+        // Pick a target path whose parent is not a directory, so create_dir_all
+        // is guaranteed to fail. relink() must surface that error instead of
+        // silently swallowing it and failing later in create_symlink.
+        let tmp = tempfile::tempdir().unwrap();
+        let file_path = tmp.path().join("not-a-dir");
+        fs::write(&file_path, b"file content").unwrap();
+        let unreachable_dir = file_path.join("bin");
+
+        let install_dir = tmp.path().join("pkg");
+        fs::create_dir_all(&install_dir).unwrap();
+        let bin_path = install_dir.join("tool");
+        fs::write(&bin_path, b"\x7fELF").unwrap();
+
+        let mut receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_dir: install_dir.clone(),
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_path,
+                link_path: PathBuf::new(),
+            }],
+        };
+
+        let err = receipt.relink(&unreachable_dir).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Failed to create bin dir"), "unexpected error chain: {msg}");
     }
 }
