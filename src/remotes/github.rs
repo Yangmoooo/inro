@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::env;
+use std::time::Duration;
 
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -392,6 +393,8 @@ impl GitHubProvider {
 
         let client = reqwest::blocking::Client::builder()
             .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
+            .connect_timeout(Duration::from_secs(30))
+            .timeout(Duration::from_secs(60))
             .build()
             .map_err(Error::HttpClientBuild)?;
 

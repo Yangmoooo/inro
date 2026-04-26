@@ -1,6 +1,7 @@
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write, copy};
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local, Utc};
@@ -68,8 +69,14 @@ pub async fn download_file_with_progress(
 pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     detail!("Downloading from {url}...");
 
-    let response = reqwest::blocking::get(url)
-        .with_context(|| format!("Failed to download from URL: {url}"))?;
+    let client = reqwest::blocking::Client::builder()
+        .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
+        .connect_timeout(Duration::from_secs(30))
+        .timeout(Duration::from_secs(120))
+        .build()
+        .context("Failed to build HTTP client")?;
+    let response =
+        client.get(url).send().with_context(|| format!("Failed to download from URL: {url}"))?;
     let response =
         response.error_for_status().with_context(|| format!("HTTP error for URL: {url}"))?;
 
