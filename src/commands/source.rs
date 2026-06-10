@@ -113,6 +113,26 @@ impl CommandHandler for SourceCommand {
                     });
                 }
 
+                let auto_path = managed_registry_dir.join("auto.toml");
+                if auto_path.exists() {
+                    let metadata = fs::metadata(&auto_path)?;
+                    let modified = metadata.modified()?;
+                    let datetime: DateTime<Local> = modified.into();
+                    let human_time = HumanTime::from(datetime);
+                    let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
+                    let last_update_display = time_str.as_str().normal();
+
+                    rows.push(Row {
+                        type_str: "Auto",
+                        name: "auto".to_string(),
+                        enabled_plain: "Always",
+                        enabled_display: "Always".cyan(),
+                        last_update_plain: time_str,
+                        last_update_display,
+                        url_path: auto_path.display().to_string(),
+                    });
+                }
+
                 for user_file in user_files {
                     let user_path = user_registry_dir.join(format!("{}.toml", user_file));
                     let metadata = fs::metadata(&user_path)?;
@@ -123,7 +143,7 @@ impl CommandHandler for SourceCommand {
                     let last_update_display = time_str.as_str().normal();
 
                     rows.push(Row {
-                        type_str: "Local",
+                        type_str: "User",
                         name: user_file,
                         enabled_plain: "Always",
                         enabled_display: "Always".cyan(),
