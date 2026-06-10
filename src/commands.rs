@@ -1,5 +1,6 @@
 pub mod clean;
 pub mod doctor;
+pub mod env;
 pub mod generate;
 pub mod install;
 pub mod list;
@@ -14,6 +15,7 @@ pub mod usecmd;
 
 pub use clean::CleanCommand;
 pub use doctor::DoctorCommand;
+pub use env::EnvCommand;
 pub use generate::GenerateCommand;
 pub use install::InstallCommand;
 pub use list::ListCommand;

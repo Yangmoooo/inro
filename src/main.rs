@@ -42,6 +42,7 @@ fn main() -> anyhow::Result<()> {
             Command::Unlink { name } => Box::new(UnlinkCommand { name }),
             Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
             Command::Doctor { fix } => Box::new(DoctorCommand { fix }),
+            Command::Env => Box::new(EnvCommand {}),
 
             Command::Generate { generator, out } => Box::new(GenerateCommand { generator, out }),
         };

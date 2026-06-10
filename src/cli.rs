@@ -153,6 +153,12 @@ pub enum Command {
         fix: bool,
     },
 
+    /// Print the resolved INRO_HOME and all derived paths
+    ///
+    /// Useful for debugging path resolution, scripting, or setting up
+    /// dotfiles. Respects the INRO_HOME environment variable.
+    Env,
+
     /// Generate shell completions and man pages
     #[command(hide = true)]
     Generate {
