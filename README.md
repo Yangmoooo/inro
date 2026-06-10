@@ -61,14 +61,21 @@ inro uninstall ripgrep   # Remove a package
 
 ## Configuration
 
-Inro is configuration-driven. You can override defaults or add custom sources.
+Inro keeps everything under a single root directory, `$INRO_HOME`. It defaults to `~/.inro/` on every platform; set `INRO_HOME` to relocate. Run `inro env` to see all resolved paths.
 
-- config file at
-  - Linux: `~/.config/inro/config.toml`
-  - Windows: `%APPDATA%\inro\config.toml`
-- sources file at
-  - Linux: `~/.config/inro/sources.list.d/foobar.toml`
-  - Windows: `%APPDATA%\inro\sources.list.d\foobar.toml`
+```
+$INRO_HOME/                      (default: ~/.inro/)
+├── config.toml                  user configuration
+├── manifest.json                installed packages state
+├── sources.list.d/              your hand-written registry overrides
+│   └── *.toml
+├── registry/                    inro-maintained
+│   ├── 00-default.toml          fetched by `inro source update`
+│   └── auto.toml                auto-detected asset selectors
+└── pkgs/                        installed package versions
+```
+
+Anything under `sources.list.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Inro never writes there itself.
 
 ### Asset Selectors
 
@@ -85,7 +92,7 @@ repo = "aria2/aria2"
 
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
-- If an old local override no longer matches, remove the `local.toml` file from your platform's `sources.list.d` directory (see the platform-specific paths above), then run the install/update command again to let inro create a new selector.
+- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Your own files under `sources.list.d/` are never touched.
 
 ## Notice
 

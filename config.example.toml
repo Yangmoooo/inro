@@ -1,5 +1,5 @@
 # Inro Configuration File
-# Location: ~/.config/inro/config.toml
+# Location: $INRO_HOME/config.toml (default: ~/.inro/config.toml)
 # All settings are optional. Uncomment and modify the ones you want to override.
 
 # =============================================================================

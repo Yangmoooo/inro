@@ -7,9 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+**BREAKING CHANGE!** 0.7.0 reorganizes where inro keeps its files. Read the migration notes below before upgrading.
+
 ### Changed
 
+- **Single-Root Layout**: All inro state now lives under one directory, `$INRO_HOME` (default `~/.inro/`), instead of being split between platform-specific config and data directories. Set `INRO_HOME` to relocate. Run `inro env` to see resolved paths. Inro does not migrate old state automatically — see migration notes.
+- **Auto-Detected Asset Selectors**: When inro interactively picks a GitHub asset, the cached selector is now written to `$INRO_HOME/registry/auto.toml` (program-managed area) instead of `sources.list.d/local.toml` (user-authored area). Your hand-written files under `sources.list.d/` still take precedence.
+- **Update Status**: `inro update` now uses a dim `=` marker followed by `(up to date)` for packages that were already at the latest version, distinguishing them from packages that were actually downloaded and installed (green `✓`).
+- **`source list` Types**: The `Local` row is split into `Auto` (the program-maintained `auto.toml`) and `User` (entries under `sources.list.d/`).
 - **Verbose Mode**: Use detail lines rather than progress bar in verbose mode.
+
+### Added
+
+- **`inro env`**: Prints `INRO_HOME` and every derived path (config, manifest, pkgs, registries, bin_dir). Useful for scripting and dotfiles setup.
+
+### Migration
+
+Inro 0.7.0 reads only `$INRO_HOME`. The old locations are no longer touched. To carry your state over from 0.6.x:
+
+| OS | Old config | Old data | New (everything) |
+|---|---|---|---|
+| Linux | `~/.config/inro/` | `~/.local/share/inro/` | `~/.inro/` |
+| macOS | `~/Library/Application Support/inro/` | `~/Library/Application Support/inro/` | `~/.inro/` |
+| Windows | `%APPDATA%\inro\` | `%LOCALAPPDATA%\inro\` | `%USERPROFILE%\.inro\` |
+
+Example for Linux/macOS — merge old config and data into `~/.inro/`, then rename `inro-manifest.json`:
+
+```sh
+mkdir -p ~/.inro
+# adjust paths for macOS if needed
+mv ~/.config/inro/config.toml         ~/.inro/config.toml
+mv ~/.local/share/inro/inro-manifest.json ~/.inro/manifest.json
+mv ~/.local/share/inro/pkgs           ~/.inro/pkgs
+mv ~/.local/share/inro/sources.list.d ~/.inro/registry
+mv ~/.config/inro/sources.list.d      ~/.inro/sources.list.d
+```
+
+Your existing `sources.list.d/local.toml` (if any) keeps working — inro 0.7.0 just won't write to it. Once you've upgraded, delete it to let inro re-learn selectors into `registry/auto.toml`, or keep it as a hand-managed override.
 
 ## [0.6.2] - 2026-04-26
 
