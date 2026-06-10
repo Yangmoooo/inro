@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
 
 /// Phase of a package operation (for progress display)
@@ -98,6 +99,19 @@ impl PkgProgress {
             bar.finish_with_message(format!("✓ {name:<w$}  {version}"));
         } else {
             crate::reporter::print_done(&format!("{name:<w$}  {version}"));
+        }
+    }
+
+    /// Mark as already up to date (no install needed).
+    pub fn finish_unchanged(&self, version: &str) {
+        let name = &self.name;
+        let w = self.max_name_width;
+        if let Some(bar) = &self.bar {
+            bar.set_style(status_style());
+            let line = format!("= {name:<w$}  {version}  (up to date)");
+            bar.finish_with_message(line.dimmed().to_string());
+        } else {
+            crate::reporter::print_skip(&format!("{name:<w$}  {version}  (up to date)"));
         }
     }
 
@@ -210,5 +224,13 @@ mod tests {
         let manager = ProgressManager::new(&["tool"]);
 
         assert!(manager.is_plain_mode());
+    }
+
+    #[test]
+    fn finish_unchanged_in_plain_mode_does_not_panic() {
+        let _reset = set_test_verbosity(1);
+        let manager = ProgressManager::new(&["tool"]);
+        let progress = manager.add_package("tool");
+        progress.finish_unchanged("1.2.3");
     }
 }

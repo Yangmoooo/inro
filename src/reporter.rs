@@ -80,6 +80,9 @@ pub fn print_warn(msg: &str) { print_with_prefix("⚠".yellow(), msg); }
 pub fn print_step(msg: &str) { print_with_prefix("==>".cyan().bold(), msg); }
 
 #[doc(hidden)]
+pub fn print_skip(msg: &str) { print_with_prefix("=".dimmed(), msg); }
+
+#[doc(hidden)]
 pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
 
 #[doc(hidden)]

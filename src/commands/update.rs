@@ -125,7 +125,7 @@ impl CommandHandler for UpdateCommand {
                     if let Some(first) = candidate_result.candidates.first()
                         && first.version == task.current_version
                     {
-                        task.progress.finish_success(&task.current_version);
+                        task.progress.finish_unchanged(&task.current_version);
                         up_to_date += 1;
                         continue;
                     }
