@@ -57,7 +57,7 @@ pub fn acquire(layout: &InroLayout) -> Result<StateLock> {
     Ok(StateLock { _file: file })
 }
 
-fn lock_path(layout: &InroLayout) -> PathBuf { layout.manifest_path.with_file_name("inro.lock") }
+fn lock_path(layout: &InroLayout) -> PathBuf { layout.inro_dir.join("inro.lock") }
 
 #[cfg(test)]
 mod tests {
@@ -68,24 +68,26 @@ mod tests {
     use super::*;
 
     fn test_layout(root: &std::path::Path) -> InroLayout {
+        let inro_dir = root.join("inro");
         InroLayout {
             home_dir: root.to_path_buf(),
-            config_path: root.join("config/inro/config.toml"),
-            manifest_path: root.join("data/inro/inro-manifest.json"),
-            pkgs_dir: root.join("data/inro/pkgs"),
-            upstream_registry_dir: root.join("data/inro/sources.list.d"),
-            local_registry_dir: root.join("config/inro/sources.list.d"),
+            config_path: inro_dir.join("config.toml"),
+            manifest_path: inro_dir.join("manifest.json"),
+            pkgs_dir: inro_dir.join("pkgs"),
+            managed_registry_dir: inro_dir.join("registry"),
+            user_registry_dir: inro_dir.join("sources.list.d"),
+            inro_dir,
         }
     }
 
     #[test]
-    fn acquire_creates_lock_file_under_manifest_dir() {
+    fn acquire_creates_lock_file_under_inro_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let layout = test_layout(tmp.path());
 
         let _guard = acquire(&layout).unwrap();
 
-        let expected = layout.manifest_path.with_file_name("inro.lock");
+        let expected = layout.inro_dir.join("inro.lock");
         assert!(expected.exists(), "lock file should be created at {}", expected.display());
     }
 

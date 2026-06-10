@@ -25,14 +25,14 @@ impl CommandHandler for SourceCommand {
         };
         let config = Config::load(&layout)?;
         let upstreams = &config.upstreams;
-        let upstream_registry_dir = &layout.upstream_registry_dir;
-        let local_registry_dir = &layout.local_registry_dir;
+        let managed_registry_dir = &layout.managed_registry_dir;
+        let user_registry_dir = &layout.user_registry_dir;
 
         match &self.command {
             SourceSubCommand::List { check_remote } => {
-                // Collect local registry files
-                let local_files = if local_registry_dir.exists() {
-                    fs::read_dir(local_registry_dir)?
+                // Collect user-written registry files
+                let user_files = if user_registry_dir.exists() {
+                    fs::read_dir(user_registry_dir)?
                         .filter_map(|entry| entry.ok())
                         .filter(|entry| {
                             entry.path().extension().and_then(|s| s.to_str()) == Some("toml")
@@ -45,7 +45,7 @@ impl CommandHandler for SourceCommand {
                     vec![]
                 };
 
-                if upstreams.is_empty() && local_files.is_empty() {
+                if upstreams.is_empty() && user_files.is_empty() {
                     println!("No sources configured");
                     return Ok(());
                 }
@@ -64,7 +64,7 @@ impl CommandHandler for SourceCommand {
 
                 for upstream in upstreams {
                     let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
-                    let cached_path = upstream_registry_dir.join(&cached_name);
+                    let cached_path = managed_registry_dir.join(&cached_name);
 
                     let (enabled_plain, enabled_display) =
                         if upstream.enabled { ("Yes", "Yes".green()) } else { ("No", "No".red()) };
@@ -113,9 +113,9 @@ impl CommandHandler for SourceCommand {
                     });
                 }
 
-                for local_file in local_files {
-                    let local_path = local_registry_dir.join(format!("{}.toml", local_file));
-                    let metadata = fs::metadata(&local_path)?;
+                for user_file in user_files {
+                    let user_path = user_registry_dir.join(format!("{}.toml", user_file));
+                    let metadata = fs::metadata(&user_path)?;
                     let modified = metadata.modified()?;
                     let datetime: DateTime<Local> = modified.into();
                     let human_time = HumanTime::from(datetime);
@@ -124,12 +124,12 @@ impl CommandHandler for SourceCommand {
 
                     rows.push(Row {
                         type_str: "Local",
-                        name: local_file,
+                        name: user_file,
                         enabled_plain: "Always",
                         enabled_display: "Always".cyan(),
                         last_update_plain: time_str,
                         last_update_display,
-                        url_path: local_path.display().to_string(),
+                        url_path: user_path.display().to_string(),
                     });
                 }
 
@@ -203,7 +203,7 @@ impl CommandHandler for SourceCommand {
 
                 hint!("Updating {} upstream sources...", upstreams.len());
 
-                fs::create_dir_all(upstream_registry_dir)?;
+                fs::create_dir_all(managed_registry_dir)?;
 
                 for upstream in upstreams {
                     if !upstream.enabled {
@@ -211,11 +211,11 @@ impl CommandHandler for SourceCommand {
                         continue;
                     }
 
-                    match download_file(&upstream.url, upstream_registry_dir) {
+                    match download_file(&upstream.url, managed_registry_dir) {
                         Ok(raw_path) => {
                             let cached_name =
                                 format!("{:02}-{}.toml", upstream.priority, upstream.name);
-                            let cached_path = upstream_registry_dir.join(&cached_name);
+                            let cached_path = managed_registry_dir.join(&cached_name);
 
                             if let Err(e) = fs::rename(&raw_path, cached_path) {
                                 fail!(

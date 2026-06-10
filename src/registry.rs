@@ -32,15 +32,16 @@ impl Registry {
         let config = Config::load(layout)?;
         let mut figment = Figment::new();
 
-        // load upstream registry - sorted by priority, only enabled sources
-        let upstream_registry_dir = &layout.upstream_registry_dir;
+        // Managed registry: upstream-cached sources (priority-name.toml) filtered by
+        // config.upstreams.enabled, then auto.toml (always loaded if present).
+        let managed_registry_dir = &layout.managed_registry_dir;
         let enabled_names: HashSet<String> = config
             .upstreams
             .iter()
             .filter(|u| u.enabled)
             .map(|u| format!("{:02}-{}.toml", u.priority, u.name))
             .collect();
-        let mut upstream_files = collect_toml_files(upstream_registry_dir)?;
+        let mut upstream_files = collect_toml_files(managed_registry_dir)?;
         upstream_files.retain(|p| {
             p.file_name()
                 .and_then(|n| n.to_str())
@@ -50,10 +51,14 @@ impl Registry {
         for file_path in upstream_files {
             figment = figment.merge(Toml::file(file_path));
         }
+        let auto_path = managed_registry_dir.join("auto.toml");
+        if auto_path.exists() {
+            figment = figment.merge(Toml::file(auto_path));
+        }
 
-        // load local registry
-        let local_registry_dir = &layout.local_registry_dir;
-        let files = collect_toml_files(local_registry_dir)?;
+        // User registry: hand-written overrides (highest precedence).
+        let user_registry_dir = &layout.user_registry_dir;
+        let files = collect_toml_files(user_registry_dir)?;
         for file_path in files {
             figment = figment.merge(Toml::file(file_path));
         }
@@ -66,11 +71,11 @@ impl Registry {
         Ok(registry)
     }
 
-    /// Write asset selections back to the local registry file.
+    /// Write auto-detected asset selections to the managed registry.
     ///
-    /// Creates or updates `local.toml` in `local_registry_dir`, setting
+    /// Creates or updates `auto.toml` in `managed_registry_dir`, setting
     /// `[pkg_name.remote.github.asset].<platform_key> = selector` for each
-    /// entry.
+    /// entry. User-written files under `user_registry_dir` keep precedence.
     pub fn write_asset_selections(
         layout: &InroLayout,
         selections: &[AssetSelectionWriteBack],
@@ -79,7 +84,7 @@ impl Registry {
             return Ok(());
         }
 
-        let file_path = layout.local_registry_dir.join("local.toml");
+        let file_path = layout.managed_registry_dir.join("auto.toml");
         let content =
             if file_path.exists() { fs::read_to_string(&file_path)? } else { String::new() };
         let mut doc: DocumentMut =
@@ -104,12 +109,12 @@ impl Registry {
             asset_table.insert(&sel.platform_key, value);
         }
 
-        fs::create_dir_all(&layout.local_registry_dir)?;
+        fs::create_dir_all(&layout.managed_registry_dir)?;
         let temp_path = file_path.with_extension("tmp");
         fs::write(&temp_path, doc.to_string())?;
         // Atomic replace: `fs::rename` overwrites an existing file on Linux,
-        // macOS, and modern Windows, so the local registry never appears to
-        // be missing or partially written from another process's view.
+        // macOS, and modern Windows, so the registry never appears to be
+        // missing or partially written from another process's view.
         fs::rename(&temp_path, &file_path)?;
 
         Ok(())
@@ -155,13 +160,15 @@ mod tests {
     use crate::remotes::RemoteType;
 
     fn test_layout(root: &Path) -> InroLayout {
+        let inro_dir = root.join("inro");
         InroLayout {
             home_dir: root.join("home"),
-            config_path: root.join("config/inro/config.toml"),
-            manifest_path: root.join("data/inro/inro-manifest.json"),
-            pkgs_dir: root.join("data/inro/pkgs"),
-            upstream_registry_dir: root.join("data/inro/sources.list.d"),
-            local_registry_dir: root.join("config/inro/sources.list.d"),
+            config_path: inro_dir.join("config.toml"),
+            manifest_path: inro_dir.join("manifest.json"),
+            pkgs_dir: inro_dir.join("pkgs"),
+            managed_registry_dir: inro_dir.join("registry"),
+            user_registry_dir: inro_dir.join("sources.list.d"),
+            inro_dir,
         }
     }
 
@@ -169,10 +176,10 @@ mod tests {
     fn write_asset_selection_merges_with_upstream_package_definition() {
         let temp_dir = tempfile::tempdir().unwrap();
         let layout = test_layout(temp_dir.path());
-        fs::create_dir_all(&layout.upstream_registry_dir).unwrap();
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
 
         fs::write(
-            layout.upstream_registry_dir.join("00-default.toml"),
+            layout.managed_registry_dir.join("00-default.toml"),
             r#"
 [tool]
 [tool.remote.github]
@@ -228,16 +235,17 @@ link = "tool"
         )
         .unwrap();
 
-        let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
+        let auto_toml =
+            fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
 
-        assert!(local_toml.contains("[codex.remote.github.asset]"));
+        assert!(auto_toml.contains("[codex.remote.github.asset]"));
         assert!(
-            local_toml
+            auto_toml
                 .contains(&format!(r#"{platform_key} = "codex-*-aarch64-apple-darwin.tar.gz""#))
         );
-        assert!(!local_toml.contains("[codex]\n\n"));
-        assert!(!local_toml.contains("[codex.remote]\n\n"));
-        assert!(!local_toml.contains("[codex.remote.github]\n\n"));
+        assert!(!auto_toml.contains("[codex]\n\n"));
+        assert!(!auto_toml.contains("[codex.remote]\n\n"));
+        assert!(!auto_toml.contains("[codex.remote.github]\n\n"));
     }
 
     #[test]
@@ -265,9 +273,10 @@ link = "tool"
         )
         .unwrap();
 
-        let local_toml = fs::read_to_string(layout.local_registry_dir.join("local.toml")).unwrap();
-        assert!(local_toml.contains(&format!(r#"{platform_key} = "new.tar.gz""#)));
-        assert!(!local_toml.contains("old.tar.gz"));
+        let auto_toml =
+            fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
+        assert!(auto_toml.contains(&format!(r#"{platform_key} = "new.tar.gz""#)));
+        assert!(!auto_toml.contains("old.tar.gz"));
     }
 
     #[test]
@@ -289,10 +298,10 @@ link = "tool"
             )
             .unwrap();
 
-            let local_toml_exists = layout.local_registry_dir.join("local.toml").exists();
-            let temp_left_behind = layout.local_registry_dir.join("local.tmp").exists();
-            assert!(local_toml_exists, "local.toml should always exist after a successful write");
-            assert!(!temp_left_behind, "local.tmp must be renamed in one step, not left behind");
+            let auto_toml_exists = layout.managed_registry_dir.join("auto.toml").exists();
+            let temp_left_behind = layout.managed_registry_dir.join("auto.tmp").exists();
+            assert!(auto_toml_exists, "auto.toml should always exist after a successful write");
+            assert!(!temp_left_behind, "auto.tmp must be renamed in one step, not left behind");
         }
     }
 
@@ -300,9 +309,9 @@ link = "tool"
     fn write_asset_selection_parse_error_includes_path() {
         let temp_dir = tempfile::tempdir().unwrap();
         let layout = test_layout(temp_dir.path());
-        fs::create_dir_all(&layout.local_registry_dir).unwrap();
-        let local_path = layout.local_registry_dir.join("local.toml");
-        fs::write(&local_path, "not valid toml =").unwrap();
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        let auto_path = layout.managed_registry_dir.join("auto.toml");
+        fs::write(&auto_path, "not valid toml =").unwrap();
 
         let error = Registry::write_asset_selections(
             &layout,
@@ -314,6 +323,86 @@ link = "tool"
         )
         .unwrap_err();
 
-        assert!(error.to_string().contains(&local_path.display().to_string()));
+        assert!(error.to_string().contains(&auto_path.display().to_string()));
+    }
+
+    #[test]
+    fn load_picks_up_auto_toml_alongside_upstream_files() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+
+        fs::write(
+            layout.managed_registry_dir.join("00-default.toml"),
+            r#"
+[tool]
+[tool.remote.github]
+repo = "owner/tool"
+[[tool.bin]]
+name = "tool"
+"#,
+        )
+        .unwrap();
+
+        let platform_key = PlatformInfo::current().key();
+        fs::write(
+            layout.managed_registry_dir.join("auto.toml"),
+            format!(
+                "[tool.remote.github.asset]\n{platform_key} = \"tool-from-auto.tar.gz\"\n"
+            ),
+        )
+        .unwrap();
+
+        let registry = Registry::load(&layout).unwrap();
+        let pkg = registry.pkgs.get("tool").unwrap();
+        let RemoteType::GitHub(github) = &pkg.remote;
+        assert_eq!(
+            github.asset.get(&platform_key),
+            Some(&AssetSelector::Glob("tool-from-auto.tar.gz".to_string()))
+        );
+    }
+
+    #[test]
+    fn user_registry_overrides_auto_toml() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        fs::create_dir_all(&layout.user_registry_dir).unwrap();
+
+        fs::write(
+            layout.managed_registry_dir.join("00-default.toml"),
+            r#"
+[tool]
+[tool.remote.github]
+repo = "owner/tool"
+[[tool.bin]]
+name = "tool"
+"#,
+        )
+        .unwrap();
+
+        let platform_key = PlatformInfo::current().key();
+        fs::write(
+            layout.managed_registry_dir.join("auto.toml"),
+            format!(
+                "[tool.remote.github.asset]\n{platform_key} = \"from-auto.tar.gz\"\n"
+            ),
+        )
+        .unwrap();
+        fs::write(
+            layout.user_registry_dir.join("override.toml"),
+            format!(
+                "[tool.remote.github.asset]\n{platform_key} = \"from-user.tar.gz\"\n"
+            ),
+        )
+        .unwrap();
+
+        let registry = Registry::load(&layout).unwrap();
+        let pkg = registry.pkgs.get("tool").unwrap();
+        let RemoteType::GitHub(github) = &pkg.remote;
+        assert_eq!(
+            github.asset.get(&platform_key),
+            Some(&AssetSelector::Glob("from-user.tar.gz".to_string()))
+        );
     }
 }

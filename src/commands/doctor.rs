@@ -47,7 +47,7 @@ impl CommandHandler for DoctorCommand {
 
         // ── 2. Source (registry) files ────────────────────────────────────
         step!("Checking source files");
-        let source_dirs = [&layout.upstream_registry_dir, &layout.local_registry_dir];
+        let source_dirs = [&layout.managed_registry_dir, &layout.user_registry_dir];
         let mut any_source = false;
         for dir in source_dirs {
             if !dir.exists() {
