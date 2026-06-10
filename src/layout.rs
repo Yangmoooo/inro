@@ -4,13 +4,14 @@ use anyhow::{Result, anyhow};
 
 #[derive(Debug, Clone)]
 pub struct InroLayout {
-    pub home_dir: PathBuf,              // user home (tilde expansion only)
-    pub inro_dir: PathBuf,              // $INRO_HOME, default ~/.inro
-    pub config_path: PathBuf,           // inro_dir/config.toml
-    pub manifest_path: PathBuf,         // inro_dir/manifest.json
-    pub pkgs_dir: PathBuf,              // inro_dir/pkgs
-    pub managed_registry_dir: PathBuf,  // inro_dir/registry  (inro-maintained: upstream cache + auto.toml)
-    pub user_registry_dir: PathBuf,     // inro_dir/sources.list.d (hand-written overrides)
+    pub home_dir: PathBuf,             // user home (tilde expansion only)
+    pub inro_dir: PathBuf,             // $INRO_HOME, default ~/.inro
+    pub config_path: PathBuf,          // inro_dir/config.toml
+    pub manifest_path: PathBuf,        // inro_dir/manifest.json
+    pub pkgs_dir: PathBuf,             // inro_dir/pkgs
+    pub managed_registry_dir: PathBuf, /* inro_dir/registry  (inro-maintained: upstream cache +
+                                        * auto.toml) */
+    pub user_registry_dir: PathBuf, // inro_dir/sources.list.d (hand-written overrides)
 }
 
 impl InroLayout {

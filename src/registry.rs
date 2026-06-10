@@ -235,8 +235,7 @@ link = "tool"
         )
         .unwrap();
 
-        let auto_toml =
-            fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
+        let auto_toml = fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
 
         assert!(auto_toml.contains("[codex.remote.github.asset]"));
         assert!(
@@ -273,8 +272,7 @@ link = "tool"
         )
         .unwrap();
 
-        let auto_toml =
-            fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
+        let auto_toml = fs::read_to_string(layout.managed_registry_dir.join("auto.toml")).unwrap();
         assert!(auto_toml.contains(&format!(r#"{platform_key} = "new.tar.gz""#)));
         assert!(!auto_toml.contains("old.tar.gz"));
     }
@@ -347,9 +345,7 @@ name = "tool"
         let platform_key = PlatformInfo::current().key();
         fs::write(
             layout.managed_registry_dir.join("auto.toml"),
-            format!(
-                "[tool.remote.github.asset]\n{platform_key} = \"tool-from-auto.tar.gz\"\n"
-            ),
+            format!("[tool.remote.github.asset]\n{platform_key} = \"tool-from-auto.tar.gz\"\n"),
         )
         .unwrap();
 
@@ -384,16 +380,12 @@ name = "tool"
         let platform_key = PlatformInfo::current().key();
         fs::write(
             layout.managed_registry_dir.join("auto.toml"),
-            format!(
-                "[tool.remote.github.asset]\n{platform_key} = \"from-auto.tar.gz\"\n"
-            ),
+            format!("[tool.remote.github.asset]\n{platform_key} = \"from-auto.tar.gz\"\n"),
         )
         .unwrap();
         fs::write(
             layout.user_registry_dir.join("override.toml"),
-            format!(
-                "[tool.remote.github.asset]\n{platform_key} = \"from-user.tar.gz\"\n"
-            ),
+            format!("[tool.remote.github.asset]\n{platform_key} = \"from-user.tar.gz\"\n"),
         )
         .unwrap();
 
