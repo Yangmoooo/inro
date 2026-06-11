@@ -77,6 +77,10 @@ $INRO_HOME/                      (default: ~/.inro/)
 
 Anything under `sources.list.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Inro never writes there itself.
 
+> Upgrading from 0.6.x? Your old installations under `~/.local/share/inro/` and `~/.config/inro/` (or `~/Library/Application Support/inro/` on macOS) are no longer read. See [CHANGELOG][changelog] for the cleanup-and-reinstall path.
+
+[changelog]: CHANGELOG.md
+
 ### Asset Selectors
 
 GitHub packages can define platform-specific asset selectors when automatic asset discovery is ambiguous.
