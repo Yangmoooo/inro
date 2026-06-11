@@ -791,6 +791,7 @@ link = "simple-link"
 
     // ==================== PkgReceipt::relink() / unlink() ====================
 
+    #[cfg(unix)]
     fn make_receipt(install_subdir: &str, bin_name: &str) -> PkgReceipt {
         PkgReceipt {
             name: "tool".to_string(),
