@@ -26,24 +26,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Upgrading from 0.6.x
 
-Inro 0.7.0 reads only `$INRO_HOME` (default `~/.inro/`) and only accepts manifest schema v2. The old locations and the v1 manifest are not read. The simplest path is to clean up the old install and reinstall:
+Inro 0.7.0 reads only `$INRO_HOME` (default `~/.inro/`) and only accepts manifest schema v2. The old locations and the v1 manifest are not read.
+
+**Replace the `inro` binary itself first.** A 0.6.x `inro` will write the wrong schema and refuse to manage symlinks pointing into the new `~/.inro/` tree. Install 0.7.0 to a location *outside* your inro-managed `bin_dir`, so the cleanup step below doesn't delete the binary you just installed.
 
 ```sh
-# 1. Back up your package list (optional):
+# 1. Install inro 0.7.0 outside your inro bin_dir (default ~/.local/bin). Pick one:
+cargo install --git https://github.com/Yangmoooo/inro.git
+#   …puts it at ~/.cargo/bin/inro, separate from ~/.local/bin.
+# Or grab a release binary from https://github.com/Yangmoooo/inro/releases and
+# place it somewhere on $PATH that isn't your bin_dir, e.g. /usr/local/bin/inro.
+inro --version   # confirm it reports 0.7.0
+
+# 2. Back up your package list (the old manifest is still readable as JSON):
 jq -r '.packages | keys[]' ~/.local/share/inro/inro-manifest.json > /tmp/pkgs.txt
-# macOS: ~/Library/Application\ Support/inro/inro-manifest.json
+# macOS:    ~/Library/Application\ Support/inro/inro-manifest.json
+# Windows:  %LOCALAPPDATA%\inro\inro-manifest.json
 
-# 2. Remove old symlinks (read them from the old manifest):
-jq -r '.packages[].versions[].binaries[].link_path' ~/.local/share/inro/inro-manifest.json | xargs rm -f
-
-# 3. Reinstall under the new layout:
-inro install $(cat /tmp/pkgs.txt)
-
-# 4. Remove the old install directories:
+# 3. Remove the old symlinks and old install directories:
+jq -r '.packages[].versions[].binaries[].link_path' \
+    ~/.local/share/inro/inro-manifest.json | xargs rm -f
 rm -rf ~/.local/share/inro ~/.config/inro
-# macOS: rm -rf ~/Library/Application\ Support/inro
-# Windows: rmdir /s %APPDATA%\inro %LOCALAPPDATA%\inro
+# macOS:    rm -rf ~/Library/Application\ Support/inro
+# Windows:  rmdir /s %APPDATA%\inro %LOCALAPPDATA%\inro
 
+# 4. Reinstall packages under the new layout. If `inro` was in your old package
+#    list, it will self-manage back into your bin_dir; you can then delete the
+#    temporary copy from step 1.
+inro install $(cat /tmp/pkgs.txt)
 ```
 
 | OS | Old locations (no longer read) | New single root |
