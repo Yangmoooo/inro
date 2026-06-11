@@ -3,10 +3,12 @@ use std::fs::{self, File};
 use std::io::BufReader;
 use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::package::{PkgReceipt, PkgState};
+
+const CURRENT_SCHEMA_VERSION: u32 = 2;
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Manifest {
@@ -17,7 +19,7 @@ pub struct Manifest {
     pub pkgs: HashMap<String, PkgState>,
 }
 
-fn default_schema_version() -> u32 { 1 }
+fn default_schema_version() -> u32 { CURRENT_SCHEMA_VERSION }
 
 impl Default for Manifest {
     fn default() -> Self { Self { schema_version: default_schema_version(), pkgs: HashMap::new() } }
@@ -31,8 +33,18 @@ impl Manifest {
         let file = File::open(path)
             .with_context(|| format!("Failed to open manifest file: {}", path.display()))?;
         let reader = BufReader::new(file);
-        let manifest = serde_json::from_reader(reader)
+        let raw: serde_json::Value = serde_json::from_reader(reader)
             .with_context(|| format!("Failed to parse manifest JSON: {}", path.display()))?;
+        let schema = raw.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
+        if schema != CURRENT_SCHEMA_VERSION {
+            bail!(
+                "Unsupported manifest schema_version {schema} at {}. inro 0.7 introduced a \
+                 breaking layout change — see CHANGELOG for the cleanup-and-reinstall path.",
+                path.display()
+            );
+        }
+        let manifest: Manifest = serde_json::from_value(raw)
+            .with_context(|| format!("Failed to deserialize manifest: {}", path.display()))?;
         Ok(manifest)
     }
 
@@ -105,11 +117,10 @@ mod tests {
                 asset: HashMap::new(),
             }),
             installed_at: Utc::now(),
-            install_dir: PathBuf::from(format!("/tmp/pkgs/{name}/{version}")),
+            install_subdir: PathBuf::from(name).join(version),
             binaries: vec![InstalledBin {
                 name: name.to_string(),
-                bin_path: PathBuf::from(format!("/tmp/pkgs/{name}/{version}/{name}")),
-                link_path: PathBuf::from(format!("/tmp/bin/{name}")),
+                bin_subpath: PathBuf::from(name),
             }],
         }
     }
@@ -117,7 +128,7 @@ mod tests {
     #[test]
     fn manifest_default_values() {
         let manifest = Manifest::default();
-        assert_eq!(manifest.schema_version, 1);
+        assert_eq!(manifest.schema_version, CURRENT_SCHEMA_VERSION);
         assert!(manifest.pkgs.is_empty());
     }
 
@@ -214,5 +225,33 @@ mod tests {
         assert_eq!(parsed.pkgs.len(), manifest.pkgs.len());
         assert!(parsed.pkgs.contains_key("rg"));
         assert!(parsed.pkgs.contains_key("fd"));
+    }
+
+    #[test]
+    fn load_default_when_path_missing() {
+        let tmp = tempfile::tempdir().unwrap();
+        let m = Manifest::load(&tmp.path().join("absent.json")).unwrap();
+        assert_eq!(m.schema_version, CURRENT_SCHEMA_VERSION);
+        assert!(m.pkgs.is_empty());
+    }
+
+    #[test]
+    fn load_rejects_v1_schema_with_clear_error() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("old.json");
+        fs::write(&path, r#"{"schema_version":1,"packages":{}}"#).unwrap();
+        let err = Manifest::load(&path).unwrap_err();
+        let msg = format!("{err:#}");
+        assert!(msg.contains("Unsupported manifest schema_version 1"), "msg: {msg}");
+        assert!(msg.contains("CHANGELOG"), "msg: {msg}");
+    }
+
+    #[test]
+    fn load_accepts_v2_schema() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("new.json");
+        fs::write(&path, r#"{"schema_version":2,"packages":{}}"#).unwrap();
+        let m = Manifest::load(&path).unwrap();
+        assert_eq!(m.schema_version, 2);
     }
 }

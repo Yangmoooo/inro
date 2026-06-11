@@ -197,11 +197,11 @@ impl CommandHandler for UpdateCommand {
         for result in results {
             match result {
                 Some((receipt, write_back)) => {
-                    if let Err(e) = receipt.save_to_install_dir() {
+                    if let Err(e) = receipt.save_to_install_dir(&layout.pkgs_dir) {
                         warn!(
                             "Updated '{}' but failed to write receipt to {}: {e:#}",
                             receipt.name,
-                            receipt.install_dir.display()
+                            receipt.install_dir(&layout.pkgs_dir).display()
                         );
                     }
                     manifest.add(receipt);

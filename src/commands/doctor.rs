@@ -93,6 +93,7 @@ impl CommandHandler for DoctorCommand {
         // ── 4. Symlink & binary integrity ─────────────────────────────────
         step!("Checking installed package links");
         let manifest = Manifest::load(&layout.manifest_path);
+        let pkgs_dir = &layout.pkgs_dir;
         match &manifest {
             Err(e) => {
                 fail!("failed to load manifest: {e}");
@@ -103,17 +104,29 @@ impl CommandHandler for DoctorCommand {
             }
             Ok(m) => {
                 let mut link_issues = 0usize;
+                let cfg_bin_dir = config.as_ref().map(|c| c.bin_dir.as_path());
                 for (pkg_name, state) in &m.pkgs {
                     let is_current_fn = |ver: &str| state.current_version.as_deref() == Some(ver);
                     for (version, receipt) in &state.versions {
                         for bin in &receipt.binaries {
                             let label = format!("{pkg_name}@{version}/{}", bin.name);
+                            let bin_path = receipt.bin_path(bin, pkgs_dir);
+                            let link_path = cfg_bin_dir.map(|d| receipt.link_path(bin, d));
 
-                            // Link missing, only relevant for the active version
-                            let link_present = bin.link_path.exists() || bin.link_path.is_symlink();
+                            // Link checks require a known bin_dir
+                            let Some(link) = link_path.as_ref() else {
+                                if !bin_path.exists() {
+                                    fail!("{label}: binary gone ({})", bin_path.display());
+                                    failed += 1;
+                                    link_issues += 1;
+                                }
+                                continue;
+                            };
+
+                            let link_present = link.exists() || link.is_symlink();
                             if !link_present {
                                 if is_current_fn(version) {
-                                    warn!("{label}: link missing ({})", bin.link_path.display());
+                                    warn!("{label}: link missing ({})", link.display());
                                     warnings += 1;
                                     link_issues += 1;
                                 }
@@ -121,11 +134,11 @@ impl CommandHandler for DoctorCommand {
                             }
 
                             // Symlink exists but its target file has been deleted
-                            if bin.link_path.is_symlink() && !bin.link_path.exists() {
+                            if link.is_symlink() && !link.exists() {
                                 fail!(
                                     "{label}: broken symlink {} → {}",
-                                    bin.link_path.display(),
-                                    bin.bin_path.display()
+                                    link.display(),
+                                    bin_path.display()
                                 );
                                 failed += 1;
                                 link_issues += 1;
@@ -133,8 +146,8 @@ impl CommandHandler for DoctorCommand {
                             }
 
                             // The extracted binary file itself is gone
-                            if !bin.bin_path.exists() {
-                                fail!("{label}: binary gone ({})", bin.bin_path.display());
+                            if !bin_path.exists() {
+                                fail!("{label}: binary gone ({})", bin_path.display());
                                 failed += 1;
                                 link_issues += 1;
                             }
@@ -154,57 +167,50 @@ impl CommandHandler for DoctorCommand {
                 warn!("skipped (manifest failed to load)");
                 warnings += 1;
             }
-            Ok(mut m) => {
+            Ok(m) => {
                 let cfg_bin_dir = config.as_ref().map(|c| c.bin_dir.clone());
-                let cfg_canon = cfg_bin_dir
-                    .as_deref()
-                    .map(|d| fs::canonicalize(d).unwrap_or_else(|_| d.to_path_buf()));
                 let mut stale = 0usize;
                 let mut mismatches = 0usize;
                 let mut fixed = 0usize;
 
-                for (pkg_name, state) in m.pkgs.iter_mut() {
-                    let current = state.current_version.clone();
+                for (pkg_name, state) in &m.pkgs {
+                    let current = state.current_version.as_deref();
 
-                    for (version, receipt) in state.versions.iter_mut() {
+                    for (version, receipt) in &state.versions {
+                        let install_dir = receipt.install_dir(pkgs_dir);
                         // Stale entry, package directory no longer on disk
-                        if !receipt.install_dir.exists() {
+                        if !install_dir.exists() {
                             warn!(
                                 "{pkg_name}@{version}: install directory missing ({})",
-                                receipt.install_dir.display()
+                                install_dir.display()
                             );
                             warnings += 1;
                             stale += 1;
                         }
 
-                        // bin_dir mismatch, only check the currently active version
-                        if current.as_deref() == Some(version.as_str())
-                            && let (Some(bin_dir), Some(expected_canon)) =
-                                (&cfg_bin_dir, &cfg_canon)
+                        // Link integrity for the currently active version
+                        if current == Some(version.as_str())
+                            && let Some(bin_dir) = &cfg_bin_dir
                         {
-                            let has_mismatch = receipt.binaries.iter().any(|bin| {
-                                let lp = bin.link_path.parent().unwrap_or(Path::new(""));
-                                fs::canonicalize(lp).unwrap_or_else(|_| lp.to_path_buf())
-                                    != *expected_canon
+                            let needs_relink = receipt.binaries.iter().any(|bin| {
+                                let link = receipt.link_path(bin, bin_dir);
+                                let want = receipt.bin_path(bin, pkgs_dir);
+                                match fs::read_link(&link) {
+                                    Ok(target) => target != want,
+                                    Err(_) => true, // missing or not a symlink
+                                }
                             });
 
-                            if has_mismatch {
-                                let old_dir = receipt
-                                    .binaries
-                                    .first()
-                                    .and_then(|b| b.link_path.parent())
-                                    .map(|p| p.display().to_string())
-                                    .unwrap_or_default();
+                            if needs_relink {
                                 warn!(
-                                    "{pkg_name}: symlinks are in '{old_dir}' but bin_dir \
-                                         is '{}'",
+                                    "{pkg_name}: links under '{}' don't match installed binaries",
                                     bin_dir.display()
                                 );
                                 warnings += 1;
                                 mismatches += 1;
 
                                 if self.fix {
-                                    match receipt.relink(bin_dir, &layout.pkgs_dir) {
+                                    match receipt.relink(bin_dir, pkgs_dir) {
                                         Ok(()) => {
                                             done!("re-linked {pkg_name} → {}", bin_dir.display());
                                             fixed += 1;
@@ -226,10 +232,10 @@ impl CommandHandler for DoctorCommand {
                     warn!("{mismatches} mismatch(es) found — run 'inro doctor --fix' to repair");
                 }
 
-                // Persist manifest only if we actually fixed something
-                if fixed > 0 {
-                    m.save(&layout.manifest_path)?;
-                }
+                // doctor --fix re-links symlinks but does not mutate the receipt
+                // itself (paths are derived from the layout, not stored), so no
+                // manifest save is needed when fixed > 0.
+                let _ = fixed;
             }
         }
 

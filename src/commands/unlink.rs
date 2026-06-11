@@ -1,6 +1,7 @@
 use anyhow::Result;
 
 use super::CommandHandler;
+use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::{done, fail, step, warn};
@@ -13,12 +14,13 @@ impl CommandHandler for UnlinkCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
         let _lock = crate::lock::acquire(&layout)?;
+        let config = Config::load(&layout)?;
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         if let Some(receipt) = manifest.unlink_package(&self.name) {
             step!("Unlinking '{}' ({}) ...", self.name, receipt.version);
 
-            if let Err(e) = receipt.unlink(&layout.pkgs_dir) {
+            if let Err(e) = receipt.unlink(&config.bin_dir, &layout.pkgs_dir) {
                 warn!("Failed to remove symlinks: {e}");
             }
 

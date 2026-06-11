@@ -42,8 +42,11 @@ impl CommandHandler for UninstallCommand {
         let mut successes = Vec::new();
         let mut failures = Vec::new();
 
+        let pkgs_dir = &layout.pkgs_dir;
+        let bin_dir = &config.bin_dir;
+
         for name in &names {
-            match do_uninstall(name, self.all, &mut manifest, &config.bin_dir, &layout.pkgs_dir) {
+            match do_uninstall(name, self.all, &mut manifest, bin_dir, pkgs_dir) {
                 Ok(Some(receipt)) => successes.push(receipt),
                 Ok(None) => {
                     // package is not installed
@@ -138,7 +141,7 @@ fn do_uninstall(
 
         if let Some(receipts) = manifest.remove_package(name) {
             for receipt in receipts {
-                cleanup_files(&receipt)?;
+                cleanup_files(&receipt, bin_dir, pkgs_dir)?;
                 detail!("Removed version {}", receipt.version);
             }
             return Ok(Some(UninstallReceipt {
@@ -182,7 +185,7 @@ fn do_uninstall(
     // remove from manifest
     if let Some(receipt) = manifest.remove_version(name, &target_ver) {
         // remove files
-        cleanup_files(&receipt)?;
+        cleanup_files(&receipt, bin_dir, pkgs_dir)?;
 
         let fully_removed = !manifest.pkgs.contains_key(name);
 
@@ -199,7 +202,7 @@ fn do_uninstall(
                 hint!("Auto-switching to fallback version '{next_ver}'...");
 
                 // get receipt and relink
-                if let Some(new_receipt) = state.versions.get_mut(&next_ver) {
+                if let Some(new_receipt) = state.versions.get(&next_ver) {
                     if let Err(e) = new_receipt.relink(bin_dir, pkgs_dir) {
                         warn!("Failed to auto-switch symlinks: {e:?}");
                     } else {
@@ -215,43 +218,27 @@ fn do_uninstall(
     }
 }
 
-fn cleanup_files(receipt: &PkgReceipt) -> Result<()> {
-    // remove symbolic link
+fn cleanup_files(receipt: &PkgReceipt, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
+    // Remove symlinks via the receipt's owner-aware unlink. It only removes
+    // links still pointing inside pkgs_dir; anything the user replaced is
+    // left in place with a warning.
+    receipt.unlink(bin_dir, pkgs_dir)?;
     for bin in &receipt.binaries {
-        let link = &bin.link_path;
-
-        if link.is_symlink() {
-            match fs::read_link(link) {
-                Ok(target) => {
-                    // only remove if the symlink points to the expected target
-                    if target == bin.bin_path {
-                        fs::remove_file(link).with_context(|| {
-                            format!("Failed to remove symlink: {}", link.display())
-                        })?;
-                        detail!("Removed link: {}", link.display());
-                    } else {
-                        // symlink points to a different target, skip
-                    }
-                }
-                Err(e) => {
-                    warn!("Failed to read symlink {}: {}, skipping removal", link.display(), e);
-                }
-            }
-        } else if link.exists() {
-            // not a symlink but exists, skip
+        let link = receipt.link_path(bin, bin_dir);
+        if !link.exists() && !link.is_symlink() {
+            detail!("Removed link: {}", link.display());
         }
     }
 
-    // remove data install dir
-    if receipt.install_dir.exists() {
-        fs::remove_dir_all(&receipt.install_dir).with_context(|| {
-            format!("Failed to remove data dir: {}", receipt.install_dir.display())
-        })?;
-        detail!("Removed data: {}", receipt.install_dir.display());
+    let install_dir = receipt.install_dir(pkgs_dir);
+    if install_dir.exists() {
+        fs::remove_dir_all(&install_dir)
+            .with_context(|| format!("Failed to remove data dir: {}", install_dir.display()))?;
+        detail!("Removed data: {}", install_dir.display());
     }
 
-    // if package dir is empty, remove it
-    if let Some(parent) = receipt.install_dir.parent() {
+    // if the per-package parent dir is empty, remove it
+    if let Some(parent) = install_dir.parent() {
         let _ = fs::remove_dir(parent);
     }
 

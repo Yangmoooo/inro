@@ -179,8 +179,9 @@ pub async fn install_candidate(
     }
 
     let safe_version = sanitize_version(&candidate.version);
+    let install_subdir = PathBuf::from(name).join(&safe_version);
     let pkg_dir = layout.pkgs_dir.join(name);
-    let final_install_dir = pkg_dir.join(&safe_version);
+    let final_install_dir = layout.pkgs_dir.join(&install_subdir);
     fs::create_dir_all(&pkg_dir).map_err(PkgError::Io)?;
 
     // Stage all work in a sibling directory on the same filesystem. Any
@@ -205,13 +206,19 @@ pub async fn install_candidate(
     progress.set_phase(OpPhase::Extracting);
     unpack_and_process(&downloaded_file, staging_dir.path(), pkg)?;
 
-    let staged_binaries: Vec<InstalledBin> = pkg
+    // Capture each binary's subpath relative to the staging tree so the
+    // receipt stays portable across $INRO_HOME changes.
+    let binaries: Vec<InstalledBin> = pkg
         .bin
         .iter()
         .map(|b| {
-            let bin_path = find_binary_in_dir(staging_dir.path(), &b.name)
+            let staged_bin = find_binary_in_dir(staging_dir.path(), &b.name)
                 .ok_or_else(|| PkgError::BinaryNotFoundInArchive(b.name.clone()))?;
-            Ok(InstalledBin { name: b.link.clone(), bin_path, link_path: PathBuf::new() })
+            let bin_subpath = staged_bin
+                .strip_prefix(staging_dir.path())
+                .map(PathBuf::from)
+                .unwrap_or_else(|_| PathBuf::from(&b.name));
+            Ok(InstalledBin { name: b.link.clone(), bin_subpath })
         })
         .collect::<Result<_, PkgError>>()?;
 
@@ -231,25 +238,12 @@ pub async fn install_candidate(
         let _ = fs::remove_dir_all(&backup_path);
     }
 
-    // Re-anchor the binary paths from the staging tree to the final location.
-    let binaries: Vec<InstalledBin> = staged_binaries
-        .into_iter()
-        .map(|bin| InstalledBin {
-            bin_path: bin
-                .bin_path
-                .strip_prefix(&staging_path)
-                .map(|rel| final_install_dir.join(rel))
-                .unwrap_or(bin.bin_path),
-            ..bin
-        })
-        .collect();
-
-    let mut receipt = PkgReceipt {
+    let receipt = PkgReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
         remote: pkg.remote.clone(),
         installed_at: Utc::now(),
-        install_dir: final_install_dir,
+        install_subdir,
         binaries,
     };
     receipt.relink(&config.bin_dir, &layout.pkgs_dir)?;

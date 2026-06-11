@@ -166,6 +166,10 @@ impl PkgState {
 }
 
 /// Receipt information for an installed package version.
+///
+/// Paths are stored as portable subpaths and resolved against the current
+/// `pkgs_dir` / `bin_dir` at runtime, so the manifest survives layout
+/// changes (e.g. relocating `$INRO_HOME`).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PkgReceipt {
     /// Package name, e.g. 'ripgrep'.
@@ -180,17 +184,30 @@ pub struct PkgReceipt {
     /// Installation time.
     pub installed_at: DateTime<Utc>,
 
-    /// Installation directory, actually where the binary is extracted to.
-    pub install_dir: PathBuf,
+    /// Install subdirectory under `pkgs_dir`, e.g. "ripgrep/15.0.0".
+    pub install_subdir: PathBuf,
 
     /// Binaries installed details.
     pub binaries: Vec<InstalledBin>,
 }
 
 impl PkgReceipt {
+    /// Absolute install directory under the given `pkgs_dir`.
+    pub fn install_dir(&self, pkgs_dir: &Path) -> PathBuf { pkgs_dir.join(&self.install_subdir) }
+
+    /// Absolute path to a binary on disk.
+    pub fn bin_path(&self, bin: &InstalledBin, pkgs_dir: &Path) -> PathBuf {
+        self.install_dir(pkgs_dir).join(&bin.bin_subpath)
+    }
+
+    /// Absolute symlink path for a binary under the given `bin_dir`.
+    pub fn link_path(&self, bin: &InstalledBin, bin_dir: &Path) -> PathBuf {
+        bin_dir.join(&bin.name)
+    }
+
     /// Save the receipt to the installation directory.
-    pub fn save_to_install_dir(&self) -> Result<()> {
-        let receipt_path = self.install_dir.join("inro-receipt.json");
+    pub fn save_to_install_dir(&self, pkgs_dir: &Path) -> Result<()> {
+        let receipt_path = self.install_dir(pkgs_dir).join("inro-receipt.json");
         let receipt_file = File::create(&receipt_path).with_context(|| {
             format!("Failed to create receipt backup: {}", receipt_path.display())
         })?;
@@ -198,61 +215,36 @@ impl PkgReceipt {
         Ok(())
     }
 
-    /// Relink the binaries to the target directory.
-    ///
-    /// `owned_root` is the path inro considers its own (typically the
-    /// layout's `pkgs_dir`). It is forwarded to `create_symlink` so a
-    /// pre-existing foreign file at the link path is not silently replaced.
-    pub fn relink(&mut self, target_dir: &Path, owned_root: &Path) -> Result<()> {
-        fs::create_dir_all(target_dir)
-            .with_context(|| format!("Failed to create bin dir: {}", target_dir.display()))?;
+    /// Link the binaries into `bin_dir`. Overwrites only links inro itself
+    /// already manages (i.e. pointing inside `pkgs_dir`); foreign files are
+    /// refused by the underlying `create_symlink`.
+    pub fn relink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
+        fs::create_dir_all(bin_dir)
+            .with_context(|| format!("Failed to create bin dir: {}", bin_dir.display()))?;
 
-        for bin in &mut self.binaries {
-            // Clean up the previous link path when `bin_dir` has been changed
-            // since the last install. Only touch links inro itself created;
-            // anything the user replaced by hand is left alone.
-            if let Some(parent) = bin.link_path.parent()
-                && parent != target_dir
-                && (bin.link_path.exists() || bin.link_path.is_symlink())
-            {
-                if is_inro_managed_symlink(&bin.link_path, owned_root) {
-                    let _ = fs::remove_file(&bin.link_path);
-                } else {
-                    warn!(
-                        "Leaving stale link '{}' in place: it is not a symlink managed by inro",
-                        bin.link_path.display()
-                    );
-                }
-            }
-
-            // Create new and update
-            let target = target_dir.join(&bin.name);
-            create_symlink(&bin.bin_path, &target, owned_root)?;
-            bin.link_path = target;
+        for bin in &self.binaries {
+            let target = self.link_path(bin, bin_dir);
+            let original = self.bin_path(bin, pkgs_dir);
+            create_symlink(&original, &target, pkgs_dir)?;
         }
         Ok(())
     }
 
-    /// Unlink the binaries from the target directory.
-    ///
-    /// Only entries that are still symlinks pointing inside `owned_root`
-    /// (typically the layout's `pkgs_dir`) are removed. If the user has
-    /// replaced inro's symlink with a regular file or pointed it elsewhere,
-    /// inro leaves it alone and warns instead of clobbering the user's data.
-    pub fn unlink(&self, owned_root: &Path) -> Result<()> {
+    /// Remove the binaries' symlinks from `bin_dir`. Only entries that are
+    /// still inro-managed symlinks (pointing inside `pkgs_dir`) are removed;
+    /// anything the user replaced by hand is left alone.
+    pub fn unlink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
         for bin in &self.binaries {
-            if !bin.link_path.exists() && !bin.link_path.is_symlink() {
+            let link = self.link_path(bin, bin_dir);
+            if !link.exists() && !link.is_symlink() {
                 continue;
             }
-            if !is_inro_managed_symlink(&bin.link_path, owned_root) {
-                warn!(
-                    "Skipping '{}': it is not a symlink managed by inro",
-                    bin.link_path.display()
-                );
+            if !is_inro_managed_symlink(&link, pkgs_dir) {
+                warn!("Skipping '{}': it is not a symlink managed by inro", link.display());
                 continue;
             }
-            fs::remove_file(&bin.link_path)
-                .with_context(|| format!("Failed to remove link: {}", bin.link_path.display()))?;
+            fs::remove_file(&link)
+                .with_context(|| format!("Failed to remove link: {}", link.display()))?;
         }
         Ok(())
     }
@@ -261,14 +253,11 @@ impl PkgReceipt {
 /// Information about an installed binary.
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct InstalledBin {
-    /// Binary file name, e.g. 'rg' or 'rg.exe'
+    /// Final link name, e.g. 'rg' or 'rg.exe'.
     pub name: String,
 
-    /// Binary file path, e.g. '.../packages/ripgrep/13.0.0/rg'
-    pub bin_path: PathBuf,
-
-    /// Binary symlink path, e.g. '~/.local/bin/rg'
-    pub link_path: PathBuf,
+    /// Binary subpath under `install_dir`, e.g. "rg" or "bin/rg".
+    pub bin_subpath: PathBuf,
 }
 
 #[derive(thiserror::Error, Debug)]
@@ -424,7 +413,7 @@ mod tests {
                 version: "1.0.0".to_string(),
                 remote: RemoteType::default(),
                 installed_at: Utc::now(),
-                install_dir: PathBuf::from("/tmp"),
+                install_subdir: PathBuf::from("test/1.0.0"),
                 binaries: vec![],
             },
         );
@@ -447,7 +436,7 @@ mod tests {
                 version: "1.0.0".to_string(),
                 remote: RemoteType::default(),
                 installed_at: now - Duration::hours(1),
-                install_dir: PathBuf::from("/tmp/1.0.0"),
+                install_subdir: PathBuf::from("test/1.0.0"),
                 binaries: vec![],
             },
         );
@@ -460,7 +449,7 @@ mod tests {
                 version: "2.0.0".to_string(),
                 remote: RemoteType::default(),
                 installed_at: now,
-                install_dir: PathBuf::from("/tmp/2.0.0"),
+                install_subdir: PathBuf::from("test/2.0.0"),
                 binaries: vec![],
             },
         );
@@ -800,7 +789,24 @@ link = "simple-link"
         }
     }
 
-    // ==================== PkgReceipt::relink() ====================
+    // ==================== PkgReceipt::relink() / unlink() ====================
+
+    fn make_receipt(install_subdir: &str, bin_name: &str) -> PkgReceipt {
+        PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_subdir: PathBuf::from(install_subdir),
+            binaries: vec![InstalledBin {
+                name: bin_name.to_string(),
+                bin_subpath: PathBuf::from(bin_name),
+            }],
+        }
+    }
 
     #[cfg(unix)]
     #[test]
@@ -813,28 +819,13 @@ link = "simple-link"
         fs::write(&file_path, b"file content").unwrap();
         let unreachable_dir = file_path.join("bin");
 
-        let install_dir = tmp.path().join("pkg");
+        let pkgs_dir = tmp.path().join("pkgs");
+        let install_dir = pkgs_dir.join("tool/v1.0.0");
         fs::create_dir_all(&install_dir).unwrap();
-        let bin_path = install_dir.join("tool");
-        fs::write(&bin_path, b"\x7fELF").unwrap();
+        fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
-        let mut receipt = PkgReceipt {
-            name: "tool".to_string(),
-            version: "v1.0.0".to_string(),
-            remote: RemoteType::GitHub(GitHubAssetDef {
-                repo: "test/tool".to_string(),
-                asset: HashMap::new(),
-            }),
-            installed_at: Utc::now(),
-            install_dir: install_dir.clone(),
-            binaries: vec![InstalledBin {
-                name: "tool".to_string(),
-                bin_path,
-                link_path: PathBuf::new(),
-            }],
-        };
-
-        let err = receipt.relink(&unreachable_dir, tmp.path()).unwrap_err();
+        let receipt = make_receipt("tool/v1.0.0", "tool");
+        let err = receipt.relink(&unreachable_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Failed to create bin dir"), "unexpected error chain: {msg}");
     }
@@ -856,25 +847,9 @@ link = "simple-link"
         // inro's own binary lives under pkgs_dir.
         let install_dir = pkgs_dir.join("tool/v1.0.0");
         fs::create_dir_all(&install_dir).unwrap();
-        let bin_path = install_dir.join("tool");
-        fs::write(&bin_path, b"\x7fELF").unwrap();
+        fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
-        let mut receipt = PkgReceipt {
-            name: "tool".to_string(),
-            version: "v1.0.0".to_string(),
-            remote: RemoteType::GitHub(GitHubAssetDef {
-                repo: "test/tool".to_string(),
-                asset: HashMap::new(),
-            }),
-            installed_at: Utc::now(),
-            install_dir,
-            binaries: vec![InstalledBin {
-                name: "tool".to_string(),
-                bin_path,
-                link_path: PathBuf::new(),
-            }],
-        };
-
+        let receipt = make_receipt("tool/v1.0.0", "tool");
         let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Refusing to overwrite"), "unexpected error: {msg}");
@@ -905,22 +880,7 @@ link = "simple-link"
         let new_target = new_install.join("tool");
         fs::write(&new_target, b"\x7fELF new").unwrap();
 
-        let mut receipt = PkgReceipt {
-            name: "tool".to_string(),
-            version: "v1.0.0".to_string(),
-            remote: RemoteType::GitHub(GitHubAssetDef {
-                repo: "test/tool".to_string(),
-                asset: HashMap::new(),
-            }),
-            installed_at: Utc::now(),
-            install_dir: new_install,
-            binaries: vec![InstalledBin {
-                name: "tool".to_string(),
-                bin_path: new_target.clone(),
-                link_path: PathBuf::new(),
-            }],
-        };
-
+        let receipt = make_receipt("tool/v1.0.0", "tool");
         receipt.relink(&bin_dir, &pkgs_dir).unwrap();
 
         let resolved = std::fs::read_link(&link_path).unwrap();
@@ -947,48 +907,15 @@ link = "simple-link"
 
         let install_dir = pkgs_dir.join("tool/v1.0.0");
         fs::create_dir_all(&install_dir).unwrap();
-        let bin_path = install_dir.join("tool");
-        fs::write(&bin_path, b"\x7fELF").unwrap();
+        fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
-        let mut receipt = PkgReceipt {
-            name: "tool".to_string(),
-            version: "v1.0.0".to_string(),
-            remote: RemoteType::GitHub(GitHubAssetDef {
-                repo: "test/tool".to_string(),
-                asset: HashMap::new(),
-            }),
-            installed_at: Utc::now(),
-            install_dir,
-            binaries: vec![InstalledBin {
-                name: "tool".to_string(),
-                bin_path,
-                link_path: PathBuf::new(),
-            }],
-        };
-
+        let receipt = make_receipt("tool/v1.0.0", "tool");
         let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Refusing to replace"), "unexpected error: {msg}");
         // Original symlink must still be there.
         assert!(link_path.is_symlink());
         assert_eq!(std::fs::read_link(&link_path).unwrap(), foreign_target);
-    }
-
-    // ==================== PkgReceipt::unlink() ====================
-
-    #[cfg(unix)]
-    fn make_receipt_with_link(link_path: PathBuf, bin_path: PathBuf) -> PkgReceipt {
-        PkgReceipt {
-            name: "tool".to_string(),
-            version: "v1.0.0".to_string(),
-            remote: RemoteType::GitHub(GitHubAssetDef {
-                repo: "test/tool".to_string(),
-                asset: HashMap::new(),
-            }),
-            installed_at: Utc::now(),
-            install_dir: PathBuf::new(),
-            binaries: vec![InstalledBin { name: "tool".to_string(), bin_path, link_path }],
-        }
     }
 
     #[cfg(unix)]
@@ -1008,8 +935,8 @@ link = "simple-link"
         let link_path = bin_dir.join("tool");
         std::os::unix::fs::symlink(&bin_path, &link_path).unwrap();
 
-        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
-        receipt.unlink(&pkgs_dir).unwrap();
+        let receipt = make_receipt("tool/v1.0.0", "tool");
+        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
 
         assert!(!link_path.exists() && !link_path.is_symlink(), "managed symlink should be gone");
     }
@@ -1027,14 +954,9 @@ link = "simple-link"
         let link_path = bin_dir.join("tool");
         fs::write(&link_path, b"user's own binary").unwrap();
 
-        let install_dir = pkgs_dir.join("tool/v1.0.0");
-        fs::create_dir_all(&install_dir).unwrap();
-        let bin_path = install_dir.join("tool");
-        fs::write(&bin_path, b"\x7fELF").unwrap();
-
-        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
+        let receipt = make_receipt("tool/v1.0.0", "tool");
         // Must succeed (not fail), but must NOT delete the foreign file.
-        receipt.unlink(&pkgs_dir).unwrap();
+        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
 
         assert_eq!(fs::read(&link_path).unwrap(), b"user's own binary");
     }
@@ -1057,13 +979,8 @@ link = "simple-link"
         let link_path = bin_dir.join("tool");
         std::os::unix::fs::symlink(&foreign_target, &link_path).unwrap();
 
-        let install_dir = pkgs_dir.join("tool/v1.0.0");
-        fs::create_dir_all(&install_dir).unwrap();
-        let bin_path = install_dir.join("tool");
-        fs::write(&bin_path, b"\x7fELF").unwrap();
-
-        let receipt = make_receipt_with_link(link_path.clone(), bin_path);
-        receipt.unlink(&pkgs_dir).unwrap();
+        let receipt = make_receipt("tool/v1.0.0", "tool");
+        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
 
         // Foreign symlink must remain intact.
         assert!(link_path.is_symlink());
