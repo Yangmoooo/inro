@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
 
@@ -9,7 +8,7 @@ use super::CommandHandler;
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::package::PkgDef;
+use crate::registry::Registry;
 use crate::{done, fail, step, warn};
 
 pub struct DoctorCommand {
@@ -62,7 +61,11 @@ impl CommandHandler for DoctorCommand {
                     continue;
                 }
                 any_source = true;
-                match try_parse_registry_file(&path) {
+                // Syntax check only. Files like registry/auto.toml are
+                // partial overrides (e.g. asset selectors without a repo)
+                // and only become valid PkgDef entries after merging with
+                // upstream — schema validation happens in the next step.
+                match try_parse_toml_syntax(&path) {
                     Ok(()) => done!("{}", path.display()),
                     Err(e) => {
                         fail!("{}: {e}", path.display());
@@ -74,6 +77,17 @@ impl CommandHandler for DoctorCommand {
         if !any_source {
             warn!("no source files found — run 'inro source update' to fetch the registry");
             warnings += 1;
+        } else {
+            // Validate the merged registry as a whole. Individual files
+            // can be fragments; only the merged view has to satisfy the
+            // PkgDef schema.
+            match Registry::load(&layout) {
+                Ok(_) => done!("merged registry is valid"),
+                Err(e) => {
+                    fail!("merged registry failed to load: {e:#}");
+                    failed += 1;
+                }
+            }
         }
 
         // ── 3. bin_dir in PATH ────────────────────────────────────────────
@@ -259,11 +273,11 @@ fn is_in_path(dir: &Path) -> bool {
     std::env::split_paths(&paths).any(|p| fs::canonicalize(&p).unwrap_or(p) == target)
 }
 
-/// Attempt to deserialize a `.toml` registry file into the expected format.
-/// Returns an error if the file is syntactically invalid or contains
-/// entries that don't match the `PkgDef` schema.
-fn try_parse_registry_file(path: &Path) -> Result<()> {
+/// Verify the file is syntactically valid TOML. Schema validation
+/// happens against the merged registry, since individual files may be
+/// partial overrides (e.g. `auto.toml` only carries asset selectors).
+fn try_parse_toml_syntax(path: &Path) -> Result<()> {
     let content = fs::read_to_string(path)?;
-    let _: HashMap<String, PkgDef> = toml::from_str(&content)?;
+    let _: toml::Table = toml::from_str(&content)?;
     Ok(())
 }
