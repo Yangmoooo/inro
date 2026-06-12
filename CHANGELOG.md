@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Doctor on Partial Registry Overrides**: `inro doctor` no longer treats fragment files like `registry/auto.toml` as broken. The per-file check is now syntax-only; schema validity is verified once against the merged registry, matching how `install`/`update` actually read it.
+
 ## [0.7.0] - 2026-06-11
 
 **BREAKING CHANGE!** 0.7.0 reorganizes where inro keeps its files and rewrites the manifest schema. Old 0.6.x installations are not read — see migration notes below.
