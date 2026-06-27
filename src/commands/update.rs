@@ -97,7 +97,12 @@ impl CommandHandler for UpdateCommand {
                         async move {
                             let result = match registry.pkgs.get(&task.name) {
                                 Some(pkg_def) => {
-                                    find_candidates(pkg_def, task.pkg_ver.as_deref(), &task.progress).await
+                                    find_candidates(
+                                        pkg_def,
+                                        task.pkg_ver.as_deref(),
+                                        &task.progress,
+                                    )
+                                    .await
                                 }
                                 None => Err(PkgError::NotFound(task.name.clone())),
                             };
