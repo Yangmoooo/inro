@@ -42,7 +42,8 @@ impl CommandHandler for ShowCommand {
             print!("{}", "Installed".green());
             if let Some(curr) = &state.current_version {
                 if let Some(receipt) = state.versions.get(curr) {
-                    println!(" at {}", format_date(&receipt.installed_at));
+                    let pinned_indicator = if state.pinned { " [Pinned]" } else { "" };
+                    println!(" at {}{}", format_date(&receipt.installed_at), pinned_indicator);
                 }
             } else {
                 println!(" but no active version");

@@ -32,7 +32,7 @@ fn main() -> anyhow::Result<()> {
             Command::Install { names } => Box::new(InstallCommand { names }),
             Command::Uninstall { names, all } => Box::new(UninstallCommand { names, all }),
             Command::List => Box::new(ListCommand {}),
-            Command::Update { names } => Box::new(UpdateCommand { names }),
+            Command::Update { names, force } => Box::new(UpdateCommand { names, force }),
             Command::Source { command } => Box::new(SourceCommand { command }),
             Command::Search { query } => Box::new(SearchCommand { query }),
             Command::Pin { name } => Box::new(PinCommand { name }),

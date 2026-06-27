@@ -111,6 +111,10 @@ pub enum Command {
         /// packages.
         #[arg(num_args = 0.., value_name = "PKG")]
         names: Vec<String>,
+
+        /// Force update even if the package is pinned (pin state is preserved)
+        #[arg(short, long)]
+        force: bool,
     },
 
     /// Pin a package to prevent it from being auto-updated

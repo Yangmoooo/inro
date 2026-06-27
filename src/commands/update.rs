@@ -17,10 +17,12 @@ use crate::warn;
 
 pub struct UpdateCommand {
     pub names: Vec<String>,
+    pub force: bool,
 }
 
 struct UpdateTask {
     name: String,
+    pkg_ver: Option<String>,
     current_version: String,
     progress: PkgProgress,
 }
@@ -49,27 +51,21 @@ impl CommandHandler for UpdateCommand {
             .iter()
             .map(|n| {
                 let (pkg_name, pkg_ver) = parse_package_version(n);
-                if pkg_ver.is_some() {
-                    eprintln!(
-                        "{} Version specifier ignored for '{pkg_name}'",
-                        "warning:".yellow().bold()
-                    );
-                }
-                pkg_name.to_string()
+                (pkg_name.to_string(), pkg_ver.map(|s| s.to_string()))
             })
             .collect();
 
-        let pkg_names: Vec<&str> = parsed.iter().map(|s| s.as_str()).collect();
+        let pkg_names: Vec<&str> = parsed.iter().map(|(name, _)| name.as_str()).collect();
         let pm = ProgressManager::new(&pkg_names);
 
         // Create tasks for installed packages
         let mut tasks = Vec::new();
         let mut not_installed = 0usize;
 
-        for pkg_name in &parsed {
+        for (pkg_name, pkg_ver) in &parsed {
             match manifest.pkgs.get(pkg_name) {
                 Some(state) => {
-                    if state.pinned {
+                    if state.pinned && !self.force {
                         pm.add_package(pkg_name).finish_error("pinned, skipping");
                         continue;
                     }
@@ -77,6 +73,7 @@ impl CommandHandler for UpdateCommand {
                     let progress = pm.add_package(pkg_name);
                     tasks.push(UpdateTask {
                         name: pkg_name.clone(),
+                        pkg_ver: pkg_ver.clone(),
                         current_version: current_ver.to_string(),
                         progress,
                     });
@@ -100,7 +97,7 @@ impl CommandHandler for UpdateCommand {
                         async move {
                             let result = match registry.pkgs.get(&task.name) {
                                 Some(pkg_def) => {
-                                    find_candidates(pkg_def, None, &task.progress).await
+                                    find_candidates(pkg_def, task.pkg_ver.as_deref(), &task.progress).await
                                 }
                                 None => Err(PkgError::NotFound(task.name.clone())),
                             };
@@ -122,8 +119,11 @@ impl CommandHandler for UpdateCommand {
                 Ok(candidate_result) => {
                     // All candidates come from the same release, so compare the release tag before
                     // prompting for an asset choice.
-                    if let Some(first) = candidate_result.candidates.first()
-                        && first.version == task.current_version
+                    let first_candidate_ver =
+                        candidate_result.candidates.first().map(|c| c.version.as_str());
+                    let target_ver = task.pkg_ver.as_deref().or(first_candidate_ver);
+                    if let Some(target) = target_ver
+                        && target == task.current_version
                     {
                         task.progress.finish_unchanged(&task.current_version);
                         up_to_date += 1;
