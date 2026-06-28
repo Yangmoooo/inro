@@ -232,7 +232,7 @@ impl CommandHandler for UpdateCommand {
         print_summary(updated, up_to_date, failed);
 
         if failed > 0 {
-            std::process::exit(1);
+            anyhow::bail!("{failed} package(s) failed to update");
         }
         Ok(())
     }

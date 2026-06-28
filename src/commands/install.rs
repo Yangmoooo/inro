@@ -200,7 +200,7 @@ impl CommandHandler for InstallCommand {
         print_summary(success_count, fail_count);
 
         if fail_count > 0 {
-            std::process::exit(1);
+            anyhow::bail!("{fail_count} package(s) failed to install");
         }
         Ok(())
     }

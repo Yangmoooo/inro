@@ -4,7 +4,7 @@ use super::CommandHandler;
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::{done, fail, step, warn};
+use crate::{done, step, warn};
 
 pub struct UnlinkCommand {
     pub name: String,
@@ -32,8 +32,7 @@ impl CommandHandler for UnlinkCommand {
                 warn!("Package '{}' is already unlinked (no active version)", self.name);
             }
         } else {
-            fail!("Package '{}' is not installed", self.name);
-            std::process::exit(1);
+            anyhow::bail!("Package '{}' is not installed", self.name);
         }
 
         Ok(())

@@ -114,7 +114,7 @@ impl CommandHandler for UninstallCommand {
         }
 
         if has_failure {
-            std::process::exit(1);
+            anyhow::bail!("some packages failed to uninstall");
         }
 
         Ok(())

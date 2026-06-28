@@ -3,7 +3,7 @@ use anyhow::Result;
 use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::{done, fail};
+use crate::done;
 
 pub struct PinCommand {
     pub name: String,
@@ -26,8 +26,7 @@ impl CommandHandler for PinCommand {
                 done!("Pinned '{}'. It will be skipped during updates", self.name);
             }
             None => {
-                fail!("Package '{}' is not installed", self.name);
-                std::process::exit(1);
+                anyhow::bail!("Package '{}' is not installed", self.name);
             }
         }
 
@@ -48,8 +47,7 @@ impl CommandHandler for UnpinCommand {
                 done!("Unpinned '{}'. It will be updated normally", self.name);
             }
             None => {
-                fail!("Package '{}' is not installed", self.name);
-                std::process::exit(1);
+                anyhow::bail!("Package '{}' is not installed", self.name);
             }
         }
 

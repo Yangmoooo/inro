@@ -53,7 +53,11 @@ impl CommandHandler for UseCommand {
                     .join(", ")
             );
 
-            std::process::exit(1);
+            anyhow::bail!(
+                "Version '{}' is not installed for package '{}'",
+                self.version,
+                self.name
+            );
         }
 
         Ok(())
