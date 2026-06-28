@@ -10,7 +10,7 @@ pub struct Cli {
     #[command(subcommand)]
     pub command: Option<Command>,
 
-    /// Enable verbose output. Use -v for details, -vv for debug logs
+    /// Enable verbose output. Use -v for details, -vv for debug tracing
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8, // can be used with any command as a counter. `-v` -> 1, `-vv` -> 2
 }

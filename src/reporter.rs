@@ -6,7 +6,8 @@
 //! - `fail!` - Error message
 //! - `warn!` - Warning message
 //! - `step!` - Current operation step
-//! - `detail!` - Verbose details (requires `-v`)
+//! - `detail!` - Verbose details (requires at least `-v`)
+//! - `debug!` - Debug tracing output (requires `-vv`)
 
 use std::io::{self, Write};
 
@@ -52,12 +53,22 @@ macro_rules! step {
     };
 }
 
-/// Verbose detail (only shown with `-v`).
+/// Verbose detail (shown with `-v` or higher).
 #[macro_export]
 macro_rules! detail {
     ($($arg:tt)*) => {
         if $crate::VERBOSITY.load(std::sync::atomic::Ordering::Relaxed) > 0 {
             $crate::reporter::print_detail(&format!($($arg)*))
+        }
+    };
+}
+
+/// Debug tracing output (only shown with `-vv`).
+#[macro_export]
+macro_rules! debug {
+    ($($arg:tt)*) => {
+        if $crate::VERBOSITY.load(std::sync::atomic::Ordering::Relaxed) >= 2 {
+            $crate::reporter::print_debug(&format!($($arg)*))
         }
     };
 }
@@ -84,6 +95,10 @@ pub fn print_skip(msg: &str) { print_with_prefix("=".dimmed(), msg); }
 
 #[doc(hidden)]
 pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
+
+#[doc(hidden)]
+#[allow(dead_code)]
+pub fn print_debug(msg: &str) { print_with_prefix("    ··".dimmed(), msg); }
 
 #[doc(hidden)]
 pub fn format_error_chain(error: &(dyn std::error::Error + 'static)) -> Vec<String> {
