@@ -15,6 +15,7 @@ struct ListEntry {
     ver_display: String,
     remote_str: String,
     extra_ver: String,
+    pinned: bool,
 }
 
 impl CommandHandler for ListCommand {
@@ -60,7 +61,13 @@ impl CommandHandler for ListCommand {
             max_name_len = max(max_name_len, name.len());
             max_ver_len = max(max_ver_len, ver_display.len());
 
-            results.push(ListEntry { name: name.clone(), ver_display, remote_str, extra_ver });
+            results.push(ListEntry {
+                name: name.clone(),
+                ver_display,
+                remote_str,
+                extra_ver,
+                pinned: state.pinned,
+            });
         }
 
         // print header
@@ -74,12 +81,14 @@ impl CommandHandler for ListCommand {
 
         // print rows
         for res in results {
+            let pinned_marker = if res.pinned { " [pinned]" } else { "" };
             println!(
-                "{:<max_name_len$}  {:<max_ver_len$}  {} {}",
+                "{:<max_name_len$}  {:<max_ver_len$}  {}{}{}",
                 res.name.green(),
                 res.ver_display,
                 res.remote_str,
                 res.extra_ver.dimmed(),
+                pinned_marker.dimmed(),
             );
         }
 
