@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-06-29
+
 ### Added
 
 - **Update Force & Version Pinning**: `inro update` now accepts `--force` (`-f`) to bypass the pin check, letting you update a pinned package without unpinning first (pin state is preserved). `inro update <pkg>@<version>` now respects the version specifier instead of ignoring it with a warning. `inro show` and `inro list` now display `[Pinned]` when a package is pinned, making pin state visible without running extra commands.
