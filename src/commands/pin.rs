@@ -1,9 +1,9 @@
 use anyhow::Result;
 
 use super::CommandHandler;
+use crate::done;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
-use crate::done;
 
 pub struct PinCommand {
     pub name: String,

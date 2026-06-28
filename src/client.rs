@@ -21,6 +21,6 @@ pub fn get() -> &'static Client {
             .connect_timeout(CONNECT_TIMEOUT)
             .read_timeout(READ_TIMEOUT)
             .build()
-            .expect("Failed to build HTTP client")
+            .expect("Failed to initialize HTTP client")
     })
 }
