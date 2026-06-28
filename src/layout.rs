@@ -11,7 +11,7 @@ pub struct InroLayout {
     pub pkgs_dir: PathBuf,      // inro_dir/pkgs
     pub managed_registry_dir: PathBuf, /* inro_dir/registry  (inro-maintained: upstream cache +
                                  * auto.toml) */
-    pub user_registry_dir: PathBuf, // inro_dir/sources.list.d (hand-written overrides)
+    pub user_registry_dir: PathBuf, // inro_dir/registry.d (hand-written overrides)
 }
 
 impl InroLayout {
@@ -24,7 +24,7 @@ impl InroLayout {
         let manifest_path = inro_dir.join("manifest.json");
         let pkgs_dir = inro_dir.join("pkgs");
         let managed_registry_dir = inro_dir.join("registry");
-        let user_registry_dir = inro_dir.join("sources.list.d");
+        let user_registry_dir = inro_dir.join("registry.d");
 
         Ok(Self {
             home_dir,

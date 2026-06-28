@@ -67,7 +67,7 @@ Inro keeps everything under a single root directory, `$INRO_HOME`. It defaults t
 $INRO_HOME/                      (default: ~/.inro/)
 ├── config.toml                  user configuration
 ├── manifest.json                installed packages state
-├── sources.list.d/              your hand-written registry overrides
+├── registry.d/              your hand-written registry overrides
 │   └── *.toml
 ├── registry/                    inro-maintained
 │   ├── 00-default.toml          fetched by `inro source update`
@@ -75,7 +75,7 @@ $INRO_HOME/                      (default: ~/.inro/)
 └── pkgs/                        installed package versions
 ```
 
-Anything under `sources.list.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Inro never writes there itself.
+Anything under `registry.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Inro never writes there itself.
 
 > Upgrading from 0.6.x? Your old installations under `~/.local/share/inro/` and `~/.config/inro/` (or `~/Library/Application Support/inro/` on macOS) are no longer read. See [CHANGELOG][changelog] for the cleanup-and-reinstall path.
 
@@ -96,7 +96,7 @@ repo = "aria2/aria2"
 
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
-- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Your own files under `sources.list.d/` are never touched.
+- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Your own files under `registry.d/` are never touched.
 
 ## Notice
 

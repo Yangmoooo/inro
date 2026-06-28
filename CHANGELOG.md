@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Update Force & Version Pinning**: `inro update` now accepts `--force` (`-f`) to bypass the pin check, letting you update a pinned package without unpinning first (pin state is preserved). `inro update <pkg>@<version>` now respects the version specifier instead of ignoring it with a warning. `inro show` and `inro list` now display `[Pinned]` when a package is pinned, making pin state visible without running extra commands.
+- **Verbosity Levels**: `-v` now shows detail lines (cause chains, intermediate steps) while `-vv` enables debug tracing output. Previously both flags produced identical output.
+
+### Changed
+
+- **`sources.list.d/` → `registry.d/`**: The user registry directory has been renamed from `sources.list.d` to `registry.d`. If you had hand-written files under the old path, move them over manually: `mv ~/.inro/sources.list.d ~/.inro/registry.d`. The old name is no longer read.
+
 ### Fixed
 
 - **Doctor on Partial Registry Overrides**: `inro doctor` no longer treats fragment files like `registry/auto.toml` as broken. The per-file check is now syntax-only; schema validity is verified once against the merged registry, matching how `install`/`update` actually read it.

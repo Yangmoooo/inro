@@ -167,7 +167,7 @@ mod tests {
             manifest_path: inro_dir.join("manifest.json"),
             pkgs_dir: inro_dir.join("pkgs"),
             managed_registry_dir: inro_dir.join("registry"),
-            user_registry_dir: inro_dir.join("sources.list.d"),
+            user_registry_dir: inro_dir.join("registry.d"),
             inro_dir,
         }
     }
