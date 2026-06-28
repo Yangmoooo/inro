@@ -482,8 +482,48 @@ impl GitHubProvider {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::{LazyLock, Mutex, MutexGuard};
+
     use super::*;
     use crate::remotes::MatchKind;
+
+    /// Serialize tests that manipulate `GITHUB_TOKEN` / `INRO_GITHUB_TOKEN`
+    /// env vars so they don't race with each other or with `format_rate_hint`.
+    static ENV_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
+
+    struct TokenEnvGuard {
+        _guard: MutexGuard<'static, ()>,
+        prev_inro: Option<String>,
+        prev_github: Option<String>,
+    }
+
+    impl TokenEnvGuard {
+        fn clear() -> Self {
+            let guard = ENV_LOCK.lock().unwrap();
+            let prev_inro = env::var("INRO_GITHUB_TOKEN").ok();
+            let prev_github = env::var("GITHUB_TOKEN").ok();
+            // SAFETY: serialized by ENV_LOCK.
+            unsafe {
+                env::remove_var("INRO_GITHUB_TOKEN");
+                env::remove_var("GITHUB_TOKEN");
+            }
+            Self { _guard: guard, prev_inro, prev_github }
+        }
+    }
+
+    impl Drop for TokenEnvGuard {
+        fn drop(&mut self) {
+            // SAFETY: serialized by ENV_LOCK.
+            match &self.prev_inro {
+                Some(v) => unsafe { env::set_var("INRO_GITHUB_TOKEN", v) },
+                None => unsafe { env::remove_var("INRO_GITHUB_TOKEN") },
+            }
+            match &self.prev_github {
+                Some(v) => unsafe { env::set_var("GITHUB_TOKEN", v) },
+                None => unsafe { env::remove_var("GITHUB_TOKEN") },
+            }
+        }
+    }
 
     fn asset(name: &str) -> Asset {
         Asset {
@@ -563,11 +603,7 @@ mod tests {
 
     #[test]
     fn rate_hint_with_reset_and_no_token_recommends_setting_one() {
-        // SAFETY: Tests run single-threaded for env var manipulation.
-        unsafe {
-            env::remove_var("INRO_GITHUB_TOKEN");
-            env::remove_var("GITHUB_TOKEN");
-        }
+        let _env = TokenEnvGuard::clear();
 
         let hint = format_rate_hint(Some(60 * 23), false);
 
