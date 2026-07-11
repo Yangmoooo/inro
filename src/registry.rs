@@ -10,6 +10,7 @@ use serde::Deserialize;
 use toml_edit::{DocumentMut, Item, Table};
 
 use crate::config::Config;
+use crate::debug;
 use crate::layout::InroLayout;
 use crate::package::PkgDef;
 use crate::remotes::AssetSelector;
@@ -49,10 +50,12 @@ impl Registry {
                 .unwrap_or(false)
         });
         for file_path in upstream_files {
+            debug!("Loading managed registry: {}", file_path.display());
             figment = figment.merge(Toml::file(file_path));
         }
         let auto_path = managed_registry_dir.join("auto.toml");
         if auto_path.exists() {
+            debug!("Loading automatic registry overrides: {}", auto_path.display());
             figment = figment.merge(Toml::file(auto_path));
         }
 
@@ -60,6 +63,7 @@ impl Registry {
         let user_registry_dir = &layout.user_registry_dir;
         let files = collect_toml_files(user_registry_dir)?;
         for file_path in files {
+            debug!("Loading user registry override: {}", file_path.display());
             figment = figment.merge(Toml::file(file_path));
         }
 

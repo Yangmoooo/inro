@@ -12,7 +12,7 @@ use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
 use crate::reporter::print_error_chain;
-use crate::utils::{parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
 use crate::warn;
 
 pub struct InstallCommand {
@@ -28,6 +28,7 @@ struct InstallTask {
 
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
+        ensure_unique_package_args(&self.names)?;
         let names = unique(&self.names);
 
         let layout = InroLayout::new()?;

@@ -8,7 +8,10 @@ use serde::{Deserialize, Serialize};
 
 use crate::platform::PlatformInfo;
 use crate::remotes::RemoteType;
-use crate::utils::{create_symlink, is_inro_managed_symlink};
+use crate::utils::{
+    create_symlink, ensure_link_replaceable, is_inro_managed_symlink, symlink_points_to,
+    validate_path_component,
+};
 use crate::warn;
 
 /// Package definition as specified in the registry.
@@ -223,6 +226,11 @@ impl PkgReceipt {
             .with_context(|| format!("Failed to create bin dir: {}", bin_dir.display()))?;
 
         for bin in &self.binaries {
+            validate_path_component(&bin.name, "link name")?;
+            ensure_link_replaceable(&self.link_path(bin, bin_dir), pkgs_dir)?;
+        }
+
+        for bin in &self.binaries {
             let target = self.link_path(bin, bin_dir);
             let original = self.bin_path(bin, pkgs_dir);
             create_symlink(&original, &target, pkgs_dir)?;
@@ -235,12 +243,16 @@ impl PkgReceipt {
     /// anything the user replaced by hand is left alone.
     pub fn unlink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
         for bin in &self.binaries {
+            validate_path_component(&bin.name, "link name")?;
             let link = self.link_path(bin, bin_dir);
             if !link.exists() && !link.is_symlink() {
                 continue;
             }
             if !is_inro_managed_symlink(&link, pkgs_dir) {
                 warn!("Skipping '{}': it is not a symlink managed by inro", link.display());
+                continue;
+            }
+            if !symlink_points_to(&link, &self.bin_path(bin, pkgs_dir)) {
                 continue;
             }
             fs::remove_file(&link)
@@ -890,6 +902,45 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
+    fn relink_checks_all_destinations_before_changing_links() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let old_install = pkgs_dir.join("tool/v0.9.0");
+        fs::create_dir_all(&old_install).unwrap();
+        let old_target = old_install.join("tool");
+        fs::write(&old_target, b"old").unwrap();
+        let first_link = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&old_target, &first_link).unwrap();
+
+        let new_install = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&new_install).unwrap();
+        fs::write(new_install.join("tool"), b"new").unwrap();
+        fs::write(new_install.join("helper"), b"new helper").unwrap();
+        fs::write(bin_dir.join("helper"), b"user-owned").unwrap();
+
+        let receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::default(),
+            installed_at: Utc::now(),
+            install_subdir: PathBuf::from("tool/v1.0.0"),
+            binaries: vec![
+                InstalledBin { name: "tool".to_string(), bin_subpath: PathBuf::from("tool") },
+                InstalledBin { name: "helper".to_string(), bin_subpath: PathBuf::from("helper") },
+            ],
+        };
+
+        receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+
+        assert_eq!(fs::read_link(first_link).unwrap(), old_target);
+        assert_eq!(fs::read(bin_dir.join("helper")).unwrap(), b"user-owned");
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn relink_refuses_symlink_pointing_outside_pkgs_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
@@ -940,6 +991,31 @@ link = "simple-link"
         receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
 
         assert!(!link_path.exists() && !link_path.is_symlink(), "managed symlink should be gone");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn unlink_keeps_link_owned_by_another_version() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let old_install = pkgs_dir.join("tool/v0.9.0");
+        fs::create_dir_all(&old_install).unwrap();
+        fs::write(old_install.join("tool"), b"old").unwrap();
+
+        let current_install = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&current_install).unwrap();
+        let current_target = current_install.join("tool");
+        fs::write(&current_target, b"current").unwrap();
+        let link_path = bin_dir.join("tool");
+        std::os::unix::fs::symlink(&current_target, &link_path).unwrap();
+
+        let old_receipt = make_receipt("tool/v0.9.0", "tool");
+        old_receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
+
+        assert_eq!(fs::read_link(link_path).unwrap(), current_target);
     }
 
     #[cfg(unix)]

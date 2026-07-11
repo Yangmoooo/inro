@@ -89,13 +89,6 @@ impl Manifest {
         let current_ver = state.current_version.take()?;
         state.versions.get(&current_ver).cloned()
     }
-
-    /// Remove all versions of the package.
-    pub fn remove_package(&mut self, name: &str) -> Option<Vec<PkgReceipt>> {
-        let state = self.pkgs.remove(name)?;
-        let receipts = state.versions.into_values().collect();
-        Some(receipts)
-    }
 }
 
 #[cfg(test)]
@@ -183,19 +176,6 @@ mod tests {
         manifest.remove_version("tokei", "12.0.0");
 
         assert!(!manifest.pkgs.contains_key("tokei"));
-    }
-
-    #[test]
-    fn manifest_remove_package_all_versions() {
-        let mut manifest = Manifest::default();
-        manifest.add(make_receipt("eza", "0.18.0"));
-        manifest.add(make_receipt("eza", "0.19.0"));
-
-        let removed = manifest.remove_package("eza");
-
-        assert!(removed.is_some());
-        assert_eq!(removed.unwrap().len(), 2);
-        assert!(!manifest.pkgs.contains_key("eza"));
     }
 
     #[test]

@@ -12,7 +12,7 @@ use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
 use crate::reporter::print_error_chain;
-use crate::utils::{parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
 use crate::warn;
 
 pub struct UpdateCommand {
@@ -29,6 +29,7 @@ struct UpdateTask {
 
 impl CommandHandler for UpdateCommand {
     fn handle(&self) -> Result<()> {
+        ensure_unique_package_args(&self.names)?;
         let layout = InroLayout::new()?;
         let _lock = crate::lock::acquire(&layout)?;
         let config = Config::load(&layout)?;

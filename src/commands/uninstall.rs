@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::PkgReceipt;
-use crate::utils::{parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
 use crate::{detail, done, fail, hint, step, warn};
 
 pub struct UninstallCommand {
@@ -25,6 +25,7 @@ struct UninstallReceipt {
 
 impl CommandHandler for UninstallCommand {
     fn handle(&self) -> Result<()> {
+        ensure_unique_package_args(&self.names)?;
         let names = unique(&self.names);
         hint!("Starting uninstallation of {} package(s)...", names.len());
 
@@ -60,10 +61,8 @@ impl CommandHandler for UninstallCommand {
             }
         }
 
-        if !successes.is_empty() {
-            manifest.save(manifest_path)?;
-            detail!("Manifest updated");
-        }
+        manifest.save(manifest_path)?;
+        detail!("Manifest updated");
 
         // summary
         eprintln!();
@@ -130,63 +129,61 @@ fn do_uninstall(
 ) -> Result<Option<UninstallReceipt>> {
     let (name, requested_ver) = parse_package_version(raw_name);
 
-    // check if installed
     let Some(state) = manifest.pkgs.get(name) else {
         return Ok(None);
     };
 
-    // if uninstall --all
     if for_all {
         step!("Uninstalling ALL versions of '{name}'...");
 
-        if let Some(receipts) = manifest.remove_package(name) {
-            for receipt in receipts {
-                cleanup_files(&receipt, bin_dir, pkgs_dir)?;
-                detail!("Removed version {}", receipt.version);
-            }
-            return Ok(Some(UninstallReceipt {
-                name: name.to_string(),
-                version: "ALL".to_string(),
-                fully_removed: true,
-            }));
-        } else {
-            unreachable!()
+        let receipts: Vec<_> = state.versions.values().cloned().collect();
+        if receipts.is_empty() {
+            anyhow::bail!("Package '{name}' has no installed versions");
         }
+        for receipt in receipts {
+            cleanup_files(&receipt, bin_dir, pkgs_dir)?;
+            manifest.remove_version(name, &receipt.version);
+            detail!("Removed version {}", receipt.version);
+        }
+        return Ok(Some(UninstallReceipt {
+            name: name.to_string(),
+            version: "ALL".to_string(),
+            fully_removed: true,
+        }));
     }
 
-    // if not --all
     let current_ver = state.current_version.clone();
     let target_ver = if let Some(ver) = requested_ver {
-        // specify a version
         if !state.versions.contains_key(ver) {
             anyhow::bail!("Version '{ver}' is not installed for package '{name}'");
         }
         ver.to_string()
     } else {
-        // not specify
         match &current_ver {
             Some(v) => v.clone(),
             None => {
-                let one_ver = state.versions.keys().next().expect("None versions");
-                // no active version, but only one version, remove it
-                if state.versions.len() == 1 {
+                if let Some(one_ver) = state.versions.keys().next()
+                    && state.versions.len() == 1
+                {
                     one_ver.clone()
                 } else {
                     anyhow::bail!(
-                        "Package '{name}' has no active version and multiple versions installed. Please specify a version to uninstall (e.g. '{name}@{one_ver}') or use --all"
+                        "Package '{name}' has no active version. Specify a version to uninstall \
+                         or use --all"
                     );
                 }
             }
         }
     };
+    let receipt =
+        state.versions.get(&target_ver).cloned().ok_or_else(|| {
+            anyhow::anyhow!("Version '{target_ver}' is not installed for '{name}'")
+        })?;
 
     step!("Uninstalling package '{name}' ({target_ver})...");
 
-    // remove from manifest
-    if let Some(receipt) = manifest.remove_version(name, &target_ver) {
-        // remove files
-        cleanup_files(&receipt, bin_dir, pkgs_dir)?;
-
+    cleanup_files(&receipt, bin_dir, pkgs_dir)?;
+    if manifest.remove_version(name, &target_ver).is_some() {
         let fully_removed = !manifest.pkgs.contains_key(name);
 
         // auto-switch if:
@@ -219,9 +216,7 @@ fn do_uninstall(
 }
 
 fn cleanup_files(receipt: &PkgReceipt, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
-    // Remove symlinks via the receipt's owner-aware unlink. It only removes
-    // links still pointing inside pkgs_dir; anything the user replaced is
-    // left in place with a warning.
+    // Remove only links that still point to this receipt's binaries.
     receipt.unlink(bin_dir, pkgs_dir)?;
     for bin in &receipt.binaries {
         let link = receipt.link_path(bin, bin_dir);
@@ -243,4 +238,52 @@ fn cleanup_files(receipt: &PkgReceipt, bin_dir: &Path, pkgs_dir: &Path) -> Resul
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use std::collections::HashMap;
+    use std::path::PathBuf;
+
+    use chrono::Utc;
+
+    use super::*;
+    use crate::package::InstalledBin;
+    use crate::remotes::{GitHubAssetDef, RemoteType};
+
+    #[test]
+    fn cleanup_failure_keeps_version_in_manifest() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&pkgs_dir).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::GitHub(GitHubAssetDef {
+                repo: "test/tool".to_string(),
+                asset: HashMap::new(),
+            }),
+            installed_at: Utc::now(),
+            install_subdir: PathBuf::from("tool/v1.0.0"),
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_subpath: PathBuf::from("tool"),
+            }],
+        };
+        let mut manifest = Manifest::default();
+        manifest.add(receipt);
+
+        let install_path = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(install_path.parent().unwrap()).unwrap();
+        fs::write(&install_path, b"not a directory").unwrap();
+
+        assert!(do_uninstall("tool", false, &mut manifest, &bin_dir, &pkgs_dir).is_err());
+
+        let state = manifest.pkgs.get("tool").expect("package must remain in manifest");
+        assert_eq!(state.current_version.as_deref(), Some("v1.0.0"));
+        assert!(state.versions.contains_key("v1.0.0"));
+    }
 }

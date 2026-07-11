@@ -5,6 +5,7 @@ use figment::Figment;
 use figment::providers::{Env, Format, Serialized, Toml};
 use serde::{Deserialize, Serialize};
 
+use crate::debug;
 use crate::layout::InroLayout;
 
 const INRO_DEFAULT_REGISTRY: &str =
@@ -80,6 +81,12 @@ impl Config {
         let mut config: Config = figment.extract()?;
         config.expand_paths(&layout.home_dir);
         config.normalize();
+        debug!(
+            "Loaded config: bin_dir={}, upstreams={}, parallel_downloads={}",
+            config.bin_dir.display(),
+            config.upstreams.len(),
+            config.parallel_downloads
+        );
 
         Ok(config)
     }

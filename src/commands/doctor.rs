@@ -260,6 +260,9 @@ impl CommandHandler for DoctorCommand {
             format!("{failed} error(s)").red()
         );
 
+        if failed > 0 {
+            anyhow::bail!("doctor found {failed} error(s)");
+        }
         Ok(())
     }
 }

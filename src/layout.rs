@@ -2,6 +2,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Result, anyhow};
 
+use crate::debug;
+
 #[derive(Debug, Clone)]
 pub struct InroLayout {
     pub home_dir: PathBuf,      // user home (tilde expansion only)
@@ -25,6 +27,7 @@ impl InroLayout {
         let pkgs_dir = inro_dir.join("pkgs");
         let managed_registry_dir = inro_dir.join("registry");
         let user_registry_dir = inro_dir.join("registry.d");
+        debug!("Resolved INRO_HOME: {}", inro_dir.display());
 
         Ok(Self {
             home_dir,

@@ -170,6 +170,8 @@ pub async fn install_candidate(
     layout: &InroLayout,
     progress: &PkgProgress,
 ) -> Result<PkgReceipt, PkgError> {
+    validate_path_component(name, "package name")
+        .map_err(|error| PkgError::Other(error.to_string()))?;
     if pkg.bin.is_empty() {
         return Err(PkgError::Other(format!(
             "Package '{name}' has no binary defined for the current platform ({}); check the \
@@ -179,6 +181,14 @@ pub async fn install_candidate(
     }
 
     let safe_version = sanitize_version(&candidate.version);
+    validate_path_component(&safe_version, "version")
+        .map_err(|error| PkgError::Other(error.to_string()))?;
+    for bin in &pkg.bin {
+        validate_path_component(&bin.name, "binary name")
+            .map_err(|error| PkgError::Other(error.to_string()))?;
+        validate_path_component(&bin.link, "link name")
+            .map_err(|error| PkgError::Other(error.to_string()))?;
+    }
     let install_subdir = PathBuf::from(name).join(&safe_version);
     let pkg_dir = layout.pkgs_dir.join(name);
     let final_install_dir = layout.pkgs_dir.join(&install_subdir);
@@ -226,18 +236,6 @@ pub async fn install_candidate(
     // so it survives the rename below. From here on, any error before the
     // rename completes must remove the staging dir explicitly.
     let staging_path = staging_dir.keep();
-    let backup = match promote_install_dir(&staging_path, &final_install_dir) {
-        Ok(b) => b,
-        Err(e) => {
-            let _ = fs::remove_dir_all(&staging_path);
-            return Err(e);
-        }
-    };
-    if let Some(backup_path) = backup {
-        // Best-effort: a leftover backup dir is harmless; `clean` can sweep it.
-        let _ = fs::remove_dir_all(&backup_path);
-    }
-
     let receipt = PkgReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
@@ -246,9 +244,57 @@ pub async fn install_candidate(
         install_subdir,
         binaries,
     };
-    receipt.relink(&config.bin_dir, &layout.pkgs_dir)?;
+    promote_and_relink_install(
+        &staging_path,
+        &final_install_dir,
+        &receipt,
+        &config.bin_dir,
+        &layout.pkgs_dir,
+    )?;
 
     Ok(receipt)
+}
+
+fn promote_and_relink_install(
+    staging: &Path,
+    final_dir: &Path,
+    receipt: &PkgReceipt,
+    bin_dir: &Path,
+    pkgs_dir: &Path,
+) -> Result<(), PkgError> {
+    let backup = match promote_install_dir(staging, final_dir) {
+        Ok(backup) => backup,
+        Err(error) => {
+            let _ = fs::remove_dir_all(staging);
+            return Err(error);
+        }
+    };
+
+    if let Err(link_error) = receipt.relink(bin_dir, pkgs_dir) {
+        if let Err(remove_error) = fs::remove_dir_all(final_dir) {
+            return Err(PkgError::Other(format!(
+                "{link_error}; additionally failed to remove incomplete install '{}': \
+                 {remove_error}",
+                final_dir.display()
+            )));
+        }
+        if let Some(backup_path) = backup
+            && let Err(restore_error) = fs::rename(&backup_path, final_dir)
+        {
+            return Err(PkgError::Other(format!(
+                "{link_error}; additionally failed to restore previous install '{}': \
+                 {restore_error}",
+                final_dir.display()
+            )));
+        }
+        return Err(PkgError::Other(link_error.to_string()));
+    }
+
+    if let Some(backup_path) = backup {
+        // Best-effort: a leftover backup dir is harmless; `clean` can sweep it.
+        let _ = fs::remove_dir_all(backup_path);
+    }
+    Ok(())
 }
 
 /// Atomically move `staging` into `final_dir`. If `final_dir` already
@@ -514,6 +560,43 @@ mod tests {
             .filter(|name| name.contains(".staging."))
             .collect();
         assert!(leftovers.is_empty(), "staging dirs leaked: {leftovers:?}");
+    }
+
+    #[test]
+    fn relink_failure_after_promote_restores_existing_install() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let pkg_dir = pkgs_dir.join("tool");
+        let final_dir = pkg_dir.join("v1.0.0");
+        let staging = pkg_dir.join("v1.0.0.staging.abc");
+        let bin_dir = tmp.path().join("bin");
+
+        fs::create_dir_all(&final_dir).unwrap();
+        fs::write(final_dir.join("tool"), b"old").unwrap();
+        fs::create_dir_all(&staging).unwrap();
+        fs::write(staging.join("tool"), b"new").unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        fs::write(bin_dir.join("tool"), b"user-owned").unwrap();
+
+        let receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::default(),
+            installed_at: Utc::now(),
+            install_subdir: PathBuf::from("tool").join("v1.0.0"),
+            binaries: vec![InstalledBin {
+                name: "tool".to_string(),
+                bin_subpath: PathBuf::from("tool"),
+            }],
+        };
+
+        let error = promote_and_relink_install(&staging, &final_dir, &receipt, &bin_dir, &pkgs_dir)
+            .unwrap_err();
+
+        assert!(error.to_string().contains("Refusing to overwrite"));
+        assert_eq!(fs::read(final_dir.join("tool")).unwrap(), b"old");
+        assert_eq!(fs::read(bin_dir.join("tool")).unwrap(), b"user-owned");
+        assert!(!staging.exists());
     }
 
     #[test]

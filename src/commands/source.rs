@@ -9,7 +9,8 @@ use super::CommandHandler;
 use crate::cli::SourceSubCommand;
 use crate::config::Config;
 use crate::layout::InroLayout;
-use crate::utils::download_file;
+use crate::registry::Registry;
+use crate::utils::{download_file, validate_path_component};
 use crate::{done, fail, hint, warn};
 
 pub struct SourceCommand {
@@ -224,34 +225,88 @@ impl CommandHandler for SourceCommand {
                 hint!("Updating {} upstream sources...", upstreams.len());
 
                 fs::create_dir_all(managed_registry_dir)?;
+                let staging_root = tempfile::tempdir_in(managed_registry_dir)?;
+                let staged_registry = staging_root.path().join("registry");
+                let download_dir = staging_root.path().join("downloads");
+                fs::create_dir_all(&staged_registry)?;
+                fs::create_dir_all(&download_dir)?;
+                for entry in fs::read_dir(managed_registry_dir)? {
+                    let path = entry?.path();
+                    if path.is_file()
+                        && path.extension().and_then(|extension| extension.to_str()) == Some("toml")
+                        && let Some(file_name) = path.file_name()
+                    {
+                        fs::copy(&path, staged_registry.join(file_name))?;
+                    }
+                }
+
+                let mut failures = 0usize;
+                let mut staged_updates = Vec::new();
 
                 for upstream in upstreams {
                     if !upstream.enabled {
                         hint!("Skipping disabled source '{}'", upstream.name);
                         continue;
                     }
+                    if let Err(e) = validate_path_component(&upstream.name, "source name") {
+                        fail!("Invalid source '{}': {}", upstream.name, e);
+                        failures += 1;
+                        continue;
+                    }
 
-                    match download_file(&upstream.url, managed_registry_dir) {
+                    match download_file(&upstream.url, &download_dir) {
                         Ok(raw_path) => {
+                            if let Err(e) = validate_toml_syntax(&raw_path) {
+                                fail!("Downloaded invalid source '{}': {}", upstream.name, e);
+                                failures += 1;
+                                continue;
+                            }
                             let cached_name =
                                 format!("{:02}-{}.toml", upstream.priority, upstream.name);
-                            let cached_path = managed_registry_dir.join(&cached_name);
-
-                            if let Err(e) = fs::rename(&raw_path, cached_path) {
+                            let staged_path = staged_registry.join(&cached_name);
+                            if let Err(e) = fs::rename(&raw_path, &staged_path) {
                                 fail!(
-                                    "Downloaded '{}' but failed to rename it: {}",
+                                    "Downloaded '{}' but failed to stage it: {}",
                                     upstream.name,
                                     e
                                 );
                                 let _ = fs::remove_file(raw_path);
+                                failures += 1;
                             } else {
-                                done!("'{}' Updated", upstream.name);
+                                staged_updates.push((
+                                    upstream.name.clone(),
+                                    staged_path,
+                                    managed_registry_dir.join(cached_name),
+                                ));
                             }
                         }
                         Err(e) => {
                             fail!("Failed to update '{}': {}", upstream.name, e);
+                            failures += 1;
                         }
                     }
+                }
+
+                if !staged_updates.is_empty() {
+                    let mut staged_layout = layout.clone();
+                    staged_layout.managed_registry_dir = staged_registry;
+                    if let Err(e) = Registry::load(&staged_layout) {
+                        fail!("Downloaded sources produce an invalid registry: {e:#}");
+                        failures += 1;
+                        staged_updates.clear();
+                    }
+                }
+
+                for (name, staged_path, cached_path) in staged_updates {
+                    if let Err(e) = fs::rename(&staged_path, &cached_path) {
+                        fail!("Validated source '{name}' but failed to install it: {e}");
+                        failures += 1;
+                    } else {
+                        done!("'{name}' Updated");
+                    }
+                }
+                if failures > 0 {
+                    anyhow::bail!("{failures} source(s) failed to update");
                 }
             }
             SourceSubCommand::Enable { name } => {
@@ -276,6 +331,12 @@ fn check_remote_update(url: &str, local_path: &std::path::Path) -> Result<bool> 
     let remote_content = fs::read(&remote_path)?;
 
     Ok(local_content != remote_content)
+}
+
+fn validate_toml_syntax(path: &std::path::Path) -> Result<()> {
+    let content = fs::read_to_string(path)?;
+    let _: toml::Table = toml::from_str(&content)?;
+    Ok(())
 }
 
 fn enable_disable_source(layout: &InroLayout, name: &str, enable: bool) -> Result<()> {

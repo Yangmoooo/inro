@@ -97,7 +97,6 @@ pub fn print_skip(msg: &str) { print_with_prefix("=".dimmed(), msg); }
 pub fn print_detail(msg: &str) { print_with_prefix("  ->".normal(), msg); }
 
 #[doc(hidden)]
-#[allow(dead_code)]
 pub fn print_debug(msg: &str) { print_with_prefix("    ··".dimmed(), msg); }
 
 #[doc(hidden)]

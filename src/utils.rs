@@ -1,3 +1,4 @@
+use std::collections::HashSet;
 use std::fs::{self, File};
 use std::io::{self, BufReader, BufWriter, Read, Write, copy};
 use std::path::{Path, PathBuf};
@@ -24,6 +25,17 @@ pub fn unique(strs: &[String]) -> Vec<String> {
     vec.sort_unstable();
     vec.dedup();
     vec
+}
+
+pub fn ensure_unique_package_args(args: &[String]) -> Result<()> {
+    let mut seen = HashSet::new();
+    for arg in args {
+        let (name, _) = parse_package_version(arg);
+        if !seen.insert(name) {
+            bail!("Package '{name}' was specified more than once");
+        }
+    }
+    Ok(())
 }
 
 /// Async download with progress tracking.
@@ -565,32 +577,11 @@ fn score_binary_candidate(path: &Path) -> Option<i32> {
 /// regular files trigger a hard error so the user's pre-existing tools do
 /// not vanish behind inro's back.
 pub fn create_symlink(original: &Path, link: &Path, owned_root: &Path) -> Result<()> {
+    ensure_link_replaceable(link, owned_root)?;
+
     if link.is_symlink() {
-        let raw_target = fs::read_link(link)
-            .with_context(|| format!("Failed to read existing symlink: {}", link.display()))?;
-        let abs_target = if raw_target.is_absolute() {
-            raw_target.clone()
-        } else {
-            link.parent().unwrap_or(Path::new(".")).join(&raw_target)
-        };
-        let normalized_target = canonicalize_or_lexical(&abs_target);
-        let normalized_owned = canonicalize_or_lexical(owned_root);
-        if !normalized_target.starts_with(&normalized_owned) {
-            bail!(
-                "Refusing to replace '{}': it is a symlink pointing to '{}', outside inro's \
-                 package directory. Remove it manually or change `bin_dir` in your config.",
-                link.display(),
-                raw_target.display()
-            );
-        }
         fs::remove_file(link)
             .with_context(|| format!("Failed to remove existing symlink: {}", link.display()))?;
-    } else if link.exists() {
-        bail!(
-            "Refusing to overwrite '{}': it is not a symlink managed by inro. Remove it \
-             manually or change `bin_dir` in your config.",
-            link.display()
-        );
     }
 
     #[cfg(unix)]
@@ -620,6 +611,35 @@ pub fn create_symlink(original: &Path, link: &Path, owned_root: &Path) -> Result
     Ok(())
 }
 
+pub fn ensure_link_replaceable(link: &Path, owned_root: &Path) -> Result<()> {
+    if link.is_symlink() {
+        let raw_target = fs::read_link(link)
+            .with_context(|| format!("Failed to read existing symlink: {}", link.display()))?;
+        let abs_target = if raw_target.is_absolute() {
+            raw_target.clone()
+        } else {
+            link.parent().unwrap_or(Path::new(".")).join(&raw_target)
+        };
+        let normalized_target = canonicalize_or_lexical(&abs_target);
+        let normalized_owned = canonicalize_or_lexical(owned_root);
+        if !normalized_target.starts_with(&normalized_owned) {
+            bail!(
+                "Refusing to replace '{}': it is a symlink pointing to '{}', outside inro's \
+                 package directory. Remove it manually or change `bin_dir` in your config.",
+                link.display(),
+                raw_target.display()
+            );
+        }
+    } else if link.exists() {
+        bail!(
+            "Refusing to overwrite '{}': it is not a symlink managed by inro. Remove it \
+             manually or change `bin_dir` in your config.",
+            link.display()
+        );
+    }
+    Ok(())
+}
+
 /// Whether `link` is a symlink whose target resolves under `owned_root`.
 /// Returns `false` for anything that is not a symlink (regular file,
 /// directory, missing entry) or for symlinks pointing outside
@@ -641,6 +661,18 @@ pub fn is_inro_managed_symlink(link: &Path, owned_root: &Path) -> bool {
     let target_norm = canonicalize_or_lexical(&abs_target);
     let owned_norm = canonicalize_or_lexical(owned_root);
     target_norm.starts_with(&owned_norm)
+}
+
+pub fn symlink_points_to(link: &Path, expected: &Path) -> bool {
+    let Ok(raw_target) = fs::read_link(link) else {
+        return false;
+    };
+    let target = if raw_target.is_absolute() {
+        raw_target
+    } else {
+        link.parent().unwrap_or(Path::new(".")).join(raw_target)
+    };
+    canonicalize_or_lexical(&target) == canonicalize_or_lexical(expected)
 }
 
 /// Resolve `p` to an absolute, normalized form: prefers `fs::canonicalize`
@@ -668,6 +700,23 @@ fn normalize_lexical(p: &Path) -> PathBuf {
 
 /// Sanitize version string to be filesystem-safe.
 pub fn sanitize_version(raw_version: &str) -> String { raw_version.replace(['/', '\\', ':'], "-") }
+
+pub fn validate_path_component(value: &str, label: &str) -> Result<()> {
+    use std::path::Component;
+
+    let mut components = Path::new(value).components();
+    let is_single_normal =
+        matches!(components.next(), Some(Component::Normal(_))) && components.next().is_none();
+    if value.is_empty()
+        || value == "."
+        || value == ".."
+        || value.contains(['/', '\\', ':', '\0'])
+        || !is_single_normal
+    {
+        bail!("Invalid {label} '{value}': expected a single file name");
+    }
+    Ok(())
+}
 
 /// Format a DateTime<Utc> into a string with absolute and relative time.
 pub fn format_date(dt: &DateTime<Utc>) -> String {
@@ -1026,6 +1075,16 @@ mod tests {
         let input = vec!["only".into()];
         let result = unique(&input);
         assert_eq!(result, vec!["only"]);
+    }
+
+    #[test]
+    fn duplicate_package_versions_are_rejected() {
+        let args = vec!["tool@1.0.0".to_string(), "tool@2.0.0".to_string()];
+
+        let error = ensure_unique_package_args(&args).unwrap_err();
+
+        assert!(error.to_string().contains("tool"));
+        assert!(error.to_string().contains("more than once"));
     }
 
     // ==================== is_ignored_format() ====================
@@ -1558,6 +1617,19 @@ mod tests {
 
         assert!(glob_match(pattern, text));
         assert!(!glob_match(pattern, "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"));
+    }
+
+    #[test]
+    fn validate_path_component_rejects_paths() {
+        assert!(validate_path_component("ripgrep", "package name").is_ok());
+        assert!(validate_path_component("rg.exe", "binary name").is_ok());
+
+        for invalid in ["", ".", "..", "../outside", "dir/tool", "dir\\tool", "/tool"] {
+            assert!(
+                validate_path_component(invalid, "binary name").is_err(),
+                "accepted unsafe component: {invalid:?}"
+            );
+        }
     }
 
     // ==================== tar symlink extraction ====================
