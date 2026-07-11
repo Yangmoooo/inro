@@ -17,8 +17,6 @@ use crate::warn;
 /// Package definition as specified in the registry.
 #[derive(Clone, Debug, Deserialize)]
 pub struct PkgDef {
-    #[serde(default)]
-    pub ver: Option<String>,
     pub remote: RemoteType,
     #[serde(default)]
     pub bin: Vec<BinDef>,
@@ -85,8 +83,6 @@ pub struct BinDef {
 /// Resolved package definition with finalized parameters.
 #[derive(Debug)]
 pub struct ResolvedPkg {
-    #[allow(dead_code)]
-    pub ver: Option<String>,
     pub remote: RemoteType,
     pub bin: Vec<ResolvedBin>,
 }
@@ -101,7 +97,7 @@ pub struct ResolvedBin {
 impl PkgDef {
     /// Resolves the configuration into a definitive set of installation
     /// parameters.
-    pub fn resolve(self, pkg_name: &str) -> ResolvedPkg {
+    pub fn resolve(&self, pkg_name: &str) -> ResolvedPkg {
         let normalize_name = |name: String| -> String {
             if cfg!(windows) && !name.to_lowercase().ends_with(".exe") {
                 format!("{name}.exe")
@@ -117,11 +113,11 @@ impl PkgDef {
         } else {
             // process each configured binary
             self.bin
-                .into_iter()
+                .iter()
                 .filter_map(|b| {
                     // Resolve name from PlatformAwareString; if it doesn't match the current
                     // platform, skip this binary instead of falling back to the package name.
-                    let raw_name = match b.name {
+                    let raw_name = match &b.name {
                         Some(s) => s.resolve_for_platform(),
                         None => Some(pkg_name.to_string()),
                     }?;
@@ -140,7 +136,7 @@ impl PkgDef {
                 .collect()
         };
 
-        ResolvedPkg { ver: self.ver, remote: self.remote, bin }
+        ResolvedPkg { remote: self.remote.clone(), bin }
     }
 }
 
@@ -363,7 +359,6 @@ mod tests {
 
     fn make_pkg_def(bins: Vec<BinDef>) -> PkgDef {
         PkgDef {
-            ver: Some("v1.0.0".to_string()),
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/repo".to_string(),
                 asset: HashMap::new(),
@@ -450,14 +445,6 @@ mod tests {
         let resolved = pkg_def.resolve("uv");
 
         assert_eq!(resolved.bin.len(), 2);
-    }
-
-    #[test]
-    fn resolve_preserves_version() {
-        let pkg_def = make_pkg_def(vec![]);
-        let resolved = pkg_def.resolve("test");
-
-        assert_eq!(resolved.ver, Some("v1.0.0".to_string()));
     }
 
     // ==================== PkgState::get_latest_version() ====================
@@ -758,8 +745,6 @@ mod tests {
     #[test]
     fn deserialize_complete_pkg_def_with_platform_specific() {
         let toml = r#"
-ver = "v1.0.0"
-
 [remote.github]
 repo = "example/codex"
 
@@ -787,7 +772,6 @@ repo = "example/codex"
         assert!(result.is_ok(), "Failed to deserialize: {:?}", result.err());
 
         let pkg_def = result.unwrap();
-        assert_eq!(pkg_def.ver, Some("v1.0.0".to_string()));
         assert_eq!(pkg_def.bin.len(), 3);
 
         // Resolve and check that it works for current platform
@@ -825,8 +809,6 @@ repo = "example/codex"
     fn backward_compatibility_with_string_binaries() {
         // Ensure old-style string binaries still work
         let toml = r#"
-ver = "v1.0.0"
-
 [remote.github]
 repo = "example/simple"
 

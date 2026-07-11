@@ -27,7 +27,7 @@ impl CommandHandler for ShowCommand {
             .ok_or_else(|| anyhow!("Package '{}' not found in registry.", self.name))?;
 
         let width = 12;
-        let resolved = pkg_def.clone().resolve(&self.name);
+        let resolved = pkg_def.resolve(&self.name);
         println!("{:<width$}{}", "Name:".bold(), self.name.green());
         println!("{:<width$}{}", "Source:".bold(), resolved.remote);
 

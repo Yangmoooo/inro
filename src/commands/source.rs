@@ -7,7 +7,7 @@ use colored::{ColoredString, Colorize};
 
 use super::CommandHandler;
 use crate::cli::SourceSubCommand;
-use crate::config::Config;
+use crate::config::{Config, UpstreamDef};
 use crate::layout::InroLayout;
 use crate::registry::Registry;
 use crate::utils::{download_file, validate_path_component};
@@ -25,300 +25,286 @@ impl CommandHandler for SourceCommand {
             _ => Some(crate::lock::acquire(&layout)?),
         };
         let config = Config::load(&layout)?;
-        let upstreams = &config.upstreams;
-        let managed_registry_dir = &layout.managed_registry_dir;
-        let user_registry_dir = &layout.user_registry_dir;
 
         match &self.command {
             SourceSubCommand::List { check_remote } => {
-                // Collect user-written registry files
-                let user_files = if user_registry_dir.exists() {
-                    fs::read_dir(user_registry_dir)?
-                        .filter_map(|entry| entry.ok())
-                        .filter(|entry| {
-                            entry.path().extension().and_then(|s| s.to_str()) == Some("toml")
-                        })
-                        .map(|entry| {
-                            entry.path().file_stem().unwrap().to_string_lossy().to_string()
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    vec![]
-                };
-
-                if upstreams.is_empty() && user_files.is_empty() {
-                    println!("No sources configured");
-                    return Ok(());
-                }
-
-                struct Row {
-                    type_str: &'static str,
-                    name: String,
-                    enabled_plain: &'static str,
-                    enabled_display: ColoredString,
-                    last_update_plain: String,
-                    last_update_display: ColoredString,
-                    url_path: String,
-                }
-
-                let mut rows: Vec<Row> = Vec::new();
-
-                for upstream in upstreams {
-                    let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
-                    let cached_path = managed_registry_dir.join(&cached_name);
-
-                    let (enabled_plain, enabled_display) =
-                        if upstream.enabled { ("Yes", "Yes".green()) } else { ("No", "No".red()) };
-
-                    let (last_update_plain, last_update_display) = if cached_path.exists() {
-                        let metadata = fs::metadata(&cached_path)?;
-                        let modified = metadata.modified()?;
-                        let datetime: DateTime<Local> = modified.into();
-                        let human_time = HumanTime::from(datetime);
-                        let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
-
-                        if *check_remote {
-                            match check_remote_update(&upstream.url, &cached_path) {
-                                Ok(true) => {
-                                    let s = format!("{} (update available)", time_str);
-                                    let d = s.as_str().yellow();
-                                    (s, d)
-                                }
-                                Ok(false) => {
-                                    let s = format!("{} (up-to-date)", time_str);
-                                    let d = s.as_str().green();
-                                    (s, d)
-                                }
-                                Err(_) => {
-                                    let s = format!("{} (check failed)", time_str);
-                                    let d = s.as_str().red();
-                                    (s, d)
-                                }
-                            }
-                        } else {
-                            let d = time_str.as_str().normal();
-                            (time_str, d)
-                        }
-                    } else {
-                        ("Not cached".to_string(), "Not cached".normal())
-                    };
-
-                    rows.push(Row {
-                        type_str: "Remote",
-                        name: upstream.name.clone(),
-                        enabled_plain,
-                        enabled_display,
-                        last_update_plain,
-                        last_update_display,
-                        url_path: upstream.url.clone(),
-                    });
-                }
-
-                let auto_path = managed_registry_dir.join("auto.toml");
-                if auto_path.exists() {
-                    let metadata = fs::metadata(&auto_path)?;
-                    let modified = metadata.modified()?;
-                    let datetime: DateTime<Local> = modified.into();
-                    let human_time = HumanTime::from(datetime);
-                    let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
-                    let last_update_display = time_str.as_str().normal();
-
-                    rows.push(Row {
-                        type_str: "Auto",
-                        name: "auto".to_string(),
-                        enabled_plain: "Always",
-                        enabled_display: "Always".cyan(),
-                        last_update_plain: time_str,
-                        last_update_display,
-                        url_path: auto_path.display().to_string(),
-                    });
-                }
-
-                for user_file in user_files {
-                    let user_path = user_registry_dir.join(format!("{}.toml", user_file));
-                    let metadata = fs::metadata(&user_path)?;
-                    let modified = metadata.modified()?;
-                    let datetime: DateTime<Local> = modified.into();
-                    let human_time = HumanTime::from(datetime);
-                    let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
-                    let last_update_display = time_str.as_str().normal();
-
-                    rows.push(Row {
-                        type_str: "User",
-                        name: user_file,
-                        enabled_plain: "Always",
-                        enabled_display: "Always".cyan(),
-                        last_update_plain: time_str,
-                        last_update_display,
-                        url_path: user_path.display().to_string(),
-                    });
-                }
-
-                let col0_w =
-                    rows.iter().map(|r| r.type_str.len()).max().unwrap_or(0).max("Type".len());
-                let col1_w = rows.iter().map(|r| r.name.len()).max().unwrap_or(0).max("Name".len());
-                let col2_w = rows
-                    .iter()
-                    .map(|r| r.enabled_plain.len())
-                    .max()
-                    .unwrap_or(0)
-                    .max("Enabled".len());
-                let col3_w = rows
-                    .iter()
-                    .map(|r| r.last_update_plain.len())
-                    .max()
-                    .unwrap_or(0)
-                    .max("Last Update".len());
-                let col4_w =
-                    rows.iter().map(|r| r.url_path.len()).max().unwrap_or(0).max("URL/Path".len());
-
-                println!(
-                    "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
-                    "Type",
-                    "Name",
-                    "Enabled",
-                    "Last Update",
-                    "URL/Path",
-                    w0 = col0_w,
-                    w1 = col1_w,
-                    w2 = col2_w,
-                    w3 = col3_w,
-                    w4 = col4_w
-                );
-                println!(
-                    "{:-<w0$}  {:-<w1$}  {:-<w2$}  {:-<w3$}  {:-<w4$}",
-                    "",
-                    "",
-                    "",
-                    "",
-                    "",
-                    w0 = col0_w,
-                    w1 = col1_w,
-                    w2 = col2_w,
-                    w3 = col3_w,
-                    w4 = col4_w
-                );
-
-                for row in &rows {
-                    let enabled_pad = " ".repeat(col2_w.saturating_sub(row.enabled_plain.len()));
-                    let update_pad = " ".repeat(col3_w.saturating_sub(row.last_update_plain.len()));
-                    println!(
-                        "{:<w0$}  {:<w1$}  {}{}  {}{}  {}",
-                        row.type_str,
-                        row.name,
-                        row.enabled_display,
-                        enabled_pad,
-                        row.last_update_display,
-                        update_pad,
-                        row.url_path,
-                        w0 = col0_w,
-                        w1 = col1_w
-                    );
-                }
+                list_sources(&layout, &config.upstreams, *check_remote)
             }
-            SourceSubCommand::Update => {
-                if upstreams.is_empty() {
-                    warn!("No upstream sources configured to update");
-                    return Ok(());
-                }
+            SourceSubCommand::Update => update_sources(&layout, &config.upstreams),
+            SourceSubCommand::Enable { name } => enable_disable_source(&layout, name, true),
+            SourceSubCommand::Disable { name } => enable_disable_source(&layout, name, false),
+        }
+    }
+}
 
-                hint!("Updating {} upstream sources...", upstreams.len());
+fn list_sources(layout: &InroLayout, upstreams: &[UpstreamDef], check_remote: bool) -> Result<()> {
+    let managed_registry_dir = &layout.managed_registry_dir;
+    let user_registry_dir = &layout.user_registry_dir;
 
-                fs::create_dir_all(managed_registry_dir)?;
-                let staging_root = tempfile::tempdir_in(managed_registry_dir)?;
-                let staged_registry = staging_root.path().join("registry");
-                let download_dir = staging_root.path().join("downloads");
-                fs::create_dir_all(&staged_registry)?;
-                fs::create_dir_all(&download_dir)?;
-                for entry in fs::read_dir(managed_registry_dir)? {
-                    let path = entry?.path();
-                    if path.is_file()
-                        && path.extension().and_then(|extension| extension.to_str()) == Some("toml")
-                        && let Some(file_name) = path.file_name()
-                    {
-                        fs::copy(&path, staged_registry.join(file_name))?;
+    // Collect user-written registry files
+    let user_files = if user_registry_dir.exists() {
+        fs::read_dir(user_registry_dir)?
+            .filter_map(|entry| entry.ok())
+            .filter(|entry| entry.path().extension().and_then(|s| s.to_str()) == Some("toml"))
+            .map(|entry| entry.path().file_stem().unwrap().to_string_lossy().to_string())
+            .collect::<Vec<_>>()
+    } else {
+        vec![]
+    };
+
+    if upstreams.is_empty() && user_files.is_empty() {
+        println!("No sources configured");
+        return Ok(());
+    }
+
+    struct Row {
+        type_str: &'static str,
+        name: String,
+        enabled_plain: &'static str,
+        enabled_display: ColoredString,
+        last_update_plain: String,
+        last_update_display: ColoredString,
+        url_path: String,
+    }
+
+    let mut rows: Vec<Row> = Vec::new();
+
+    for upstream in upstreams {
+        let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
+        let cached_path = managed_registry_dir.join(&cached_name);
+
+        let (enabled_plain, enabled_display) =
+            if upstream.enabled { ("Yes", "Yes".green()) } else { ("No", "No".red()) };
+
+        let (last_update_plain, last_update_display) = if cached_path.exists() {
+            let metadata = fs::metadata(&cached_path)?;
+            let modified = metadata.modified()?;
+            let datetime: DateTime<Local> = modified.into();
+            let human_time = HumanTime::from(datetime);
+            let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
+
+            if check_remote {
+                match check_remote_update(&upstream.url, &cached_path) {
+                    Ok(true) => {
+                        let s = format!("{} (update available)", time_str);
+                        let d = s.as_str().yellow();
+                        (s, d)
+                    }
+                    Ok(false) => {
+                        let s = format!("{} (up-to-date)", time_str);
+                        let d = s.as_str().green();
+                        (s, d)
+                    }
+                    Err(_) => {
+                        let s = format!("{} (check failed)", time_str);
+                        let d = s.as_str().red();
+                        (s, d)
                     }
                 }
-
-                let mut failures = 0usize;
-                let mut staged_updates = Vec::new();
-
-                for upstream in upstreams {
-                    if !upstream.enabled {
-                        hint!("Skipping disabled source '{}'", upstream.name);
-                        continue;
-                    }
-                    if let Err(e) = validate_path_component(&upstream.name, "source name") {
-                        fail!("Invalid source '{}': {}", upstream.name, e);
-                        failures += 1;
-                        continue;
-                    }
-
-                    match download_file(&upstream.url, &download_dir) {
-                        Ok(raw_path) => {
-                            if let Err(e) = validate_toml_syntax(&raw_path) {
-                                fail!("Downloaded invalid source '{}': {}", upstream.name, e);
-                                failures += 1;
-                                continue;
-                            }
-                            let cached_name =
-                                format!("{:02}-{}.toml", upstream.priority, upstream.name);
-                            let staged_path = staged_registry.join(&cached_name);
-                            if let Err(e) = fs::rename(&raw_path, &staged_path) {
-                                fail!(
-                                    "Downloaded '{}' but failed to stage it: {}",
-                                    upstream.name,
-                                    e
-                                );
-                                let _ = fs::remove_file(raw_path);
-                                failures += 1;
-                            } else {
-                                staged_updates.push((
-                                    upstream.name.clone(),
-                                    staged_path,
-                                    managed_registry_dir.join(cached_name),
-                                ));
-                            }
-                        }
-                        Err(e) => {
-                            fail!("Failed to update '{}': {}", upstream.name, e);
-                            failures += 1;
-                        }
-                    }
-                }
-
-                if !staged_updates.is_empty() {
-                    let mut staged_layout = layout.clone();
-                    staged_layout.managed_registry_dir = staged_registry;
-                    if let Err(e) = Registry::load(&staged_layout) {
-                        fail!("Downloaded sources produce an invalid registry: {e:#}");
-                        failures += 1;
-                        staged_updates.clear();
-                    }
-                }
-
-                for (name, staged_path, cached_path) in staged_updates {
-                    if let Err(e) = fs::rename(&staged_path, &cached_path) {
-                        fail!("Validated source '{name}' but failed to install it: {e}");
-                        failures += 1;
-                    } else {
-                        done!("'{name}' Updated");
-                    }
-                }
-                if failures > 0 {
-                    anyhow::bail!("{failures} source(s) failed to update");
-                }
+            } else {
+                let d = time_str.as_str().normal();
+                (time_str, d)
             }
-            SourceSubCommand::Enable { name } => {
-                enable_disable_source(&layout, name, true)?;
-            }
-            SourceSubCommand::Disable { name } => {
-                enable_disable_source(&layout, name, false)?;
-            }
+        } else {
+            ("Not cached".to_string(), "Not cached".normal())
+        };
+
+        rows.push(Row {
+            type_str: "Remote",
+            name: upstream.name.clone(),
+            enabled_plain,
+            enabled_display,
+            last_update_plain,
+            last_update_display,
+            url_path: upstream.url.clone(),
+        });
+    }
+
+    let auto_path = managed_registry_dir.join("auto.toml");
+    if auto_path.exists() {
+        let metadata = fs::metadata(&auto_path)?;
+        let modified = metadata.modified()?;
+        let datetime: DateTime<Local> = modified.into();
+        let human_time = HumanTime::from(datetime);
+        let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
+        let last_update_display = time_str.as_str().normal();
+
+        rows.push(Row {
+            type_str: "Auto",
+            name: "auto".to_string(),
+            enabled_plain: "Always",
+            enabled_display: "Always".cyan(),
+            last_update_plain: time_str,
+            last_update_display,
+            url_path: auto_path.display().to_string(),
+        });
+    }
+
+    for user_file in user_files {
+        let user_path = user_registry_dir.join(format!("{}.toml", user_file));
+        let metadata = fs::metadata(&user_path)?;
+        let modified = metadata.modified()?;
+        let datetime: DateTime<Local> = modified.into();
+        let human_time = HumanTime::from(datetime);
+        let time_str = human_time.to_text_en(Accuracy::Rough, Tense::Past);
+        let last_update_display = time_str.as_str().normal();
+
+        rows.push(Row {
+            type_str: "User",
+            name: user_file,
+            enabled_plain: "Always",
+            enabled_display: "Always".cyan(),
+            last_update_plain: time_str,
+            last_update_display,
+            url_path: user_path.display().to_string(),
+        });
+    }
+
+    let col0_w = rows.iter().map(|r| r.type_str.len()).max().unwrap_or(0).max("Type".len());
+    let col1_w = rows.iter().map(|r| r.name.len()).max().unwrap_or(0).max("Name".len());
+    let col2_w = rows.iter().map(|r| r.enabled_plain.len()).max().unwrap_or(0).max("Enabled".len());
+    let col3_w =
+        rows.iter().map(|r| r.last_update_plain.len()).max().unwrap_or(0).max("Last Update".len());
+    let col4_w = rows.iter().map(|r| r.url_path.len()).max().unwrap_or(0).max("URL/Path".len());
+
+    println!(
+        "{:<w0$}  {:<w1$}  {:<w2$}  {:<w3$}  {:<w4$}",
+        "Type",
+        "Name",
+        "Enabled",
+        "Last Update",
+        "URL/Path",
+        w0 = col0_w,
+        w1 = col1_w,
+        w2 = col2_w,
+        w3 = col3_w,
+        w4 = col4_w
+    );
+    println!(
+        "{:-<w0$}  {:-<w1$}  {:-<w2$}  {:-<w3$}  {:-<w4$}",
+        "",
+        "",
+        "",
+        "",
+        "",
+        w0 = col0_w,
+        w1 = col1_w,
+        w2 = col2_w,
+        w3 = col3_w,
+        w4 = col4_w
+    );
+
+    for row in &rows {
+        let enabled_pad = " ".repeat(col2_w.saturating_sub(row.enabled_plain.len()));
+        let update_pad = " ".repeat(col3_w.saturating_sub(row.last_update_plain.len()));
+        println!(
+            "{:<w0$}  {:<w1$}  {}{}  {}{}  {}",
+            row.type_str,
+            row.name,
+            row.enabled_display,
+            enabled_pad,
+            row.last_update_display,
+            update_pad,
+            row.url_path,
+            w0 = col0_w,
+            w1 = col1_w
+        );
+    }
+
+    Ok(())
+}
+
+fn update_sources(layout: &InroLayout, upstreams: &[UpstreamDef]) -> Result<()> {
+    let managed_registry_dir = &layout.managed_registry_dir;
+
+    if upstreams.is_empty() {
+        warn!("No upstream sources configured to update");
+        return Ok(());
+    }
+
+    hint!("Updating {} upstream sources...", upstreams.len());
+
+    fs::create_dir_all(managed_registry_dir)?;
+    let staging_root = tempfile::tempdir_in(managed_registry_dir)?;
+    let staged_registry = staging_root.path().join("registry");
+    let download_dir = staging_root.path().join("downloads");
+    fs::create_dir_all(&staged_registry)?;
+    fs::create_dir_all(&download_dir)?;
+    for entry in fs::read_dir(managed_registry_dir)? {
+        let path = entry?.path();
+        if path.is_file()
+            && path.extension().and_then(|extension| extension.to_str()) == Some("toml")
+            && let Some(file_name) = path.file_name()
+        {
+            fs::copy(&path, staged_registry.join(file_name))?;
+        }
+    }
+
+    let mut failures = 0usize;
+    let mut staged_updates = Vec::new();
+
+    for upstream in upstreams {
+        if !upstream.enabled {
+            hint!("Skipping disabled source '{}'", upstream.name);
+            continue;
+        }
+        if let Err(e) = validate_path_component(&upstream.name, "source name") {
+            fail!("Invalid source '{}': {}", upstream.name, e);
+            failures += 1;
+            continue;
         }
 
-        Ok(())
+        match download_file(&upstream.url, &download_dir) {
+            Ok(raw_path) => {
+                if let Err(e) = validate_toml_syntax(&raw_path) {
+                    fail!("Downloaded invalid source '{}': {}", upstream.name, e);
+                    failures += 1;
+                    continue;
+                }
+                let cached_name = format!("{:02}-{}.toml", upstream.priority, upstream.name);
+                let staged_path = staged_registry.join(&cached_name);
+                if let Err(e) = fs::rename(&raw_path, &staged_path) {
+                    fail!("Downloaded '{}' but failed to stage it: {}", upstream.name, e);
+                    let _ = fs::remove_file(raw_path);
+                    failures += 1;
+                } else {
+                    staged_updates.push((
+                        upstream.name.clone(),
+                        staged_path,
+                        managed_registry_dir.join(cached_name),
+                    ));
+                }
+            }
+            Err(e) => {
+                fail!("Failed to update '{}': {}", upstream.name, e);
+                failures += 1;
+            }
+        }
     }
+
+    if !staged_updates.is_empty() {
+        let mut staged_layout = layout.clone();
+        staged_layout.managed_registry_dir = staged_registry;
+        if let Err(e) = Registry::load(&staged_layout) {
+            fail!("Downloaded sources produce an invalid registry: {e:#}");
+            failures += 1;
+            staged_updates.clear();
+        }
+    }
+
+    for (name, staged_path, cached_path) in staged_updates {
+        if let Err(e) = fs::rename(&staged_path, &cached_path) {
+            fail!("Validated source '{name}' but failed to install it: {e}");
+            failures += 1;
+        } else {
+            done!("'{name}' Updated");
+        }
+    }
+    if failures > 0 {
+        anyhow::bail!("{failures} source(s) failed to update");
+    }
+
+    Ok(())
 }
 
 fn check_remote_update(url: &str, local_path: &std::path::Path) -> Result<bool> {

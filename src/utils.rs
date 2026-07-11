@@ -20,13 +20,6 @@ use crate::{client, detail, warn};
 /// Using a large buffer significantly reduces system calls for large files.
 const BUFFER_SIZE: usize = 1024 * 1024;
 
-pub fn unique(strs: &[String]) -> Vec<String> {
-    let mut vec = strs.to_owned();
-    vec.sort_unstable();
-    vec.dedup();
-    vec
-}
-
 pub fn ensure_unique_package_args(args: &[String]) -> Result<()> {
     let mut seen = HashSet::new();
     for arg in args {
@@ -1053,29 +1046,6 @@ pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // ==================== unique() ====================
-
-    #[test]
-    fn unique_removes_duplicates() {
-        let input = vec!["b".into(), "a".into(), "b".into(), "c".into(), "a".into()];
-        let result = unique(&input);
-        assert_eq!(result, vec!["a", "b", "c"]);
-    }
-
-    #[test]
-    fn unique_empty_input() {
-        let input: Vec<String> = vec![];
-        let result = unique(&input);
-        assert!(result.is_empty());
-    }
-
-    #[test]
-    fn unique_single_element() {
-        let input = vec!["only".into()];
-        let result = unique(&input);
-        assert_eq!(result, vec!["only"]);
-    }
 
     #[test]
     fn duplicate_package_versions_are_rejected() {

@@ -468,7 +468,6 @@ mod tests {
         let src = tmp.path().join("standalone-binary");
         let dst = tmp.path().join("out");
         let pkg = ResolvedPkg {
-            ver: Some("v1.0.0".to_string()),
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/empty".to_string(),
                 asset: Default::default(),
@@ -605,7 +604,6 @@ mod tests {
         let src = tmp.path().join("chsrc-aarch64-macos");
         let dst = tmp.path().join("out");
         let pkg = ResolvedPkg {
-            ver: Some("v1.0.0".to_string()),
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "RubyMetric/chsrc".to_string(),
                 asset: Default::default(),

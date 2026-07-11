@@ -28,25 +28,23 @@ fn main() -> anyhow::Result<()> {
     VERBOSITY.store(cli.verbose, Ordering::Relaxed);
 
     if let Some(command) = cli.command {
-        let command_handler: Box<dyn CommandHandler> = match command {
-            Command::Install { names } => Box::new(InstallCommand { names }),
-            Command::Uninstall { names, all } => Box::new(UninstallCommand { names, all }),
-            Command::List => Box::new(ListCommand {}),
-            Command::Update { names, force } => Box::new(UpdateCommand { names, force }),
-            Command::Source { command } => Box::new(SourceCommand { command }),
-            Command::Search { query } => Box::new(SearchCommand { query }),
-            Command::Pin { name } => Box::new(PinCommand { name }),
-            Command::Unpin { name } => Box::new(UnpinCommand { name }),
-            Command::Show { name } => Box::new(ShowCommand { name }),
-            Command::Use { name, version } => Box::new(UseCommand { name, version }),
-            Command::Unlink { name } => Box::new(UnlinkCommand { name }),
-            Command::Clean { dry_run } => Box::new(CleanCommand { dry_run }),
-            Command::Doctor { fix } => Box::new(DoctorCommand { fix }),
-            Command::Env => Box::new(EnvCommand {}),
-
-            Command::Generate { generator, out } => Box::new(GenerateCommand { generator, out }),
-        };
-        command_handler.handle()?;
+        match command {
+            Command::Install { names } => InstallCommand { names }.handle(),
+            Command::Uninstall { names, all } => UninstallCommand { names, all }.handle(),
+            Command::List => ListCommand {}.handle(),
+            Command::Update { names, force } => UpdateCommand { names, force }.handle(),
+            Command::Source { command } => SourceCommand { command }.handle(),
+            Command::Search { query } => SearchCommand { query }.handle(),
+            Command::Pin { name } => PinCommand { name }.handle(),
+            Command::Unpin { name } => UnpinCommand { name }.handle(),
+            Command::Show { name } => ShowCommand { name }.handle(),
+            Command::Use { name, version } => UseCommand { name, version }.handle(),
+            Command::Unlink { name } => UnlinkCommand { name }.handle(),
+            Command::Clean { dry_run } => CleanCommand { dry_run }.handle(),
+            Command::Doctor { fix } => DoctorCommand { fix }.handle(),
+            Command::Env => EnvCommand {}.handle(),
+            Command::Generate { generator, out } => GenerateCommand { generator, out }.handle(),
+        }?;
     } else {
         Cli::command().print_long_help()?;
     }

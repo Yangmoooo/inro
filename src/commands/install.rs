@@ -12,7 +12,7 @@ use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
 use crate::reporter::print_error_chain;
-use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version};
 use crate::warn;
 
 pub struct InstallCommand {
@@ -29,7 +29,6 @@ struct InstallTask {
 impl CommandHandler for InstallCommand {
     fn handle(&self) -> Result<()> {
         ensure_unique_package_args(&self.names)?;
-        let names = unique(&self.names);
 
         let layout = InroLayout::new()?;
         let _lock = crate::lock::acquire(&layout)?;
@@ -45,21 +44,22 @@ impl CommandHandler for InstallCommand {
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
         // Parse and collect package names for width calculation
-        let parsed: Vec<_> = names
+        let parsed: Vec<_> = self
+            .names
             .iter()
             .map(|n| {
                 let (pkg_name, pkg_ver) = parse_package_version(n);
-                (n.clone(), pkg_name.to_string(), pkg_ver.map(|s| s.to_string()))
+                (pkg_name.to_string(), pkg_ver.map(|s| s.to_string()))
             })
             .collect();
-        let pkg_names: Vec<&str> = parsed.iter().map(|(_, p, _)| p.as_str()).collect();
+        let pkg_names: Vec<&str> = parsed.iter().map(|(name, _)| name.as_str()).collect();
         let pm = ProgressManager::new(&pkg_names);
 
         // Validate and create tasks
         let mut valid_tasks = Vec::new();
         let mut fail_count = 0usize;
 
-        for (_, pkg_name, pkg_ver) in parsed {
+        for (pkg_name, pkg_ver) in parsed {
             match registry.pkgs.get(&pkg_name) {
                 Some(_) => {
                     let progress = pm.add_package(&pkg_name);
@@ -139,7 +139,7 @@ impl CommandHandler for InstallCommand {
                         let layout = &layout;
                         async move {
                             let pkg_def = registry.pkgs.get(&task.pkg_name)?;
-                            let pkg = pkg_def.clone().resolve(&task.pkg_name);
+                            let pkg = pkg_def.resolve(&task.pkg_name);
 
                             match install_candidate(
                                 &task.pkg_name,

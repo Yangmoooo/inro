@@ -1,7 +1,5 @@
 # this package is just an example, DO NOT USE
 [example]
-# typically a release tag, defaults to latest
-ver = "vX.Y.Z"
 
 # remote types: github, direct (not implemented yet)
 [example.remote.github]

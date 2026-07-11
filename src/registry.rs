@@ -216,7 +216,7 @@ link = "tool"
             Some(&AssetSelector::Glob("*linux-x86_64.tar.gz".to_string()))
         );
         assert_eq!(pkg.bin.len(), 1);
-        let resolved = pkg.clone().resolve("tool");
+        let resolved = pkg.resolve("tool");
         #[cfg(not(windows))]
         assert_eq!(resolved.bin[0].link, "tool");
         #[cfg(windows)]

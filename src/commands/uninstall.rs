@@ -9,7 +9,7 @@ use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::package::PkgReceipt;
-use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version};
 use crate::{detail, done, fail, hint, step, warn};
 
 pub struct UninstallCommand {
@@ -26,7 +26,7 @@ struct UninstallReceipt {
 impl CommandHandler for UninstallCommand {
     fn handle(&self) -> Result<()> {
         ensure_unique_package_args(&self.names)?;
-        let names = unique(&self.names);
+        let names = &self.names;
         hint!("Starting uninstallation of {} package(s)...", names.len());
 
         let layout = InroLayout::new()?;
@@ -46,7 +46,7 @@ impl CommandHandler for UninstallCommand {
         let pkgs_dir = &layout.pkgs_dir;
         let bin_dir = &config.bin_dir;
 
-        for name in &names {
+        for name in names {
             match do_uninstall(name, self.all, &mut manifest, bin_dir, pkgs_dir) {
                 Ok(Some(receipt)) => successes.push(receipt),
                 Ok(None) => {

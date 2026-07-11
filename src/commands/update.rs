@@ -12,7 +12,7 @@ use crate::progress::{PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::CandidateResult;
 use crate::reporter::print_error_chain;
-use crate::utils::{ensure_unique_package_args, parse_package_version, unique};
+use crate::utils::{ensure_unique_package_args, parse_package_version};
 use crate::warn;
 
 pub struct UpdateCommand {
@@ -39,7 +39,7 @@ impl CommandHandler for UpdateCommand {
         let names: Vec<String> = if self.names.is_empty() {
             manifest.pkgs.keys().cloned().collect()
         } else {
-            unique(&self.names)
+            self.names.clone()
         };
 
         if names.is_empty() {
@@ -174,7 +174,7 @@ impl CommandHandler for UpdateCommand {
                                 task.progress.finish_error("not found in registry");
                                 return None;
                             };
-                            let pkg = pkg_def.clone().resolve(&task.name);
+                            let pkg = pkg_def.resolve(&task.name);
                             match install_candidate(
                                 &task.name,
                                 &candidate,

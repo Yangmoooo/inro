@@ -38,7 +38,7 @@ impl CommandHandler for SearchCommand {
         let mut max_source_len = 6;
 
         for (name, pkg_def) in &registry.pkgs {
-            let resolved = pkg_def.clone().resolve(name);
+            let resolved = pkg_def.resolve(name);
             let name_lower = name.to_lowercase();
 
             let pkg_match = name_lower.contains(&query);
