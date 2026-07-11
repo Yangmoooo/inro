@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Duplicate Package Arguments Are Rejected**: `install`, `update`, and `uninstall` now report an error when the same package is specified more than once, including conflicting forms such as `tool@1.0.0 tool@2.0.0`, instead of silently deduplicating the request.
+
+### Fixed
+
+- **Failure-Safe Package Operations**: Installing, updating, switching, unlinking, or uninstalling a package no longer leaves partially changed links, files, or manifest state when a later filesystem operation fails. Existing installations and links are restored where possible, failed removals remain recorded, and uninstalling an inactive version no longer removes links belonging to the active version.
+- **Validated Source Updates**: `inro source update` now stages downloaded registries and validates both their TOML syntax and the merged registry before replacing cached sources. Invalid downloads leave the existing registry intact and cause the command to exit with an error.
+- **Unlinked Packages Stay Unlinked**: `inro update` now skips installed packages with no active version instead of downloading an update and linking them again unexpectedly.
+- **Doctor Exit Status**: `inro doctor` now exits with a non-zero status when it finds errors, so scripts and CI can reliably detect an unhealthy installation.
+- **Accurate Clean Summary**: `inro clean` now reports the number of versions actually removed rather than counting removals that failed.
+- **Registry Path Validation**: Package, source, version, binary, and link names that could escape their intended directories are now rejected with a clear error instead of being used as filesystem paths.
+
 ## [0.8.0] - 2026-06-29
 
 ### Added
