@@ -76,7 +76,7 @@ impl CommandHandler for CleanCommand {
         }
 
         hint!("Found {} old version(s) to remove:", candidates_to_remove.len());
-        let mut any_removed = false;
+        let mut removed_count = 0usize;
 
         for (pkg, ver, path, size) in &candidates_to_remove {
             let size_str = format_size(*size, DECIMAL);
@@ -102,21 +102,17 @@ impl CommandHandler for CleanCommand {
                     let _ = fs::remove_dir(&pkg_dir);
                 }
                 recovered_space += size;
-                any_removed = true;
+                removed_count += 1;
             }
         }
 
         if self.dry_run {
             hint!("Dry run complete. Use without --dry-run to perform cleanup.");
-        } else if any_removed {
+        } else if removed_count > 0 {
             manifest.save(&layout.manifest_path)?;
 
             let total_size_str = format_size(recovered_space, DECIMAL);
-            done!(
-                "Cleaned up {} old versions. Freed {}.",
-                candidates_to_remove.len(),
-                total_size_str
-            );
+            done!("Cleaned up {} old versions. Freed {}.", removed_count, total_size_str);
         }
 
         Ok(())

@@ -70,7 +70,10 @@ impl CommandHandler for UpdateCommand {
                         pm.add_package(pkg_name).finish_error("pinned, skipping");
                         continue;
                     }
-                    let current_ver = state.current_version.as_deref().unwrap_or_default();
+                    let Some(current_ver) = state.current_version.as_deref() else {
+                        pm.add_package(pkg_name).finish_error("unlinked, skipping");
+                        continue;
+                    };
                     let progress = pm.add_package(pkg_name);
                     tasks.push(UpdateTask {
                         name: pkg_name.clone(),

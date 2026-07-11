@@ -142,6 +142,49 @@ fn double_verbose_adds_debug_tracing() {
 }
 
 #[test]
+fn update_skips_unlinked_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    fs::create_dir_all(home.join("registry.d")).unwrap();
+    fs::write(home.join("config.toml"), "upstreams = []\n").unwrap();
+    fs::write(home.join("registry.d/tool.toml"), "[tool.remote.github]\nrepo = \"test/tool\"\n")
+        .unwrap();
+    let manifest = serde_json::json!({
+        "schema_version": 2,
+        "packages": {
+            "tool": {
+                "current_version": null,
+                "versions": {
+                    "v1.0.0": {
+                        "name": "tool",
+                        "version": "v1.0.0",
+                        "remote": { "github": { "repo": "test/tool", "asset": {} } },
+                        "installed_at": "2026-01-01T00:00:00Z",
+                        "install_subdir": "tool/v1.0.0",
+                        "binaries": [{ "name": "tool", "bin_subpath": "tool" }]
+                    }
+                },
+                "pinned": false
+            }
+        }
+    });
+    fs::write(home.join("manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+    let output = run_inro(&home, &["-v", "update"]);
+
+    assert!(
+        output.status.success(),
+        "stdout: {}\nstderr: {}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("unlinked, skipping"));
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    assert!(manifest["packages"]["tool"]["current_version"].is_null());
+}
+
+#[test]
 fn test_server_stops_waiting_without_a_connection() {
     let started = std::time::Instant::now();
     let (_url, server) = serve_once_with_timeout("unused", Duration::from_millis(50));
