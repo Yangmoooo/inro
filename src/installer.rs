@@ -7,13 +7,17 @@ use dialoguer::Select;
 use humansize::{BINARY, format_size};
 use tempfile::TempDir;
 
+use crate::archive::{FileType, extract_file};
 use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::platform::PlatformInfo;
 use crate::progress::{OpPhase, PkgProgress};
 use crate::registry::AssetSelectionWriteBack;
-use crate::remotes::{CandidateResult, InstallCandidate, MatchKind, create_provider};
+use crate::remotes::{
+    CandidateResult, InstallCandidate, MatchKind, create_provider, derive_asset_selector,
+    derive_asset_selector_from_assets,
+};
 use crate::utils::*;
 use crate::warn;
 

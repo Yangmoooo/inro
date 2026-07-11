@@ -1,8 +1,13 @@
+mod asset;
 pub mod github;
 
 use std::collections::HashMap;
 use std::fmt;
 
+pub use asset::{
+    AssetSelector, asset_matches_selector, derive_asset_selector,
+    derive_asset_selector_from_assets, is_ignored_format, is_supported_format,
+};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 
@@ -42,22 +47,6 @@ pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
     pub asset: HashMap<String, AssetSelector>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
-#[serde(untagged)]
-pub enum AssetSelector {
-    Glob(String),
-    Tokens(Vec<String>),
-}
-
-impl fmt::Display for AssetSelector {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            AssetSelector::Glob(pattern) => write!(f, "{pattern}"),
-            AssetSelector::Tokens(tokens) => write!(f, "{}", tokens.join(", ")),
-        }
-    }
 }
 
 #[derive(Debug, Clone)]

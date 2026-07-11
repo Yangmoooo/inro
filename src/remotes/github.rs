@@ -7,8 +7,7 @@ use serde::Deserialize;
 use super::{AssetSelector, CandidateResult, InstallCandidate, MatchKind, RemoteType};
 use crate::package::PkgDef;
 use crate::platform::PlatformInfo;
-use crate::remotes::VersionInfo;
-use crate::utils::{asset_matches_selector, is_ignored_format, is_supported_format};
+use crate::remotes::{VersionInfo, asset_matches_selector, is_ignored_format, is_supported_format};
 use crate::{client, detail};
 
 /// 100 is GitHub's per-page maximum. We never paginate beyond the first
