@@ -1,4 +1,4 @@
-use std::io::{Read, Write};
+use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::process::{Command, Output};
 use std::time::Duration;
@@ -14,20 +14,42 @@ fn run_inro(home: &std::path::Path, args: &[&str]) -> Output {
 }
 
 fn serve_once(body: &'static str) -> (String, thread::JoinHandle<()>) {
+    serve_once_with_timeout(body, Duration::from_secs(5))
+}
+
+fn serve_once_with_timeout(
+    body: &'static str,
+    timeout: Duration,
+) -> (String, thread::JoinHandle<()>) {
     let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
     let address = listener.local_addr().unwrap();
     let handle = thread::spawn(move || {
-        let (mut stream, _) = listener.accept().unwrap();
-        stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
-        let mut request = [0u8; 2048];
-        let _ = stream.read(&mut request);
-        write!(
-            stream,
-            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
-            body.len(),
-            body
-        )
-        .unwrap();
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+                    let mut request = [0u8; 2048];
+                    let _ = stream.read(&mut request);
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+                        body.len(),
+                        body
+                    )
+                    .unwrap();
+                    break;
+                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    if std::time::Instant::now() >= deadline {
+                        break;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept failed: {error}"),
+            }
+        }
     });
     (format!("http://{address}/registry.toml"), handle)
 }
@@ -117,4 +139,14 @@ fn double_verbose_adds_debug_tracing() {
     assert!(!verbose_stderr.contains("Resolved INRO_HOME"));
     assert!(debug_stderr.contains("Resolved INRO_HOME"), "stderr: {debug_stderr}");
     assert!(debug_stderr.contains("Loaded config"), "stderr: {debug_stderr}");
+}
+
+#[test]
+fn test_server_stops_waiting_without_a_connection() {
+    let started = std::time::Instant::now();
+    let (_url, server) = serve_once_with_timeout("unused", Duration::from_millis(50));
+
+    server.join().unwrap();
+
+    assert!(started.elapsed() < Duration::from_secs(1));
 }

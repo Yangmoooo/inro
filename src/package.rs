@@ -222,18 +222,44 @@ impl PkgReceipt {
     /// already manages (i.e. pointing inside `pkgs_dir`); foreign files are
     /// refused by the underlying `create_symlink`.
     pub fn relink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
+        self.relink_with(bin_dir, pkgs_dir, create_symlink)
+    }
+
+    fn relink_with<F>(&self, bin_dir: &Path, pkgs_dir: &Path, mut link_file: F) -> Result<()>
+    where
+        F: FnMut(&Path, &Path, &Path) -> Result<()>,
+    {
         fs::create_dir_all(bin_dir)
             .with_context(|| format!("Failed to create bin dir: {}", bin_dir.display()))?;
 
+        let mut previous_links = Vec::with_capacity(self.binaries.len());
         for bin in &self.binaries {
             validate_path_component(&bin.name, "link name")?;
-            ensure_link_replaceable(&self.link_path(bin, bin_dir), pkgs_dir)?;
+            let link = self.link_path(bin, bin_dir);
+            ensure_link_replaceable(&link, pkgs_dir)?;
+            let previous_target = if link.is_symlink() {
+                Some(fs::read_link(&link).with_context(|| {
+                    format!("Failed to read existing symlink: {}", link.display())
+                })?)
+            } else {
+                None
+            };
+            previous_links.push((link, previous_target));
         }
 
-        for bin in &self.binaries {
-            let target = self.link_path(bin, bin_dir);
+        for (index, bin) in self.binaries.iter().enumerate() {
+            let target = &previous_links[index].0;
             let original = self.bin_path(bin, pkgs_dir);
-            create_symlink(&original, &target, pkgs_dir)?;
+            if let Err(link_error) = link_file(&original, target, pkgs_dir) {
+                if let Err(rollback_error) =
+                    rollback_links(&previous_links[..=index], pkgs_dir, &mut link_file)
+                {
+                    return Err(anyhow::anyhow!(
+                        "{link_error}; additionally failed to roll back links: {rollback_error}"
+                    ));
+                }
+                return Err(link_error);
+            }
         }
         Ok(())
     }
@@ -260,6 +286,33 @@ impl PkgReceipt {
         }
         Ok(())
     }
+}
+
+fn rollback_links<F>(
+    links: &[(PathBuf, Option<PathBuf>)],
+    pkgs_dir: &Path,
+    link_file: &mut F,
+) -> Result<()>
+where
+    F: FnMut(&Path, &Path, &Path) -> Result<()>,
+{
+    for (link, previous_target) in links.iter().rev() {
+        if link.is_symlink() {
+            if !is_inro_managed_symlink(link, pkgs_dir) {
+                anyhow::bail!("Refusing to roll back foreign symlink '{}'", link.display());
+            }
+            fs::remove_file(link).with_context(|| {
+                format!("Failed to remove link during rollback: {}", link.display())
+            })?;
+        } else if link.exists() {
+            anyhow::bail!("Refusing to roll back foreign file '{}'", link.display());
+        }
+
+        if let Some(previous_target) = previous_target {
+            link_file(previous_target, link, pkgs_dir)?;
+        }
+    }
+    Ok(())
 }
 
 /// Information about an installed binary.
@@ -937,6 +990,57 @@ link = "simple-link"
 
         assert_eq!(fs::read_link(first_link).unwrap(), old_target);
         assert_eq!(fs::read(bin_dir.join("helper")).unwrap(), b"user-owned");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn relink_rolls_back_when_later_link_creation_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        let pkgs_dir = tmp.path().join("pkgs");
+        let bin_dir = tmp.path().join("bin");
+        fs::create_dir_all(&bin_dir).unwrap();
+
+        let old_install = pkgs_dir.join("tool/v0.9.0");
+        fs::create_dir_all(&old_install).unwrap();
+        let old_tool = old_install.join("tool");
+        let old_helper = old_install.join("helper");
+        fs::write(&old_tool, b"old tool").unwrap();
+        fs::write(&old_helper, b"old helper").unwrap();
+        let tool_link = bin_dir.join("tool");
+        let helper_link = bin_dir.join("helper");
+        std::os::unix::fs::symlink(&old_tool, &tool_link).unwrap();
+        std::os::unix::fs::symlink(&old_helper, &helper_link).unwrap();
+
+        let new_install = pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&new_install).unwrap();
+        fs::write(new_install.join("tool"), b"new tool").unwrap();
+        fs::write(new_install.join("helper"), b"new helper").unwrap();
+        let receipt = PkgReceipt {
+            name: "tool".to_string(),
+            version: "v1.0.0".to_string(),
+            remote: RemoteType::default(),
+            installed_at: Utc::now(),
+            install_subdir: PathBuf::from("tool/v1.0.0"),
+            binaries: vec![
+                InstalledBin { name: "tool".to_string(), bin_subpath: PathBuf::from("tool") },
+                InstalledBin { name: "helper".to_string(), bin_subpath: PathBuf::from("helper") },
+            ],
+        };
+
+        let mut calls = 0usize;
+        let error = receipt
+            .relink_with(&bin_dir, &pkgs_dir, |original, link, owned_root| {
+                calls += 1;
+                if calls == 2 {
+                    anyhow::bail!("simulated link failure");
+                }
+                create_symlink(original, link, owned_root)
+            })
+            .unwrap_err();
+
+        assert!(error.to_string().contains("simulated link failure"));
+        assert_eq!(fs::read_link(tool_link).unwrap(), old_tool);
+        assert_eq!(fs::read_link(helper_link).unwrap(), old_helper);
     }
 
     #[cfg(unix)]
