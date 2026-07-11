@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-07-12
+
 ### Changed
 
 - **Duplicate Package Arguments Are Rejected**: `install`, `update`, and `uninstall` now report an error when the same package is specified more than once, including conflicting forms such as `tool@1.0.0 tool@2.0.0`, instead of silently deduplicating the request.
