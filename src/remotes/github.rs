@@ -367,8 +367,18 @@ impl GitHubProvider {
     // ==================== Async versions (for install/update) ====================
 
     pub(crate) async fn fetch_releases_async(&self, repo: &str) -> Result<Releases> {
-        let api_base =
-            env::var("INRO_GITHUB_API_URL").unwrap_or_else(|_| GITHUB_API_URL.to_string());
+        let api_base = {
+            // CLI integration tests run a normal binary without cfg(test). Debug
+            // assertions keep this test seam out of release builds.
+            #[cfg(debug_assertions)]
+            {
+                env::var("INRO_TEST_GITHUB_API_URL").unwrap_or_else(|_| GITHUB_API_URL.to_string())
+            }
+            #[cfg(not(debug_assertions))]
+            {
+                GITHUB_API_URL.to_string()
+            }
+        };
         let api_url = format!("{}/repos/{repo}/releases", api_base.trim_end_matches('/'));
         let client = client::get();
 

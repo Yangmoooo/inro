@@ -207,13 +207,13 @@ impl PkgReceipt {
     /// Save the receipt inside an installation directory.
     pub fn save_to_dir(&self, install_dir: &Path) -> Result<()> {
         let receipt_path = install_dir.join("inro-receipt.json");
-        let receipt_file =
-            OpenOptions::new().write(true).create_new(true).open(&receipt_path).with_context(
-                || format!("Failed to create install receipt: {}", receipt_path.display()),
-            )?;
-        serde_json::to_writer_pretty(receipt_file, self).with_context(|| {
-            format!("Failed to write install receipt: {}", receipt_path.display())
-        })?;
+        let receipt_file = OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&receipt_path)
+            .context("Failed to create install receipt")?;
+        serde_json::to_writer_pretty(receipt_file, self)
+            .context("Failed to write install receipt")?;
         Ok(())
     }
 
@@ -341,6 +341,14 @@ pub enum PkgError {
     #[error("Failed to extract archive '{filename}'")]
     Extraction {
         filename: String,
+        #[source]
+        source: anyhow::Error,
+    },
+
+    #[error("Failed to persist install receipt for '{name}@{version}'")]
+    Receipt {
+        name: String,
+        version: String,
         #[source]
         source: anyhow::Error,
     },

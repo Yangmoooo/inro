@@ -409,7 +409,11 @@ async fn install_candidate(
         install_subdir,
         binaries,
     };
-    receipt.save_to_dir(staging_dir.path()).map_err(|error| PkgError::Other(error.to_string()))?;
+    receipt.save_to_dir(staging_dir.path()).map_err(|source| PkgError::Receipt {
+        name: name.to_string(),
+        version: candidate.version.clone(),
+        source,
+    })?;
 
     // Take ownership of the complete staging path, including its receipt,
     // so it survives the rename below. From here on, any error before the
@@ -792,7 +796,11 @@ mod tests {
         server.join().unwrap();
 
         let error = result.unwrap_err();
-        assert!(error.to_string().contains("inro-receipt.json"));
+        assert_eq!(error.to_string(), "Failed to persist install receipt for 'tool@v1.0.0'");
+        let causes = crate::reporter::format_error_chain(&error);
+        assert_eq!(causes.first().map(String::as_str), Some("Failed to create install receipt"));
+        assert!(causes.len() >= 2, "missing underlying OS error: {causes:?}");
+        assert!(causes.iter().all(|cause| !cause.contains(".staging.")));
         assert_eq!(fs::read(final_dir.join("tool")).unwrap(), b"old");
         let leftovers: Vec<_> = fs::read_dir(final_dir.parent().unwrap())
             .unwrap()

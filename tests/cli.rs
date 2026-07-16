@@ -13,6 +13,7 @@ fn run_inro_with_env(home: &Path, args: &[&str], envs: &[(&str, &str)]) -> Outpu
         .args(args)
         .env("INRO_HOME", home)
         .env_remove("INRO_UPSTREAMS")
+        .env_remove("INRO_TEST_GITHUB_API_URL")
         .env_remove("INRO_GITHUB_TOKEN")
         .env_remove("GITHUB_TOKEN")
         .env("NO_PROXY", "127.0.0.1,localhost")
@@ -175,8 +176,11 @@ fn serve_tool_release(
 #[cfg(unix)]
 fn install_tool(home: &Path, version: &str) {
     let (api_url, server) = serve_tool_release(version, tool_binary(), true);
-    let output =
-        run_inro_with_env(home, &["-v", "install", "tool"], &[("INRO_GITHUB_API_URL", &api_url)]);
+    let output = run_inro_with_env(
+        home,
+        &["-v", "install", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
     server.join().unwrap();
     assert_success(&output);
 }
@@ -240,8 +244,11 @@ fn install_commits_files_link_receipt_and_manifest() {
     let (home, bin_dir) = setup_tool_home(temp.path());
     let (api_url, server) = serve_tool_release("v1.0.0", tool_binary(), true);
 
-    let output =
-        run_inro_with_env(&home, &["-v", "install", "tool"], &[("INRO_GITHUB_API_URL", &api_url)]);
+    let output = run_inro_with_env(
+        &home,
+        &["-v", "install", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
     server.join().unwrap();
 
     assert_success(&output);
@@ -270,7 +277,7 @@ fn install_commits_successful_packages_when_batch_partially_fails() {
     let output = run_inro_with_env(
         &home,
         &["install", "tool", "missing"],
-        &[("INRO_GITHUB_API_URL", &api_url)],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
     );
     server.join().unwrap();
 
@@ -297,7 +304,7 @@ fn update_retains_old_version_and_activates_new_version() {
 
     let (v2_api_url, v2_server) = serve_tool_release("v2.0.0", tool_binary(), true);
     let update =
-        run_inro_with_env(&home, &["update", "tool"], &[("INRO_GITHUB_API_URL", &v2_api_url)]);
+        run_inro_with_env(&home, &["update", "tool"], &[("INRO_TEST_GITHUB_API_URL", &v2_api_url)]);
     v2_server.join().unwrap();
 
     assert_success(&update);
@@ -324,8 +331,11 @@ fn update_does_not_reinstall_an_up_to_date_package() {
     let manifest_before = fs::read(home.join("manifest.json")).unwrap();
 
     let (update_api_url, update_server) = serve_tool_release("v1.0.0", tool_binary(), false);
-    let update =
-        run_inro_with_env(&home, &["update", "tool"], &[("INRO_GITHUB_API_URL", &update_api_url)]);
+    let update = run_inro_with_env(
+        &home,
+        &["update", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &update_api_url)],
+    );
     update_server.join().unwrap();
 
     assert_success(&update);
@@ -348,7 +358,7 @@ fn update_skips_pinned_package_unless_forced_and_preserves_pin() {
     let skipped = run_inro_with_env(
         &home,
         &["-v", "update", "tool"],
-        &[("INRO_GITHUB_API_URL", &unavailable_api)],
+        &[("INRO_TEST_GITHUB_API_URL", &unavailable_api)],
     );
     assert!(
         skipped.status.success(),
@@ -363,7 +373,7 @@ fn update_skips_pinned_package_unless_forced_and_preserves_pin() {
     let forced = run_inro_with_env(
         &home,
         &["update", "--force", "tool"],
-        &[("INRO_GITHUB_API_URL", &update_api_url)],
+        &[("INRO_TEST_GITHUB_API_URL", &update_api_url)],
     );
     update_server.join().unwrap();
 
@@ -442,8 +452,11 @@ fn update_skips_unlinked_package() {
     let manifest_before = fs::read(home.join("manifest.json")).unwrap();
     let unavailable_api = closed_local_url();
 
-    let output =
-        run_inro_with_env(&home, &["-v", "update"], &[("INRO_GITHUB_API_URL", &unavailable_api)]);
+    let output = run_inro_with_env(
+        &home,
+        &["-v", "update"],
+        &[("INRO_TEST_GITHUB_API_URL", &unavailable_api)],
+    );
 
     assert!(
         output.status.success(),
