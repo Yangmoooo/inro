@@ -1,5 +1,5 @@
 use std::collections::HashMap;
-use std::fs::{self, File};
+use std::fs::{self, OpenOptions};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -204,13 +204,16 @@ impl PkgReceipt {
         bin_dir.join(&bin.name)
     }
 
-    /// Save the receipt to the installation directory.
-    pub fn save_to_install_dir(&self, pkgs_dir: &Path) -> Result<()> {
-        let receipt_path = self.install_dir(pkgs_dir).join("inro-receipt.json");
-        let receipt_file = File::create(&receipt_path).with_context(|| {
-            format!("Failed to create receipt backup: {}", receipt_path.display())
+    /// Save the receipt inside an installation directory.
+    pub fn save_to_dir(&self, install_dir: &Path) -> Result<()> {
+        let receipt_path = install_dir.join("inro-receipt.json");
+        let receipt_file =
+            OpenOptions::new().write(true).create_new(true).open(&receipt_path).with_context(
+                || format!("Failed to create install receipt: {}", receipt_path.display()),
+            )?;
+        serde_json::to_writer_pretty(receipt_file, self).with_context(|| {
+            format!("Failed to write install receipt: {}", receipt_path.display())
         })?;
-        serde_json::to_writer_pretty(receipt_file, self)?;
         Ok(())
     }
 

@@ -236,10 +236,6 @@ pub async fn install_candidate(
         })
         .collect::<Result<_, PkgError>>()?;
 
-    // Take ownership of the staging path, dismissing TempDir's auto-cleanup
-    // so it survives the rename below. From here on, any error before the
-    // rename completes must remove the staging dir explicitly.
-    let staging_path = staging_dir.keep();
     let receipt = PkgReceipt {
         name: name.to_string(),
         version: candidate.version.clone(),
@@ -248,6 +244,12 @@ pub async fn install_candidate(
         install_subdir,
         binaries,
     };
+    receipt.save_to_dir(staging_dir.path()).map_err(|error| PkgError::Other(error.to_string()))?;
+
+    // Take ownership of the complete staging path, including its receipt,
+    // so it survives the rename below. From here on, any error before the
+    // rename completes must remove the staging dir explicitly.
+    let staging_path = staging_dir.keep();
     promote_and_relink_install(
         &staging_path,
         &final_install_dir,
@@ -374,9 +376,105 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
 
 #[cfg(test)]
 mod tests {
+    #[cfg(unix)]
+    use std::io::{ErrorKind, Read, Write};
+    #[cfg(unix)]
+    use std::net::TcpListener;
+    #[cfg(unix)]
+    use std::thread;
+    #[cfg(unix)]
+    use std::time::Duration;
+
     use super::*;
     use crate::package::ResolvedBin;
+    #[cfg(unix)]
+    use crate::progress::ProgressManager;
     use crate::remotes::{GitHubAssetDef, RemoteType};
+
+    #[cfg(unix)]
+    fn test_layout(root: &Path) -> InroLayout {
+        let inro_dir = root.join("inro");
+        InroLayout {
+            home_dir: root.to_path_buf(),
+            config_path: inro_dir.join("config.toml"),
+            manifest_path: inro_dir.join("manifest.json"),
+            pkgs_dir: inro_dir.join("pkgs"),
+            managed_registry_dir: inro_dir.join("registry"),
+            user_registry_dir: inro_dir.join("registry.d"),
+            inro_dir,
+        }
+    }
+
+    #[cfg(unix)]
+    fn test_config(root: &Path) -> Config {
+        Config { bin_dir: root.join("bin"), upstreams: vec![], parallel_downloads: 1 }
+    }
+
+    #[cfg(unix)]
+    fn serve_bytes(path: &str, body: Vec<u8>) -> (String, thread::JoinHandle<()>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let handle = thread::spawn(move || {
+            let deadline = std::time::Instant::now() + Duration::from_secs(5);
+            loop {
+                match listener.accept() {
+                    Ok((mut stream, _)) => {
+                        let mut request = [0u8; 2048];
+                        let _ = stream.read(&mut request);
+                        write!(
+                            stream,
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        )
+                        .unwrap();
+                        stream.write_all(&body).unwrap();
+                        break;
+                    }
+                    Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                        if std::time::Instant::now() >= deadline {
+                            break;
+                        }
+                        thread::sleep(Duration::from_millis(10));
+                    }
+                    Err(error) => panic!("accept failed: {error}"),
+                }
+            }
+        });
+        (format!("http://{address}/{path}"), handle)
+    }
+
+    #[cfg(unix)]
+    fn package_with_tool() -> ResolvedPkg {
+        ResolvedPkg {
+            remote: RemoteType::default(),
+            bin: vec![ResolvedBin { name: "tool".to_string(), link: "tool".to_string() }],
+        }
+    }
+
+    #[cfg(unix)]
+    fn tar_gz_with_reserved_receipt_dir() -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+
+        let binary = b"\x7fELFtest";
+        let mut binary_header = tar::Header::new_gnu();
+        binary_header.set_path("tool").unwrap();
+        binary_header.set_size(binary.len() as u64);
+        binary_header.set_mode(0o755);
+        binary_header.set_cksum();
+        archive.append(&binary_header, &binary[..]).unwrap();
+
+        let mut dir_header = tar::Header::new_gnu();
+        dir_header.set_path("inro-receipt.json").unwrap();
+        dir_header.set_entry_type(tar::EntryType::Directory);
+        dir_header.set_size(0);
+        dir_header.set_mode(0o755);
+        dir_header.set_cksum();
+        archive.append(&dir_header, std::io::empty()).unwrap();
+
+        archive.into_inner().unwrap().finish().unwrap()
+    }
 
     fn candidate(asset_name: &str) -> InstallCandidate {
         InstallCandidate {
@@ -462,6 +560,73 @@ mod tests {
 
         assert!(error.to_string().contains("Configured asset selector"));
         assert!(error.to_string().contains("matched multiple assets"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn successful_install_commits_receipt_with_final_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = test_layout(tmp.path());
+        let config = test_config(tmp.path());
+        let body = b"\x7fELFtest".to_vec();
+        let (url, server) = serve_bytes("tool", body.clone());
+        let candidate = InstallCandidate {
+            version: "v1.0.0".to_string(),
+            asset_name: "tool".to_string(),
+            download_url: url,
+            size: body.len() as u64,
+        };
+        let pkg = package_with_tool();
+        let progress = ProgressManager::new(&["tool"]).add_package("tool");
+
+        let receipt =
+            install_candidate("tool", &candidate, &pkg, &config, &layout, &progress).await.unwrap();
+        server.join().unwrap();
+
+        let receipt_path = receipt.install_dir(&layout.pkgs_dir).join("inro-receipt.json");
+        let saved: PkgReceipt = serde_json::from_slice(&fs::read(&receipt_path).unwrap()).unwrap();
+        assert_eq!(saved.name, "tool");
+        assert_eq!(saved.version, "v1.0.0");
+        assert_eq!(saved.install_subdir, PathBuf::from("tool/v1.0.0"));
+        assert_eq!(saved.binaries.len(), 1);
+        assert_eq!(saved.binaries[0].name, "tool");
+        assert_eq!(saved.binaries[0].bin_subpath, PathBuf::from("tool"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn receipt_write_failure_keeps_existing_install_intact() {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = test_layout(tmp.path());
+        let config = test_config(tmp.path());
+        let final_dir = layout.pkgs_dir.join("tool/v1.0.0");
+        fs::create_dir_all(&final_dir).unwrap();
+        fs::write(final_dir.join("tool"), b"old").unwrap();
+
+        let body = tar_gz_with_reserved_receipt_dir();
+        let (url, server) = serve_bytes("tool.tar.gz", body.clone());
+        let candidate = InstallCandidate {
+            version: "v1.0.0".to_string(),
+            asset_name: "tool.tar.gz".to_string(),
+            download_url: url,
+            size: body.len() as u64,
+        };
+        let pkg = package_with_tool();
+        let progress = ProgressManager::new(&["tool"]).add_package("tool");
+
+        let result = install_candidate("tool", &candidate, &pkg, &config, &layout, &progress).await;
+        server.join().unwrap();
+
+        let error = result.unwrap_err();
+        assert!(error.to_string().contains("inro-receipt.json"));
+        assert_eq!(fs::read(final_dir.join("tool")).unwrap(), b"old");
+        let leftovers: Vec<_> = fs::read_dir(final_dir.parent().unwrap())
+            .unwrap()
+            .filter_map(Result::ok)
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .filter(|name| name.contains(".staging."))
+            .collect();
+        assert!(leftovers.is_empty(), "staging dirs leaked: {leftovers:?}");
     }
 
     #[test]

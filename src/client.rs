@@ -16,11 +16,12 @@ const READ_TIMEOUT: Duration = Duration::from_secs(60);
 /// Get or initialize the shared async HTTP client.
 pub fn get() -> &'static Client {
     HTTP_CLIENT.get_or_init(|| {
-        Client::builder()
+        let builder = Client::builder()
             .user_agent(format!("inro/{}", env!("CARGO_PKG_VERSION")))
             .connect_timeout(CONNECT_TIMEOUT)
-            .read_timeout(READ_TIMEOUT)
-            .build()
-            .expect("Failed to initialize HTTP client")
+            .read_timeout(READ_TIMEOUT);
+        #[cfg(test)]
+        let builder = builder.no_proxy();
+        builder.build().expect("Failed to initialize HTTP client")
     })
 }
