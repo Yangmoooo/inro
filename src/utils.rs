@@ -62,6 +62,7 @@ pub async fn download_file_with_progress(
         dest_file.write_all(&chunk).await.context("Failed to write chunk to disk")?;
         progress.inc(chunk.len() as u64);
     }
+    dest_file.flush().await.context("Failed to flush downloaded file")?;
 
     Ok(dest_path)
 }
