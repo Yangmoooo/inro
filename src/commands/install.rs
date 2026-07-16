@@ -6,6 +6,7 @@ use crate::config::Config;
 use crate::installer::{BatchOutcome, InstallRequest, execute_install_batch};
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::progress::ProgressManager;
 use crate::registry::Registry;
 use crate::utils::{ensure_unique_package_args, parse_package_version};
 use crate::warn;
@@ -32,16 +33,22 @@ impl CommandHandler for InstallCommand {
         }
         let mut manifest = Manifest::load(&layout.manifest_path)?;
 
-        let requests = self
+        let parsed: Vec<_> = self
             .names
             .iter()
             .map(|n| {
                 let (name, version) = parse_package_version(n);
-                InstallRequest::install(name.to_string(), version.map(str::to_string))
+                (name.to_string(), version.map(str::to_string))
             })
             .collect();
+        let package_names: Vec<&str> = parsed.iter().map(|(name, _)| name.as_str()).collect();
+        let progress = ProgressManager::new(&package_names);
+        let requests = parsed
+            .into_iter()
+            .map(|(name, version)| InstallRequest::install(name, version))
+            .collect();
         let BatchOutcome { receipts, write_backs, failed, unchanged: _ } =
-            execute_install_batch(requests, &registry, &config, &layout)?;
+            execute_install_batch(requests, &progress, &registry, &config, &layout)?;
         let success_count = receipts.len();
         for receipt in receipts {
             manifest.add(receipt);

@@ -386,6 +386,41 @@ fn update_skips_pinned_package_unless_forced_and_preserves_pin() {
     assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/v2.0.0/tool"));
 }
 
+#[cfg(unix)]
+#[test]
+fn update_aligns_skipped_and_installed_package_statuses() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_tool_home(temp.path());
+    install_tool(&home, "v1.0.0");
+
+    let skipped_name = "very-long-pinned-package";
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    let mut skipped_state = manifest["packages"]["tool"].clone();
+    skipped_state["pinned"] = serde_json::json!(true);
+    manifest["packages"].as_object_mut().unwrap().insert(skipped_name.to_string(), skipped_state);
+    fs::write(home.join("manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), true);
+    let update = run_inro_with_env(
+        &home,
+        &["-v", "update", skipped_name, "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
+    server.join().unwrap();
+
+    assert_success(&update);
+    let stderr = String::from_utf8_lossy(&update.stderr);
+    let skipped_line = stderr.lines().find(|line| line.contains("pinned, skipping")).unwrap();
+    let installed_line =
+        stderr.lines().find(|line| line.contains("tool") && line.contains("v2.0.0")).unwrap();
+    assert_eq!(
+        skipped_line.find("pinned, skipping"),
+        installed_line.find("v2.0.0"),
+        "status columns should align:\n{stderr}"
+    );
+}
+
 #[test]
 fn doctor_exits_nonzero_when_errors_are_found() {
     let temp = tempfile::tempdir().unwrap();

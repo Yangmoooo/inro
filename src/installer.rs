@@ -55,12 +55,11 @@ struct BatchTask {
 
 pub(crate) fn execute_install_batch(
     requests: Vec<InstallRequest>,
+    progress: &ProgressManager,
     registry: &Registry,
     config: &Config,
     layout: &InroLayout,
 ) -> std::io::Result<BatchOutcome> {
-    let package_names: Vec<&str> = requests.iter().map(|request| request.name.as_str()).collect();
-    let progress = ProgressManager::new(&package_names);
     let mut tasks = Vec::new();
     let mut unchanged = 0usize;
     let mut failed = 0usize;

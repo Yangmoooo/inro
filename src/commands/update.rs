@@ -76,7 +76,7 @@ impl CommandHandler for UpdateCommand {
         }
 
         let BatchOutcome { receipts, write_backs, unchanged, failed: batch_failed } =
-            execute_install_batch(requests, &registry, &config, &layout)?;
+            execute_install_batch(requests, &pm, &registry, &config, &layout)?;
         let updated = receipts.len();
         let failed = not_installed + batch_failed;
         for receipt in receipts {
