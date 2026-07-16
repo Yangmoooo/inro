@@ -15,6 +15,7 @@ use crate::{client, detail};
 /// whole list, and for the rest a clear "tag not found in latest 100
 /// releases" surfaces faster than walking dozens of pages.
 const GITHUB_RELEASES_PER_PAGE: u32 = 100;
+const GITHUB_API_URL: &str = "https://api.github.com";
 
 pub type Result<T> = std::result::Result<T, Error>;
 
@@ -366,7 +367,9 @@ impl GitHubProvider {
     // ==================== Async versions (for install/update) ====================
 
     pub(crate) async fn fetch_releases_async(&self, repo: &str) -> Result<Releases> {
-        let api_url = format!("https://api.github.com/repos/{repo}/releases");
+        let api_base =
+            env::var("INRO_GITHUB_API_URL").unwrap_or_else(|_| GITHUB_API_URL.to_string());
+        let api_url = format!("{}/repos/{repo}/releases", api_base.trim_end_matches('/'));
         let client = client::get();
 
         let mut request_builder = client
