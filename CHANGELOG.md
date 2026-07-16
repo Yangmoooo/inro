@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Reliable Install Receipts**: Installation receipts are now written before staged packages are activated. If a receipt cannot be created, the install fails without replacing the existing version.
+- **Complete Async Downloads**: Package downloads are now flushed before extraction starts, preventing intermittent failures where installation could inspect a partially written asset.
 
 ## [0.8.1] - 2026-07-12
 
