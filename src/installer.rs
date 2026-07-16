@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Utc;
 use dialoguer::Select;
+use futures::stream::{self, StreamExt};
 use humansize::{BINARY, format_size};
 use tempfile::TempDir;
 
@@ -12,14 +13,155 @@ use crate::config::Config;
 use crate::layout::InroLayout;
 use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::platform::PlatformInfo;
-use crate::progress::{OpPhase, PkgProgress};
-use crate::registry::AssetSelectionWriteBack;
+use crate::progress::{OpPhase, PkgProgress, ProgressManager};
+use crate::registry::{AssetSelectionWriteBack, Registry};
 use crate::remotes::{
     CandidateResult, InstallCandidate, MatchKind, create_provider, derive_asset_selector,
     derive_asset_selector_from_assets,
 };
+use crate::reporter::print_error_chain;
 use crate::utils::*;
 use crate::warn;
+
+pub(crate) struct InstallRequest {
+    pub(crate) name: String,
+    pub(crate) version: Option<String>,
+}
+
+pub(crate) struct BatchOutcome {
+    pub(crate) receipts: Vec<PkgReceipt>,
+    pub(crate) write_backs: Vec<AssetSelectionWriteBack>,
+    pub(crate) failed: usize,
+}
+
+struct BatchTask {
+    name: String,
+    version: Option<String>,
+    progress: PkgProgress,
+}
+
+pub(crate) fn execute_install_batch(
+    requests: Vec<InstallRequest>,
+    registry: &Registry,
+    config: &Config,
+    layout: &InroLayout,
+) -> std::io::Result<BatchOutcome> {
+    let package_names: Vec<&str> = requests.iter().map(|request| request.name.as_str()).collect();
+    let progress = ProgressManager::new(&package_names);
+    let mut tasks = Vec::new();
+    let mut failed = 0usize;
+
+    for request in requests {
+        if registry.pkgs.contains_key(&request.name) {
+            let package_progress = progress.add_package(&request.name);
+            tasks.push(BatchTask {
+                name: request.name,
+                version: request.version,
+                progress: package_progress,
+            });
+        } else {
+            let error = PkgError::NotFound(request.name.clone());
+            progress.add_package(&request.name).finish_error(&error.to_string());
+            failed += 1;
+        }
+    }
+
+    let runtime = tokio::runtime::Runtime::new()?;
+    let parallel_limit = config.parallel_downloads;
+
+    let fetch_results: Vec<(BatchTask, Result<CandidateResult, PkgError>)> =
+        runtime.block_on(async {
+            stream::iter(tasks)
+                .map(|task| async move {
+                    let result = match registry.pkgs.get(&task.name) {
+                        Some(pkg_def) => {
+                            find_candidates(pkg_def, task.version.as_deref(), &task.progress).await
+                        }
+                        None => Err(PkgError::NotFound(task.name.clone())),
+                    };
+                    (task, result)
+                })
+                .buffer_unordered(parallel_limit)
+                .collect()
+                .await
+        });
+
+    let mut install_tasks = Vec::new();
+    for (task, result) in fetch_results {
+        match result {
+            Ok(candidate_result) => {
+                let selection = progress.suspend(|| select_candidate(&task.name, candidate_result));
+                match selection {
+                    Ok(selection) => {
+                        install_tasks.push((task, selection.candidate, selection.write_back));
+                    }
+                    Err(error) => {
+                        task.progress.finish_error(&error.to_string());
+                        print_error_chain(&error);
+                        failed += 1;
+                    }
+                }
+            }
+            Err(error) => {
+                task.progress.finish_error(&error.to_string());
+                print_error_chain(&error);
+                failed += 1;
+            }
+        }
+    }
+
+    let results: Vec<Option<(PkgReceipt, Option<AssetSelectionWriteBack>)>> =
+        runtime.block_on(async {
+            stream::iter(install_tasks)
+                .map(|(task, candidate, write_back)| async move {
+                    let Some(pkg_def) = registry.pkgs.get(&task.name) else {
+                        task.progress.finish_error("not found in registry");
+                        return None;
+                    };
+                    let pkg = pkg_def.resolve(&task.name);
+
+                    match install_candidate(
+                        &task.name,
+                        &candidate,
+                        &pkg,
+                        config,
+                        layout,
+                        &task.progress,
+                    )
+                    .await
+                    {
+                        Ok(receipt) => {
+                            task.progress.finish_success(&candidate.version);
+                            Some((receipt, write_back))
+                        }
+                        Err(error) => {
+                            task.progress.finish_error(&error.to_string());
+                            print_error_chain(&error);
+                            None
+                        }
+                    }
+                })
+                .buffer_unordered(parallel_limit)
+                .collect()
+                .await
+        });
+
+    let mut receipts = Vec::new();
+    let mut write_backs = Vec::new();
+    for result in results {
+        match result {
+            Some((receipt, write_back)) => {
+                receipts.push(receipt);
+                if let Some(write_back) = write_back {
+                    write_backs.push(write_back);
+                }
+            }
+            None => failed += 1,
+        }
+    }
+
+    Ok(BatchOutcome { receipts, write_backs, failed })
+}
 
 /// Find all installation candidates for the given package definition and
 /// optional version.
