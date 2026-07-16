@@ -24,19 +24,32 @@ use crate::utils::*;
 use crate::warn;
 
 pub(crate) struct InstallRequest {
-    pub(crate) name: String,
-    pub(crate) version: Option<String>,
+    name: String,
+    version: Option<String>,
+    current_version: Option<String>,
+}
+
+impl InstallRequest {
+    pub(crate) fn install(name: String, version: Option<String>) -> Self {
+        Self { name, version, current_version: None }
+    }
+
+    pub(crate) fn update(name: String, version: Option<String>, current_version: String) -> Self {
+        Self { name, version, current_version: Some(current_version) }
+    }
 }
 
 pub(crate) struct BatchOutcome {
     pub(crate) receipts: Vec<PkgReceipt>,
     pub(crate) write_backs: Vec<AssetSelectionWriteBack>,
+    pub(crate) unchanged: usize,
     pub(crate) failed: usize,
 }
 
 struct BatchTask {
     name: String,
     version: Option<String>,
+    current_version: Option<String>,
     progress: PkgProgress,
 }
 
@@ -49,6 +62,7 @@ pub(crate) fn execute_install_batch(
     let package_names: Vec<&str> = requests.iter().map(|request| request.name.as_str()).collect();
     let progress = ProgressManager::new(&package_names);
     let mut tasks = Vec::new();
+    let mut unchanged = 0usize;
     let mut failed = 0usize;
 
     for request in requests {
@@ -57,6 +71,7 @@ pub(crate) fn execute_install_batch(
             tasks.push(BatchTask {
                 name: request.name,
                 version: request.version,
+                current_version: request.current_version,
                 progress: package_progress,
             });
         } else {
@@ -90,6 +105,17 @@ pub(crate) fn execute_install_batch(
     for (task, result) in fetch_results {
         match result {
             Ok(candidate_result) => {
+                let candidate_version =
+                    candidate_result.candidates.first().map(|candidate| candidate.version.as_str());
+                let target_version = task.version.as_deref().or(candidate_version);
+                if let Some(current_version) = task.current_version.as_deref()
+                    && target_version == Some(current_version)
+                {
+                    task.progress.finish_unchanged(current_version);
+                    unchanged += 1;
+                    continue;
+                }
+
                 let selection = progress.suspend(|| select_candidate(&task.name, candidate_result));
                 match selection {
                     Ok(selection) => {
@@ -160,12 +186,12 @@ pub(crate) fn execute_install_batch(
         }
     }
 
-    Ok(BatchOutcome { receipts, write_backs, failed })
+    Ok(BatchOutcome { receipts, write_backs, unchanged, failed })
 }
 
 /// Find all installation candidates for the given package definition and
 /// optional version.
-pub async fn find_candidates(
+async fn find_candidates(
     pkg_def: &PkgDef,
     ver: Option<&str>,
     progress: &PkgProgress,
@@ -181,16 +207,13 @@ pub async fn find_candidates(
 }
 
 /// Result of asset selection, with optional write-back info.
-pub struct AssetSelection {
-    pub candidate: InstallCandidate,
-    pub write_back: Option<AssetSelectionWriteBack>,
+struct AssetSelection {
+    candidate: InstallCandidate,
+    write_back: Option<AssetSelectionWriteBack>,
 }
 
 /// Select a candidate from the result, prompting interactively if needed.
-pub fn select_candidate(
-    pkg_name: &str,
-    result: CandidateResult,
-) -> Result<AssetSelection, PkgError> {
+fn select_candidate(pkg_name: &str, result: CandidateResult) -> Result<AssetSelection, PkgError> {
     select_candidate_with_interactivity(
         pkg_name,
         result,
@@ -308,7 +331,7 @@ fn select_candidate_with_interactivity(
 
 /// Install the given candidate for the package, returning a PkgReceipt on
 /// success.
-pub async fn install_candidate(
+async fn install_candidate(
     name: &str,
     candidate: &InstallCandidate,
     pkg: &ResolvedPkg,
@@ -562,8 +585,16 @@ mod tests {
             loop {
                 match listener.accept() {
                     Ok((mut stream, _)) => {
-                        let mut request = [0u8; 2048];
-                        let _ = stream.read(&mut request);
+                        stream.set_nonblocking(false).unwrap();
+                        stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                        let mut request = Vec::new();
+                        while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+                            let mut chunk = [0u8; 1024];
+                            let read = stream.read(&mut chunk).unwrap();
+                            assert!(read > 0, "connection closed before request headers completed");
+                            request.extend_from_slice(&chunk[..read]);
+                            assert!(request.len() <= 16 * 1024, "request headers too large");
+                        }
                         write!(
                             stream,
                             "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
@@ -571,6 +602,7 @@ mod tests {
                         )
                         .unwrap();
                         stream.write_all(&body).unwrap();
+                        stream.flush().unwrap();
                         break;
                     }
                     Err(error) if error.kind() == ErrorKind::WouldBlock => {

@@ -37,10 +37,10 @@ impl CommandHandler for InstallCommand {
             .iter()
             .map(|n| {
                 let (name, version) = parse_package_version(n);
-                InstallRequest { name: name.to_string(), version: version.map(str::to_string) }
+                InstallRequest::install(name.to_string(), version.map(str::to_string))
             })
             .collect();
-        let BatchOutcome { receipts, write_backs, failed } =
+        let BatchOutcome { receipts, write_backs, failed, unchanged: _ } =
             execute_install_batch(requests, &registry, &config, &layout)?;
         let success_count = receipts.len();
         for receipt in receipts {
