@@ -163,6 +163,20 @@ pub enum Command {
     /// dotfiles. Respects the INRO_HOME environment variable.
     Env,
 
+    /// Export active packages as reproducible package specifications
+    Export {
+        /// Write the package set to a file instead of stdout
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<PathBuf>,
+    },
+
+    /// Install exact package versions from an exported package set
+    Import {
+        /// Package set file to import
+        #[arg(value_name = "PATH")]
+        path: PathBuf,
+    },
+
     /// Generate shell completions and man pages
     #[command(hide = true)]
     Generate {

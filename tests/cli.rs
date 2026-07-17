@@ -33,6 +33,17 @@ fn assert_success(output: &Output) {
     );
 }
 
+fn manifest_receipt(name: &str, version: &str) -> serde_json::Value {
+    serde_json::json!({
+        "name": name,
+        "version": version,
+        "remote": { "github": { "repo": format!("test/{name}"), "asset": {} } },
+        "installed_at": "2026-01-01T00:00:00Z",
+        "install_subdir": format!("{name}/{version}"),
+        "binaries": [{ "name": name, "bin_subpath": name }]
+    })
+}
+
 fn serve_once(body: &'static str) -> (String, thread::JoinHandle<()>) {
     serve_once_with_timeout(body, Duration::from_secs(5))
 }
@@ -504,6 +515,147 @@ fn update_skips_unlinked_package() {
     assert_eq!(manifest_after, manifest_before);
     let manifest: serde_json::Value = serde_json::from_slice(&manifest_after).unwrap();
     assert!(manifest["packages"]["tool"]["current_version"].is_null());
+}
+
+#[test]
+fn export_writes_sorted_active_package_specs_and_skips_unlinked_packages() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    fs::create_dir_all(&home).unwrap();
+    let manifest = serde_json::json!({
+        "schema_version": 2,
+        "packages": {
+            "zeta": {
+                "current_version": "v2.0.0",
+                "versions": {
+                    "v1.0.0": manifest_receipt("zeta", "v1.0.0"),
+                    "v2.0.0": manifest_receipt("zeta", "v2.0.0")
+                },
+                "pinned": false
+            },
+            "alpha": {
+                "current_version": "v1.5.0",
+                "versions": { "v1.5.0": manifest_receipt("alpha", "v1.5.0") },
+                "pinned": true
+            },
+            "git": {
+                "current_version": "v2.50.0",
+                "versions": { "v2.50.0": manifest_receipt("git", "v2.50.0") },
+                "pinned": false
+            },
+            "git-lfs": {
+                "current_version": "v3.7.0",
+                "versions": { "v3.7.0": manifest_receipt("git-lfs", "v3.7.0") },
+                "pinned": false
+            },
+            "dormant": {
+                "current_version": null,
+                "versions": { "v3.0.0": manifest_receipt("dormant", "v3.0.0") },
+                "pinned": false
+            }
+        }
+    });
+    fs::write(home.join("manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+
+    let output = run_inro(&home, &["export"]);
+
+    assert_success(&output);
+    assert_eq!(
+        String::from_utf8(output.stdout).unwrap(),
+        "alpha@v1.5.0\ngit@v2.50.0\ngit-lfs@v3.7.0\nzeta@v2.0.0\n"
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("Skipped 1 unlinked package"));
+}
+
+#[test]
+fn export_writes_package_specs_atomically_to_an_output_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    fs::create_dir_all(&home).unwrap();
+    let manifest = serde_json::json!({
+        "schema_version": 2,
+        "packages": {
+            "tool": {
+                "current_version": "v1.0.0",
+                "versions": { "v1.0.0": manifest_receipt("tool", "v1.0.0") },
+                "pinned": false
+            }
+        }
+    });
+    fs::write(home.join("manifest.json"), serde_json::to_vec_pretty(&manifest).unwrap()).unwrap();
+    let output_path = temp.path().join("exports/packages.txt");
+
+    let output = run_inro(&home, &["export", "--output", output_path.to_str().unwrap()]);
+
+    assert_success(&output);
+    assert!(output.stdout.is_empty());
+    assert_eq!(fs::read_to_string(&output_path).unwrap(), "tool@v1.0.0\n");
+    let export_dir_entries = fs::read_dir(output_path.parent().unwrap()).unwrap().count();
+    assert_eq!(export_dir_entries, 1, "temporary export file was left behind");
+}
+
+#[cfg(unix)]
+#[test]
+fn import_installs_exact_versions_from_a_package_set_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_tool_home(temp.path());
+    let package_set = temp.path().join("inro-packages.txt");
+    fs::write(&package_set, "# workstation tools\n\n  tool@v1.0.0  \n").unwrap();
+    let (api_url, server) = serve_tool_release("v1.0.0", tool_binary(), true);
+
+    let output = run_inro_with_env(
+        &home,
+        &["import", package_set.to_str().unwrap()],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
+    server.join().unwrap();
+
+    assert_success(&output);
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["packages"]["tool"]["current_version"], "v1.0.0");
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/v1.0.0/tool"));
+}
+
+#[test]
+fn import_rejects_malformed_package_specs_before_installing() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("config.toml"), "upstreams = []\n").unwrap();
+    let package_set = temp.path().join("invalid-packages.txt");
+    fs::write(&package_set, "tool@\n").unwrap();
+
+    let output = run_inro(&home, &["import", package_set.to_str().unwrap()]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("Invalid package specification 'tool@'"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!home.join("manifest.json").exists());
+}
+
+#[test]
+fn import_requires_an_exact_version_for_every_package() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    fs::create_dir_all(&home).unwrap();
+    fs::write(home.join("config.toml"), "upstreams = []\n").unwrap();
+    let package_set = temp.path().join("unversioned-packages.txt");
+    fs::write(&package_set, "tool\n").unwrap();
+
+    let output = run_inro(&home, &["import", package_set.to_str().unwrap()]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr)
+            .contains("Invalid package specification 'tool': an exact version is required"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(!home.join("manifest.json").exists());
 }
 
 #[test]

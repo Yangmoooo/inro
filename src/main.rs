@@ -8,6 +8,7 @@ mod layout;
 mod lock;
 mod manifest;
 mod package;
+mod package_set;
 mod platform;
 mod progress;
 mod registry;
@@ -44,6 +45,8 @@ fn main() -> anyhow::Result<()> {
             Command::Clean { dry_run } => CleanCommand { dry_run }.handle(),
             Command::Doctor { fix } => DoctorCommand { fix }.handle(),
             Command::Env => EnvCommand {}.handle(),
+            Command::Export { output } => ExportCommand { output }.handle(),
+            Command::Import { path } => ImportCommand { path }.handle(),
             Command::Generate { generator, out } => GenerateCommand { generator, out }.handle(),
         }?;
     } else {
