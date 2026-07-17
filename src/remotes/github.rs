@@ -10,11 +10,10 @@ use crate::platform::PlatformInfo;
 use crate::remotes::{VersionInfo, asset_matches_selector, is_ignored_format, is_supported_format};
 use crate::{client, detail};
 
-/// 100 is GitHub's per-page maximum. We never paginate beyond the first
-/// page; for the 99% of repos with fewer than 100 releases this is the
-/// whole list, and for the rest a clear "tag not found in latest 100
-/// releases" surfaces faster than walking dozens of pages.
-const GITHUB_RELEASES_PER_PAGE: u32 = 100;
+/// Fallback discovery and version display scan at most two 30-release pages.
+const GITHUB_RELEASE_PAGE_SIZE: usize = 30;
+const GITHUB_RELEASE_SCAN_LIMIT: usize = 60;
+const GITHUB_RELEASE_PAGE_COUNT: usize = GITHUB_RELEASE_SCAN_LIMIT / GITHUB_RELEASE_PAGE_SIZE;
 const GITHUB_API_URL: &str = "https://api.github.com";
 
 pub type Result<T> = std::result::Result<T, Error>;
@@ -41,6 +40,9 @@ pub enum Error {
         source: reqwest::Error,
     },
 
+    #[error("Invalid GitHub API URL for repo '{repo}': {url}")]
+    InvalidApiUrl { repo: String, url: String },
+
     #[error("No available release found for '{0}' (non-draft, non-prerelease, with assets)")]
     NoAvailableRelease(String),
 
@@ -54,6 +56,48 @@ pub enum Error {
 
     #[error("GitHub API rate limit exceeded for '{repo}'. {hint}")]
     RateLimited { repo: String, hint: String },
+}
+
+fn build_releases_url(api_base: &str, repo: &str) -> Result<reqwest::Url> {
+    let raw_url = format!("{}/", api_base.trim_end_matches('/'));
+    let mut url = reqwest::Url::parse(&raw_url)
+        .map_err(|_| Error::InvalidApiUrl { repo: repo.to_string(), url: raw_url })?;
+    {
+        let invalid_url = url.to_string();
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|()| Error::InvalidApiUrl { repo: repo.to_string(), url: invalid_url })?;
+        segments.pop_if_empty().push("repos");
+        for segment in repo.split('/') {
+            segments.push(segment);
+        }
+        segments.push("releases");
+    }
+    Ok(url)
+}
+
+fn build_release_by_tag_url(api_base: &str, repo: &str, tag: &str) -> Result<reqwest::Url> {
+    let mut url = build_releases_url(api_base, repo)?;
+    {
+        let invalid_url = url.to_string();
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|()| Error::InvalidApiUrl { repo: repo.to_string(), url: invalid_url })?;
+        segments.push("tags").push(tag);
+    }
+    Ok(url)
+}
+
+fn build_latest_release_url(api_base: &str, repo: &str) -> Result<reqwest::Url> {
+    let mut url = build_releases_url(api_base, repo)?;
+    {
+        let invalid_url = url.to_string();
+        let mut segments = url
+            .path_segments_mut()
+            .map_err(|()| Error::InvalidApiUrl { repo: repo.to_string(), url: invalid_url })?;
+        segments.push("latest");
+    }
+    Ok(url)
 }
 
 #[derive(Deserialize, Debug, Clone)]
@@ -323,28 +367,6 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 #[serde(transparent)]
 pub(crate) struct Releases(Vec<Release>);
 
-impl Releases {
-    /// List all suitable releases (non-draft, non-prerelease, with assets).
-    fn list_suitable(&self) -> Vec<&Release> { self.0.iter().filter(|r| r.is_suitable()).collect() }
-
-    /// Get the latest suitable release.
-    fn latest_suitable(&self) -> Result<&Release> {
-        let suitable = self.list_suitable();
-        suitable.first().copied().ok_or_else(|| {
-            let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
-            Error::NoAvailableRelease(repo)
-        })
-    }
-
-    /// Get a release by its tag name.
-    fn get_by_tag(&self, tag: &str) -> Result<&Release> {
-        self.0.iter().find(|r| r.tag_name == tag).ok_or_else(|| {
-            let repo = self.0.first().map_or_else(|| "Unknown".to_string(), |r| r.repo.clone());
-            Error::NoReleaseFound { repo, tag: tag.to_string() }
-        })
-    }
-}
-
 impl From<Vec<Release>> for Releases {
     fn from(releases: Vec<Release>) -> Self { Self(releases) }
 }
@@ -366,27 +388,24 @@ impl GitHubProvider {
 
     // ==================== Async versions (for install/update) ====================
 
-    pub(crate) async fn fetch_releases_async(&self, repo: &str) -> Result<Releases> {
-        let api_base = {
-            // CLI integration tests run a normal binary without cfg(test). Debug
-            // assertions keep this test seam out of release builds.
-            #[cfg(debug_assertions)]
-            {
-                env::var("INRO_TEST_GITHUB_API_URL").unwrap_or_else(|_| GITHUB_API_URL.to_string())
-            }
-            #[cfg(not(debug_assertions))]
-            {
-                GITHUB_API_URL.to_string()
-            }
-        };
-        let api_url = format!("{}/repos/{repo}/releases", api_base.trim_end_matches('/'));
-        let client = client::get();
+    fn api_base() -> String {
+        // CLI integration tests run a normal binary without cfg(test). Debug
+        // assertions keep this test seam out of release builds.
+        #[cfg(debug_assertions)]
+        {
+            env::var("INRO_TEST_GITHUB_API_URL").unwrap_or_else(|_| GITHUB_API_URL.to_string())
+        }
+        #[cfg(not(debug_assertions))]
+        {
+            GITHUB_API_URL.to_string()
+        }
+    }
 
-        let mut request_builder = client
-            .get(&api_url)
+    fn request(&self, url: reqwest::Url) -> reqwest::RequestBuilder {
+        let mut request_builder = client::get()
+            .get(url)
             .header("Accept", "application/vnd.github+json")
-            .header("X-GitHub-Api-Version", "2022-11-28")
-            .query(&[("per_page", GITHUB_RELEASES_PER_PAGE)]);
+            .header("X-GitHub-Api-Version", "2022-11-28");
 
         if let Ok(token) = env::var("INRO_GITHUB_TOKEN") {
             detail!("Using INRO_GITHUB_TOKEN for authentication");
@@ -399,29 +418,104 @@ impl GitHubProvider {
                 "Unauthenticated requests are rate-limited. Consider setting INRO_GITHUB_TOKEN or GITHUB_TOKEN environment variable"
             );
         }
+        request_builder
+    }
 
-        detail!("Fetching releases from GitHub repository '{repo}'...");
-
-        let response = request_builder
+    async fn send(
+        &self,
+        repo: &str,
+        request: reqwest::RequestBuilder,
+    ) -> Result<reqwest::Response> {
+        let response = request
             .send()
             .await
-            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
-        if let Some(rate_err) = check_rate_limit(&response, repo) {
-            return Err(rate_err);
+            .map_err(|source| Error::RequestFailed { repo: repo.to_string(), source })?;
+        if let Some(rate_error) = check_rate_limit(&response, repo) {
+            return Err(rate_error);
         }
-        let response = response
+        Ok(response)
+    }
+
+    async fn fetch_releases_page_async(&self, repo: &str, page: usize) -> Result<Releases> {
+        let api_url = build_releases_url(&Self::api_base(), repo)?;
+        let request =
+            self.request(api_url).query(&[("per_page", GITHUB_RELEASE_PAGE_SIZE), ("page", page)]);
+
+        detail!("Fetching release page {page} from GitHub repository '{repo}'...");
+
+        let response = self
+            .send(repo, request)
+            .await?
             .error_for_status()
-            .map_err(|e| Error::RequestFailed { repo: repo.to_string(), source: e })?;
+            .map_err(|source| Error::RequestFailed { repo: repo.to_string(), source })?;
 
         let mut release_vec: Vec<Release> = response
             .json()
             .await
-            .map_err(|e| Error::JsonParse { repo: repo.to_string(), source: e })?;
+            .map_err(|source| Error::JsonParse { repo: repo.to_string(), source })?;
         for release in &mut release_vec {
             release.repo = repo.to_string();
         }
 
         Ok(Releases(release_vec))
+    }
+
+    async fn fetch_latest_release_async(&self, repo: &str) -> Result<Release> {
+        let api_url = build_latest_release_url(&Self::api_base(), repo)?;
+        detail!("Fetching latest release from GitHub repository '{repo}'...");
+
+        let response = self.send(repo, self.request(api_url)).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(Error::NoAvailableRelease(repo.to_string()));
+        }
+        let response = response
+            .error_for_status()
+            .map_err(|source| Error::RequestFailed { repo: repo.to_string(), source })?;
+        let mut release: Release = response
+            .json()
+            .await
+            .map_err(|source| Error::JsonParse { repo: repo.to_string(), source })?;
+        release.repo = repo.to_string();
+        Ok(release)
+    }
+
+    async fn fetch_release_by_tag_async(&self, repo: &str, tag: &str) -> Result<Release> {
+        let api_url = build_release_by_tag_url(&Self::api_base(), repo, tag)?;
+        detail!("Fetching release tag '{tag}' from GitHub repository '{repo}'...");
+
+        let response = self.send(repo, self.request(api_url)).await?;
+        if response.status() == reqwest::StatusCode::NOT_FOUND {
+            return Err(Error::NoReleaseFound { repo: repo.to_string(), tag: tag.to_string() });
+        }
+        let response = response
+            .error_for_status()
+            .map_err(|source| Error::RequestFailed { repo: repo.to_string(), source })?;
+        let mut release: Release = response
+            .json()
+            .await
+            .map_err(|source| Error::JsonParse { repo: repo.to_string(), source })?;
+        release.repo = repo.to_string();
+        Ok(release)
+    }
+
+    async fn find_latest_suitable_release_async(&self, repo: &str) -> Result<Release> {
+        let latest = self.fetch_latest_release_async(repo).await?;
+        if latest.is_suitable() {
+            return Ok(latest);
+        }
+
+        for page in 1..=GITHUB_RELEASE_PAGE_COUNT {
+            let releases = self.fetch_releases_page_async(repo, page).await?;
+            let fetched = releases.0.len();
+            if let Some(release) = releases.0.into_iter().find(Release::is_suitable) {
+                return Ok(release);
+            }
+            if fetched < GITHUB_RELEASE_PAGE_SIZE {
+                break;
+            }
+        }
+
+        Err(Error::NoAvailableRelease(repo.to_string()))
     }
 
     pub async fn find_candidates_async(
@@ -433,9 +527,11 @@ impl GitHubProvider {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
 
-        let releases = self.fetch_releases_async(repo).await?;
-        let release =
-            if let Some(v) = ver { releases.get_by_tag(v)? } else { releases.latest_suitable()? };
+        let release = if let Some(tag) = ver {
+            self.fetch_release_by_tag_async(repo, tag).await?
+        } else {
+            self.find_latest_suitable_release_async(repo).await?
+        };
 
         let RemoteType::GitHub(asset_def) = &pkg.remote;
         let (assets, match_kind) = release.find_assets(&asset_def.asset)?;
@@ -462,7 +558,7 @@ impl GitHubProvider {
 
     // ==================== Sync facade (for info/source) ====================
 
-    pub fn list_versions(&self, pkg: &PkgDef) -> super::Result<Vec<VersionInfo>> {
+    pub fn list_versions(&self, pkg: &PkgDef, limit: usize) -> super::Result<Vec<VersionInfo>> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -471,24 +567,30 @@ impl GitHubProvider {
             .enable_all()
             .build()
             .map_err(Error::RuntimeBuild)?;
-        let releases = runtime.block_on(self.fetch_releases_async(repo))?;
-
-        let versions = releases
-            .0
-            .iter()
-            .filter(|r| r.is_available())
-            .map(|r| {
-                let date = r.published_at.unwrap_or(r.created_at);
-                VersionInfo {
-                    tag: r.tag_name.clone(),
-                    url: r.html_url.clone(),
-                    published_at: date,
-                    prerelease: r.prerelease,
+        let versions = runtime.block_on(async {
+            let mut versions = Vec::new();
+            for page in 1..=GITHUB_RELEASE_PAGE_COUNT {
+                let releases = self.fetch_releases_page_async(repo, page).await?;
+                let fetched = releases.0.len();
+                versions.extend(releases.0.into_iter().filter(Release::is_available).map(
+                    |release| {
+                        let date = release.published_at.unwrap_or(release.created_at);
+                        VersionInfo {
+                            tag: release.tag_name,
+                            url: release.html_url,
+                            published_at: date,
+                            prerelease: release.prerelease,
+                        }
+                    },
+                ));
+                if versions.len() >= limit || fetched < GITHUB_RELEASE_PAGE_SIZE {
+                    break;
                 }
-            })
-            .collect();
+            }
+            Ok::<_, Error>(versions)
+        })?;
 
-        Ok(versions)
+        Ok(versions.into_iter().take(limit).collect())
     }
 }
 
@@ -556,6 +658,21 @@ mod tests {
             published_at: Some(Utc::now()),
             assets,
         }
+    }
+
+    #[test]
+    fn release_by_tag_url_encodes_the_tag_as_one_path_segment() {
+        let url = build_release_by_tag_url(
+            "https://github.example/api/v3/",
+            "owner/tool",
+            "release/1.0?portable",
+        )
+        .unwrap();
+
+        assert_eq!(
+            url.as_str(),
+            "https://github.example/api/v3/repos/owner/tool/releases/tags/release%2F1.0%3Fportable"
+        );
     }
 
     #[test]

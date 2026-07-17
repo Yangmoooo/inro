@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Efficient GitHub Release Lookup**: Explicit versions from `install`, `update`, and `import` now use GitHub's release-by-tag endpoint, while unversioned installs use the latest-release endpoint and only scan up to two 30-release pages when the latest release has no assets. `show` uses the same bounded pagination and stops once it has enough recent versions to display.
+
 ## [0.9.0] - 2026-07-17
 
 ### Added

@@ -78,7 +78,7 @@ impl CommandHandler for ShowCommand {
 
         step!("\nFetching remote info...");
         let provider = create_provider(&resolved.remote)?;
-        match provider.list_versions(pkg_def) {
+        match provider.list_versions(pkg_def, REMOTE_DISPLAY_LIMIT + 1) {
             Ok(versions) => {
                 done!("Recent available versions:");
                 let has_more = versions.len() > REMOTE_DISPLAY_LIMIT;

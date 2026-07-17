@@ -74,7 +74,7 @@ Exported package sets contain exact active versions. Retained old versions, unli
 state, and local registry files are not included. Copy `registry.d/` separately before importing if
 the package set depends on hand-written definitions. Every non-comment import line must include an
 exact version in `<name>@<version>` form. Import still downloads from upstream, so that release and
-its assets must remain available; GitHub lookups currently inspect the latest 100 releases.
+its assets must remain available.
 
 ## Configuration
 

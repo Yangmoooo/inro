@@ -118,7 +118,57 @@ fn setup_tool_home(root: &Path) -> (PathBuf, PathBuf) {
 fn tool_binary() -> Vec<u8> { b"\x7fELFfixture".to_vec() }
 
 #[cfg(unix)]
+#[derive(Clone, Copy)]
+enum ReleaseEndpoint {
+    Latest,
+    List,
+    Tag,
+    LatestThenList,
+    LatestThenSecondPage,
+}
+
+#[cfg(unix)]
 fn serve_tool_release(
+    version: &str,
+    asset: Vec<u8>,
+    expect_download: bool,
+) -> (String, thread::JoinHandle<()>) {
+    serve_tool_release_at(ReleaseEndpoint::Latest, version, asset, expect_download)
+}
+
+#[cfg(unix)]
+fn serve_tool_tag_release(
+    version: &str,
+    asset: Vec<u8>,
+    expect_download: bool,
+) -> (String, thread::JoinHandle<()>) {
+    serve_tool_release_at(ReleaseEndpoint::Tag, version, asset, expect_download)
+}
+
+#[cfg(unix)]
+fn serve_tool_release_list(version: &str) -> (String, thread::JoinHandle<()>) {
+    serve_tool_release_at(ReleaseEndpoint::List, version, tool_binary(), false)
+}
+
+#[cfg(unix)]
+fn serve_tool_release_with_fallback(
+    version: &str,
+    asset: Vec<u8>,
+) -> (String, thread::JoinHandle<()>) {
+    serve_tool_release_at(ReleaseEndpoint::LatestThenList, version, asset, true)
+}
+
+#[cfg(unix)]
+fn serve_tool_release_on_second_page(
+    version: &str,
+    asset: Vec<u8>,
+) -> (String, thread::JoinHandle<()>) {
+    serve_tool_release_at(ReleaseEndpoint::LatestThenSecondPage, version, asset, true)
+}
+
+#[cfg(unix)]
+fn serve_tool_release_at(
+    endpoint: ReleaseEndpoint,
     version: &str,
     asset: Vec<u8>,
     expect_download: bool,
@@ -128,7 +178,7 @@ fn serve_tool_release(
     let address = listener.local_addr().unwrap();
     let base_url = format!("http://{address}");
     let asset_name = "tool";
-    let release = serde_json::json!([{
+    let release = serde_json::json!({
         "tag_name": version,
         "html_url": format!("{base_url}/releases/{version}"),
         "prerelease": false,
@@ -140,12 +190,39 @@ fn serve_tool_release(
             "size": asset.len(),
             "browser_download_url": format!("{base_url}/assets/{asset_name}")
         }]
-    }]);
+    });
+    let release_page = (0..30)
+        .map(|index| {
+            let mut page_release = release.clone();
+            if index > 0 {
+                page_release["tag_name"] = serde_json::json!(format!("v0.0.{index}"));
+            }
+            page_release
+        })
+        .collect::<Vec<_>>();
+    let release_list = serde_json::to_vec(&release_page).unwrap();
     let release = serde_json::to_vec(&release).unwrap();
+    let empty_latest = serde_json::json!({
+        "tag_name": "v3.0.0",
+        "html_url": format!("{base_url}/releases/v3.0.0"),
+        "prerelease": false,
+        "draft": false,
+        "created_at": "2026-02-01T00:00:00Z",
+        "published_at": "2026-02-01T00:00:00Z",
+        "assets": []
+    });
+    let unavailable_release_page = serde_json::to_vec(&vec![empty_latest.clone(); 30]).unwrap();
+    let empty_latest = serde_json::to_vec(&empty_latest).unwrap();
+    let tag_target = format!("/repos/test/tool/releases/tags/{version}");
 
     let handle = thread::spawn(move || {
         let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        let expected_requests = if expect_download { 2 } else { 1 };
+        let release_requests = match endpoint {
+            ReleaseEndpoint::LatestThenList => 2,
+            ReleaseEndpoint::LatestThenSecondPage => 3,
+            _ => 1,
+        };
+        let expected_requests = release_requests + usize::from(expect_download);
         let mut served = 0;
         while served < expected_requests && std::time::Instant::now() < deadline {
             match listener.accept() {
@@ -161,16 +238,60 @@ fn serve_tool_release(
                         assert!(request.len() <= 16 * 1024, "request headers too large");
                     }
                     let request = String::from_utf8_lossy(&request);
-                    let target = request
+                    let request_target = request
                         .lines()
                         .next()
                         .and_then(|line| line.split_whitespace().nth(1))
-                        .and_then(|target| target.split('?').next())
                         .unwrap_or_default();
-                    let (content_type, body) = match target {
-                        "/repos/test/tool/releases" => ("application/json", release.as_slice()),
-                        "/assets/tool" => ("application/octet-stream", asset.as_slice()),
-                        _ => panic!("unexpected request target: {target}"),
+                    let target = request_target.split('?').next().unwrap_or_default();
+                    let (content_type, body) = if target == "/repos/test/tool/releases/latest"
+                        && matches!(endpoint, ReleaseEndpoint::Latest)
+                    {
+                        ("application/json", release.as_slice())
+                    } else if target == "/repos/test/tool/releases/latest"
+                        && matches!(
+                            endpoint,
+                            ReleaseEndpoint::LatestThenList | ReleaseEndpoint::LatestThenSecondPage
+                        )
+                    {
+                        ("application/json", empty_latest.as_slice())
+                    } else if target == "/repos/test/tool/releases"
+                        && matches!(
+                            endpoint,
+                            ReleaseEndpoint::List
+                                | ReleaseEndpoint::LatestThenList
+                                | ReleaseEndpoint::LatestThenSecondPage
+                        )
+                    {
+                        assert!(
+                            request_target.contains("per_page=30"),
+                            "request: {request_target}"
+                        );
+                        if matches!(endpoint, ReleaseEndpoint::LatestThenSecondPage)
+                            && request_target.contains("page=1")
+                        {
+                            ("application/json", unavailable_release_page.as_slice())
+                        } else {
+                            let expected_page =
+                                if matches!(endpoint, ReleaseEndpoint::LatestThenSecondPage) {
+                                    2
+                                } else {
+                                    1
+                                };
+                            assert!(
+                                request_target.contains(&format!("page={expected_page}")),
+                                "request: {request_target}"
+                            );
+                            ("application/json", release_list.as_slice())
+                        }
+                    } else if target == tag_target.as_str()
+                        && matches!(endpoint, ReleaseEndpoint::Tag)
+                    {
+                        ("application/json", release.as_slice())
+                    } else if target == "/assets/tool" {
+                        ("application/octet-stream", asset.as_slice())
+                    } else {
+                        panic!("unexpected request target: {target}")
                     };
                     write!(
                         stream,
@@ -286,6 +407,36 @@ fn install_commits_files_link_receipt_and_manifest() {
         serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
     assert_eq!(manifest["packages"]["tool"]["current_version"], "v1.0.0");
     assert_eq!(manifest["packages"]["tool"]["versions"]["v1.0.0"], receipt);
+}
+
+#[cfg(unix)]
+#[test]
+fn install_falls_back_to_a_release_page_when_latest_has_no_assets() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_tool_home(temp.path());
+    let (api_url, server) = serve_tool_release_with_fallback("v2.0.0", tool_binary());
+
+    let output =
+        run_inro_with_env(&home, &["install", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+
+    assert_success(&output);
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/v2.0.0/tool"));
+}
+
+#[cfg(unix)]
+#[test]
+fn install_scans_a_second_release_page_when_the_first_has_no_assets() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_tool_home(temp.path());
+    let (api_url, server) = serve_tool_release_on_second_page("v2.0.0", tool_binary());
+
+    let output =
+        run_inro_with_env(&home, &["install", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+
+    assert_success(&output);
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/v2.0.0/tool"));
 }
 
 #[cfg(unix)]
@@ -460,6 +611,24 @@ fn doctor_exits_nonzero_when_errors_are_found() {
     assert!(String::from_utf8_lossy(&output.stderr).contains("error(s)"));
 }
 
+#[cfg(unix)]
+#[test]
+fn show_fetches_only_the_recent_release_page() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_tool_home(temp.path());
+    let (api_url, server) = serve_tool_release_list("v1.0.0");
+
+    let output =
+        run_inro_with_env(&home, &["show", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(stdout.contains("v1.0.0"));
+    assert_eq!(stdout.lines().filter(|line| line.starts_with("  - ")).count(), 5);
+    assert!(stdout.contains("... (and more, check the remote for details)"));
+}
+
 #[test]
 fn double_verbose_adds_debug_tracing() {
     let temp = tempfile::tempdir().unwrap();
@@ -611,7 +780,7 @@ fn import_installs_exact_versions_from_a_package_set_file() {
     let (home, bin_dir) = setup_tool_home(temp.path());
     let package_set = temp.path().join("inro-packages.txt");
     fs::write(&package_set, "# workstation tools\n\n  tool@v1.0.0  \n").unwrap();
-    let (api_url, server) = serve_tool_release("v1.0.0", tool_binary(), true);
+    let (api_url, server) = serve_tool_tag_release("v1.0.0", tool_binary(), true);
 
     let output = run_inro_with_env(
         &home,
