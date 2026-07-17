@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-07-17
+
 ### Added
 
 - **Portable Package Sets**: `inro export` writes active packages with exact versions, and `inro import` validates and installs those exact versions through the normal install workflow for migration to another device.
@@ -16,6 +18,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - **Reliable Install Receipts**: Installation receipts are now written before staged packages are activated. If a receipt cannot be created, the install fails without replacing the existing version.
 - **Complete Async Downloads**: Package downloads are now flushed before extraction starts, preventing intermittent failures where installation could inspect a partially written asset.
+- **Preserved Install Diagnostics**: Installation failures now retain their complete error chains, so verbose output reports underlying filesystem and remote causes instead of flattening them into generic messages.
+- **Aligned Update Progress**: `inro update` now uses one shared progress layout for skipped, unchanged, and installed packages, keeping status rows consistently aligned.
 
 ## [0.8.1] - 2026-07-12
 
