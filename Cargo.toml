@@ -51,6 +51,8 @@ fs_extra = "1.3"
 shell-words = "1.1"
 
 [profile.release]
+opt-level = 3
 lto = true
-panic = "abort"
 codegen-units = 1
+strip = true
+panic = "abort"
