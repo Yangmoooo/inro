@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Portable Package Sets**: `inro export` writes active packages with exact versions, and `inro import` validates and installs those exact versions through the normal install workflow for migration to another device.
+- **Local Source Editor**: `inro source edit [name]` opens a staged copy of a hand-written file under `registry.d/` in the default editor and only replaces the live source after the merged registry validates successfully.
+
 ### Fixed
 
 - **Reliable Install Receipts**: Installation receipts are now written before staged packages are activated. If a receipt cannot be created, the install fails without replacing the existing version.

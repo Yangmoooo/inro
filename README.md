@@ -59,6 +59,22 @@ inro use ripgrep 15.0.0  # Switch version
 inro uninstall ripgrep   # Remove a package
 ```
 
+##### Move to Another Device
+
+Export the active package versions, copy the file to the new device, initialize its sources, and
+import the package set:
+
+```bash
+inro export --output inro-packages.txt
+inro source update
+inro import inro-packages.txt
+```
+
+Exported package sets contain exact active versions. Retained old versions, unlinked packages, pin
+state, and local registry files are not included. Copy `registry.d/` separately before importing if
+the package set depends on hand-written definitions. Every non-comment import line must include an
+exact version in `<name>@<version>` form.
+
 ## Configuration
 
 Inro keeps everything under a single root directory, `$INRO_HOME`. It defaults to `~/.inro/` on every platform; set `INRO_HOME` to relocate. Run `inro env` to see all resolved paths.
@@ -75,7 +91,13 @@ $INRO_HOME/                      (default: ~/.inro/)
 └── pkgs/                        installed package versions
 ```
 
-Anything under `registry.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Inro never writes there itself.
+Anything under `registry.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Automated source updates never write there; only an explicit `source edit` command changes these files.
+
+Use `inro source edit` to create or edit `registry.d/local.toml`, or
+`inro source edit <name>` for another hand-written registry file. Edits are staged and only replace
+the live file after the merged registry validates successfully. Inro uses `$VISUAL` or `$EDITOR`
+when set; the command must wait until editing finishes (for example, `code --wait`). Without either
+variable it falls back to `vi` on Linux/macOS, or `edit.exe` followed by `notepad.exe` on Windows.
 
 > Upgrading from 0.6.x? Your old installations under `~/.local/share/inro/` and `~/.config/inro/` (or `~/Library/Application Support/inro/` on macOS) are no longer read. See [CHANGELOG][changelog] for the cleanup-and-reinstall path.
 
