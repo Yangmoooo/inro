@@ -2,22 +2,22 @@
 
 A minimalist, configuration-driven tool for installing and managing your favorite command-line tools.
 
-Inro fetches apps from sources like GitHub Releases and installs them into your home directory, requiring no admin rights. It's perfect for quickly bootstrapping your personal toolbox on any system.
+Inro fetches command-line tools from GitHub Releases and installs them under your home directory. It normally needs no admin rights; on Windows, creating the managed symlinks requires Developer Mode or an elevated shell.
 
 ## Installation
 
-You can install inro using any of the following methods. Once installed, you can safely delete the initial inro, as inro is capable of managing itself.
+You can install inro using either method below. Inro can later manage its own updates, but the bootstrap executable must remain outside the configured `bin_dir`: run `inro source update` and `inro install inro`, confirm that `bin_dir` is on your `PATH` and the managed binary is being invoked, then delete the bootstrap copy.
 
 ### From Binaries
 
-Download the latest archive for your platform from [GitHub Releases][releases], extract it, and place the `inro` binary in your `PATH`.
+If a prebuilt archive is available for your platform on [GitHub Releases][releases], extract it and place the `inro` binary in your `PATH`. Releases currently provide Linux x86_64, Windows x86_64, and macOS arm64 builds; other Rust-supported targets can be built from source.
 
 ### From Source
 
-If you have Rust installed:
+If you have Rust installed, this builds the current `main` branch using the repository lockfile:
 
 ```bash
-cargo install --git https://github.com/Yangmoooo/inro.git
+cargo install --locked --git https://github.com/Yangmoooo/inro.git
 ```
 
 ## Quick Start
@@ -73,17 +73,20 @@ inro import inro-packages.txt
 Exported package sets contain exact active versions. Retained old versions, unlinked packages, pin
 state, and local registry files are not included. Copy `registry.d/` separately before importing if
 the package set depends on hand-written definitions. Every non-comment import line must include an
-exact version in `<name>@<version>` form.
+exact version in `<name>@<version>` form. Import still downloads from upstream, so that release and
+its assets must remain available; GitHub lookups currently inspect the latest 100 releases.
 
 ## Configuration
 
 Inro keeps everything under a single root directory, `$INRO_HOME`. It defaults to `~/.inro/` on every platform; set `INRO_HOME` to relocate. Run `inro env` to see all resolved paths.
 
+See [`config.example.toml`](config.example.toml) for the available settings and environment variable overrides.
+
 ```
 $INRO_HOME/                      (default: ~/.inro/)
 ├── config.toml                  user configuration
 ├── manifest.json                installed packages state
-├── registry.d/              your hand-written registry overrides
+├── registry.d/                  your hand-written registry overrides
 │   └── *.toml
 ├── registry/                    inro-maintained
 │   ├── 00-default.toml          fetched by `inro source update`
@@ -91,7 +94,7 @@ $INRO_HOME/                      (default: ~/.inro/)
 └── pkgs/                        installed package versions
 ```
 
-Anything under `registry.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Automated source updates never write there; only an explicit `source edit` command changes these files.
+Anything under `registry.d/` is yours to author — its entries take precedence over `registry/` on load, so you can override a definition that inro pulled from upstream or learned automatically. Automated source updates never write there. Inro itself changes these files only when you explicitly run `source edit`; editing them directly remains supported.
 
 Use `inro source edit` to create or edit `registry.d/local.toml`, or
 `inro source edit <name>` for another hand-written registry file. Edits are staged and only replace
@@ -118,7 +121,7 @@ repo = "aria2/aria2"
 
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
-- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Your own files under `registry.d/` are never touched.
+- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Automatic asset learning never writes to your files under `registry.d/`.
 
 ## Notice
 
