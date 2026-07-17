@@ -1,7 +1,11 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
-use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::path::Path;
+#[cfg(unix)]
+use std::path::PathBuf;
+#[cfg(unix)]
+use std::process::Stdio;
+use std::process::{Command, Output};
 use std::time::Duration;
 use std::{fs, thread};
 
