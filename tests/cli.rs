@@ -1,13 +1,17 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::time::Duration;
 use std::{fs, thread};
 
 fn run_inro(home: &std::path::Path, args: &[&str]) -> Output { run_inro_with_env(home, args, &[]) }
 
 fn run_inro_with_env(home: &Path, args: &[&str], envs: &[(&str, &str)]) -> Output {
+    inro_command_with_env(home, args, envs).output().expect("failed to run inro")
+}
+
+fn inro_command_with_env(home: &Path, args: &[&str], envs: &[(&str, &str)]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_inro"));
     command
         .args(args)
@@ -16,12 +20,14 @@ fn run_inro_with_env(home: &Path, args: &[&str], envs: &[(&str, &str)]) -> Outpu
         .env_remove("INRO_TEST_GITHUB_API_URL")
         .env_remove("INRO_GITHUB_TOKEN")
         .env_remove("GITHUB_TOKEN")
+        .env_remove("VISUAL")
+        .env_remove("EDITOR")
         .env("NO_PROXY", "127.0.0.1,localhost")
         .env("no_proxy", "127.0.0.1,localhost");
     for (key, value) in envs {
         command.env(key, value);
     }
-    command.output().expect("failed to run inro")
+    command
 }
 
 fn assert_success(output: &Output) {
@@ -656,6 +662,155 @@ fn import_requires_an_exact_version_for_every_package() {
         String::from_utf8_lossy(&output.stderr)
     );
     assert!(!home.join("manifest.json").exists());
+}
+
+#[cfg(unix)]
+#[test]
+fn source_edit_opens_and_validates_the_default_local_registry() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    let editor = temp.path().join("fake-editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\nprintf '[custom.remote.github]\\nrepo = \"test/custom\"\\n' > \"$1\"\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let output =
+        run_inro_with_env(&home, &["source", "edit"], &[("VISUAL", editor.to_str().unwrap())]);
+
+    assert_success(&output);
+    assert_eq!(
+        fs::read_to_string(home.join("registry.d/local.toml")).unwrap(),
+        "[custom.remote.github]\nrepo = \"test/custom\"\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn source_edit_falls_back_to_vi_without_editor_environment_variables() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    let bin_dir = temp.path().join("bin");
+    fs::create_dir_all(&bin_dir).unwrap();
+    let nano = bin_dir.join("nano");
+    fs::write(&nano, "#!/bin/sh\nexit 23\n").unwrap();
+    let vi = bin_dir.join("vi");
+    fs::write(
+        &vi,
+        "#!/bin/sh\nprintf '[fallback.remote.github]\\nrepo = \"test/fallback\"\\n' > \"$1\"\n",
+    )
+    .unwrap();
+    for editor in [&nano, &vi] {
+        let mut permissions = fs::metadata(editor).unwrap().permissions();
+        permissions.set_mode(0o755);
+        fs::set_permissions(editor, permissions).unwrap();
+    }
+
+    let output = run_inro_with_env(
+        &home,
+        &["source", "edit", "fallback"],
+        &[("PATH", bin_dir.to_str().unwrap())],
+    );
+
+    assert_success(&output);
+    assert_eq!(
+        fs::read_to_string(home.join("registry.d/fallback.toml")).unwrap(),
+        "[fallback.remote.github]\nrepo = \"test/fallback\"\n"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn source_edit_keeps_the_live_registry_valid_when_the_edit_is_invalid() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    let registry_dir = home.join("registry.d");
+    fs::create_dir_all(&registry_dir).unwrap();
+    fs::write(home.join("config.toml"), "upstreams = []\n").unwrap();
+    let source_path = registry_dir.join("local.toml");
+    let original = "[stable.remote.github]\nrepo = \"test/stable\"\n";
+    fs::write(&source_path, original).unwrap();
+
+    let editor = temp.path().join("invalid-editor");
+    fs::write(&editor, "#!/bin/sh\nprintf '[broken\\n' > \"$1\"\n").unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+
+    let edit =
+        run_inro_with_env(&home, &["source", "edit"], &[("VISUAL", editor.to_str().unwrap())]);
+
+    assert!(!edit.status.success());
+    assert!(
+        String::from_utf8_lossy(&edit.stderr).contains("Edited local source is invalid"),
+        "stderr: {}",
+        String::from_utf8_lossy(&edit.stderr)
+    );
+    assert_eq!(fs::read_to_string(&source_path).unwrap(), original);
+
+    let search = run_inro(&home, &["search", "stable"]);
+    assert_success(&search);
+    assert!(String::from_utf8_lossy(&search.stdout).contains("stable"));
+}
+
+#[cfg(unix)]
+#[test]
+fn source_edit_does_not_overwrite_a_concurrent_source_change() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path().join("inro");
+    let registry_dir = home.join("registry.d");
+    fs::create_dir_all(&registry_dir).unwrap();
+    fs::write(home.join("config.toml"), "upstreams = []\n").unwrap();
+    let source_path = registry_dir.join("local.toml");
+    fs::write(&source_path, "[original.remote.github]\nrepo = \"test/original\"\n").unwrap();
+
+    let ready = temp.path().join("editor-ready");
+    let release = temp.path().join("editor-release");
+    let editor = temp.path().join("waiting-editor");
+    fs::write(
+        &editor,
+        "#!/bin/sh\nprintf '[staged.remote.github]\\nrepo = \"test/staged\"\\n' > \"$3\"\ntouch \"$1\"\nwhile [ ! -e \"$2\" ]; do sleep 0.05; done\n",
+    )
+    .unwrap();
+    let mut permissions = fs::metadata(&editor).unwrap().permissions();
+    permissions.set_mode(0o755);
+    fs::set_permissions(&editor, permissions).unwrap();
+    let visual = format!("{} {} {}", editor.display(), ready.display(), release.display());
+
+    let mut command = inro_command_with_env(&home, &["source", "edit"], &[("VISUAL", &visual)]);
+    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    let mut edit = command.spawn().unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while !ready.exists() {
+        assert!(std::time::Instant::now() < deadline, "editor did not start");
+        assert!(edit.try_wait().unwrap().is_none(), "source edit exited before editor was ready");
+        thread::sleep(Duration::from_millis(10));
+    }
+
+    let concurrent = "[concurrent.remote.github]\nrepo = \"test/concurrent\"\n";
+    fs::write(&source_path, concurrent).unwrap();
+    fs::write(&release, b"").unwrap();
+    let output = edit.wait_with_output().unwrap();
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("changed while it was being edited"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read_to_string(&source_path).unwrap(), concurrent);
 }
 
 #[test]

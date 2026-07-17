@@ -216,6 +216,16 @@ pub enum SourceSubCommand {
         #[arg(value_name = "NAME")]
         name: String,
     },
+
+    /// Edit a hand-written local registry file
+    ///
+    /// Uses VISUAL or EDITOR when set; the editor command must wait until the
+    /// file is closed before exiting.
+    Edit {
+        /// Registry file name without the .toml extension
+        #[arg(value_name = "NAME")]
+        name: Option<String>,
+    },
 }
 
 #[derive(Clone, Debug, ValueEnum)]

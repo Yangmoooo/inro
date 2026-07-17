@@ -1,6 +1,8 @@
 use std::fs;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use chrono::{DateTime, Local};
 use chrono_humanize::{Accuracy, HumanTime, Tense};
 use colored::{ColoredString, Colorize};
@@ -20,6 +22,9 @@ pub struct SourceCommand {
 impl CommandHandler for SourceCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
+        if let SourceSubCommand::Edit { name } = &self.command {
+            return edit_user_source(&layout, name.as_deref());
+        }
         let _lock = match &self.command {
             SourceSubCommand::List { .. } => None,
             _ => Some(crate::lock::acquire(&layout)?),
@@ -33,8 +38,104 @@ impl CommandHandler for SourceCommand {
             SourceSubCommand::Update => update_sources(&layout, &config.upstreams),
             SourceSubCommand::Enable { name } => enable_disable_source(&layout, name, true),
             SourceSubCommand::Disable { name } => enable_disable_source(&layout, name, false),
+            SourceSubCommand::Edit { .. } => unreachable!("edit is handled before locking"),
         }
     }
+}
+
+fn edit_user_source(layout: &InroLayout, name: Option<&str>) -> Result<()> {
+    let name = name.unwrap_or("local");
+    validate_path_component(name, "source name")?;
+    let path = layout.user_registry_dir.join(format!("{name}.toml"));
+    let original = {
+        let _lock = crate::lock::acquire(layout)?;
+        read_optional(&path)?
+    };
+    let staged = tempfile::Builder::new()
+        .prefix(&format!(".{name}.edit."))
+        .suffix(".toml")
+        .tempfile_in(&layout.inro_dir)
+        .with_context(|| format!("Failed to stage local source: {}", path.display()))?;
+    fs::write(staged.path(), original.as_deref().unwrap_or_default())
+        .with_context(|| format!("Failed to stage local source: {}", path.display()))?;
+
+    crate::editor::edit_file(staged.path())
+        .with_context(|| format!("Failed to edit local source: {}", path.display()))?;
+
+    let _lock = crate::lock::acquire(layout)?;
+    if read_optional(&path)? != original {
+        let staged_path = keep_staged_edit(staged)?;
+        bail!(
+            "Local source changed while it was being edited: {}; edited content kept at {}",
+            path.display(),
+            staged_path.display()
+        );
+    }
+    if let Err(error) = validate_staged_user_source(layout, &path, staged.path()) {
+        let staged_path = keep_staged_edit(staged)?;
+        return Err(error).with_context(|| {
+            format!(
+                "Edited local source is invalid: {}; edited content kept at {}",
+                path.display(),
+                staged_path.display()
+            )
+        });
+    }
+
+    fs::create_dir_all(&layout.user_registry_dir)?;
+    staged
+        .persist(&path)
+        .map_err(|error| error.error)
+        .with_context(|| format!("Failed to save local source: {}", path.display()))?;
+    done!("Edited local source '{}'", path.display());
+    Ok(())
+}
+
+fn read_optional(path: &Path) -> Result<Option<Vec<u8>>> {
+    match fs::read(path) {
+        Ok(contents) => Ok(Some(contents)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => {
+            Err(error).with_context(|| format!("Failed to read local source: {}", path.display()))
+        }
+    }
+}
+
+fn keep_staged_edit(staged: tempfile::NamedTempFile) -> Result<PathBuf> {
+    staged
+        .keep()
+        .map(|(_, path)| path)
+        .map_err(|error| error.error)
+        .context("Failed to preserve edited local source")
+}
+
+fn validate_staged_user_source(
+    layout: &InroLayout,
+    target_path: &Path,
+    staged_path: &Path,
+) -> Result<()> {
+    let validation_root = tempfile::tempdir_in(&layout.inro_dir)?;
+    let staged_user_dir = validation_root.path().join("registry.d");
+    fs::create_dir_all(&staged_user_dir)?;
+    if layout.user_registry_dir.exists() {
+        for entry in fs::read_dir(&layout.user_registry_dir)? {
+            let source_path = entry?.path();
+            if source_path != target_path
+                && source_path.extension().and_then(|extension| extension.to_str()) == Some("toml")
+                && let Some(file_name) = source_path.file_name()
+            {
+                fs::copy(&source_path, staged_user_dir.join(file_name))?;
+            }
+        }
+    }
+    let file_name = target_path
+        .file_name()
+        .ok_or_else(|| anyhow!("Local source has no file name: {}", target_path.display()))?;
+    fs::copy(staged_path, staged_user_dir.join(file_name))?;
+
+    let mut staged_layout = layout.clone();
+    staged_layout.user_registry_dir = staged_user_dir;
+    Registry::load(&staged_layout).map(|_| ())
 }
 
 fn list_sources(layout: &InroLayout, upstreams: &[UpstreamDef], check_remote: bool) -> Result<()> {

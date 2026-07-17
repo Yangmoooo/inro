@@ -1,12 +1,14 @@
 //! Cross-process exclusive lock for inro state mutations.
 //!
-//! Every command that writes to `manifest.json`, the local registry, or the
-//! linked binary directory acquires this lock for the lifetime of the
-//! command. Two concurrent `inro` invocations therefore cannot stomp on
-//! each other's writes; the second one waits for the first to exit.
+//! Every mutation of live `manifest.json`, local registry, or linked binary
+//! state happens while this lock is held. Most writing commands hold it for
+//! their full lifetime; interactive source editing works on an isolated
+//! staging file and acquires the lock only while taking its snapshot and
+//! validating/committing it. Concurrent invocations therefore cannot stomp
+//! on each other's live writes.
 //!
-//! Read-only commands (`list`, `show`, `search`, `doctor` without `--fix`,
-//! `generate`) intentionally skip the lock since the on-disk files are
+//! Read-only commands (`list`, `show`, `search`, `export`, `doctor` without
+//! `--fix`, `generate`) intentionally skip the lock since the on-disk files are
 //! always written via tmp+rename, so a reader sees either the old or the
 //! new version, never a half-written one.
 
