@@ -3,22 +3,22 @@
 # All settings are optional. Uncomment and modify the ones you want to override.
 
 # =============================================================================
-# [install] - Settings related to installation paths and behavior
+# Install settings
 # =============================================================================
 
 # The directory where executable symlinks will be created.
-# Inro will check this directory on startup and suggest adding it to your PATH if needed.
+# Run `inro doctor` to check whether this directory is in your PATH.
 # Environment variable override: INRO_BIN_DIR
 # Default: "~/.local/bin"
 #
-bin_dir = "~/bin"
+# bin_dir = "~/bin"
 
 
 # =============================================================================
-# [source] - Configuration for software sources
+# Source settings
 # =============================================================================
 
-# A list of remote Git repositories containing definitions (`.toml` files).
+# A list of remote registry TOML files.
 # Inro will fetch and cache these sources when you run `inro source update`.
 # The "default" upstream is built-in but can be overridden here if you want to use a fork.
 #
@@ -29,7 +29,7 @@ bin_dir = "~/bin"
 
 
 # =============================================================================
-# [behavior] - General behavior and performance tuning
+# Behavior and performance settings
 # =============================================================================
 
 # Number of packages to download in parallel during a multi-package install/update.

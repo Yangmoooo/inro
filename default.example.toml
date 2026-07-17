@@ -1,11 +1,11 @@
 # this package is just an example, DO NOT USE
 [example]
 
-# remote types: github, direct (not implemented yet)
+# GitHub Releases is currently the supported package remote.
 [example.remote.github]
 repo = "example/example"
 
-# platform-specific asset file names
+# platform-specific asset selectors
 # String selectors are minimal glob patterns matched against the full asset name
 # Array selectors are all-of tokens; every token must appear in the asset name
 [example.remote.github.asset]
