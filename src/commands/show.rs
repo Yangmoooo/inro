@@ -6,7 +6,7 @@ use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::registry::Registry;
-use crate::remotes::create_provider;
+use crate::remotes::github::GitHubProvider;
 use crate::utils::{format_date, terminal_link};
 use crate::{done, step, warn};
 
@@ -77,7 +77,7 @@ impl CommandHandler for ShowCommand {
         }
 
         step!("\nFetching remote info...");
-        let provider = create_provider(&resolved.remote)?;
+        let provider = GitHubProvider;
         match provider.list_versions(pkg_def, REMOTE_DISPLAY_LIMIT + 1) {
             Ok(versions) => {
                 done!("Recent available versions:");

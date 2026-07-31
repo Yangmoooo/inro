@@ -20,9 +20,6 @@ pub type Result<T> = std::result::Result<T, Error>;
 
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
-    #[error("Failed to build HTTP client")]
-    HttpClientBuild(#[from] reqwest::Error),
-
     #[error("Failed to start tokio runtime for synchronous GitHub call")]
     RuntimeBuild(#[source] std::io::Error),
 
@@ -363,29 +360,9 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
     score
 }
 
-#[derive(Deserialize, Debug, Clone)]
-#[serde(transparent)]
-pub(crate) struct Releases(Vec<Release>);
-
-impl From<Vec<Release>> for Releases {
-    fn from(releases: Vec<Release>) -> Self { Self(releases) }
-}
-
-impl FromIterator<Release> for Releases {
-    fn from_iter<I>(iter: I) -> Self
-    where
-        I: IntoIterator<Item = Release>,
-    {
-        let items: Vec<Release> = iter.into_iter().collect();
-        Releases(items)
-    }
-}
-
 pub struct GitHubProvider;
 
 impl GitHubProvider {
-    pub fn new() -> Result<Self> { Ok(Self) }
-
     // ==================== Async versions (for install/update) ====================
 
     fn api_base() -> String {
@@ -436,7 +413,7 @@ impl GitHubProvider {
         Ok(response)
     }
 
-    async fn fetch_releases_page_async(&self, repo: &str, page: usize) -> Result<Releases> {
+    async fn fetch_releases_page_async(&self, repo: &str, page: usize) -> Result<Vec<Release>> {
         let api_url = build_releases_url(&Self::api_base(), repo)?;
         let request =
             self.request(api_url).query(&[("per_page", GITHUB_RELEASE_PAGE_SIZE), ("page", page)]);
@@ -457,7 +434,7 @@ impl GitHubProvider {
             release.repo = repo.to_string();
         }
 
-        Ok(Releases(release_vec))
+        Ok(release_vec)
     }
 
     async fn fetch_latest_release_async(&self, repo: &str) -> Result<Release> {
@@ -506,8 +483,8 @@ impl GitHubProvider {
 
         for page in 1..=GITHUB_RELEASE_PAGE_COUNT {
             let releases = self.fetch_releases_page_async(repo, page).await?;
-            let fetched = releases.0.len();
-            if let Some(release) = releases.0.into_iter().find(Release::is_suitable) {
+            let fetched = releases.len();
+            if let Some(release) = releases.into_iter().find(Release::is_suitable) {
                 return Ok(release);
             }
             if fetched < GITHUB_RELEASE_PAGE_SIZE {
@@ -522,7 +499,7 @@ impl GitHubProvider {
         &self,
         pkg: &PkgDef,
         ver: Option<&str>,
-    ) -> super::Result<CandidateResult> {
+    ) -> Result<CandidateResult> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -558,7 +535,7 @@ impl GitHubProvider {
 
     // ==================== Sync facade (for info/source) ====================
 
-    pub fn list_versions(&self, pkg: &PkgDef, limit: usize) -> super::Result<Vec<VersionInfo>> {
+    pub fn list_versions(&self, pkg: &PkgDef, limit: usize) -> Result<Vec<VersionInfo>> {
         let repo = match &pkg.remote {
             RemoteType::GitHub(asset_def) => &asset_def.repo,
         };
@@ -571,8 +548,8 @@ impl GitHubProvider {
             let mut versions = Vec::new();
             for page in 1..=GITHUB_RELEASE_PAGE_COUNT {
                 let releases = self.fetch_releases_page_async(repo, page).await?;
-                let fetched = releases.0.len();
-                versions.extend(releases.0.into_iter().filter(Release::is_available).map(
+                let fetched = releases.len();
+                versions.extend(releases.into_iter().filter(Release::is_available).map(
                     |release| {
                         let date = release.published_at.unwrap_or(release.created_at);
                         VersionInfo {

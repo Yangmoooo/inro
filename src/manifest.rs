@@ -38,9 +38,10 @@ impl Manifest {
         let schema = raw.get("schema_version").and_then(|v| v.as_u64()).unwrap_or(1) as u32;
         if schema != CURRENT_SCHEMA_VERSION {
             bail!(
-                "Unsupported manifest schema_version {schema} at {}. inro 0.7 introduced a \
-                 breaking layout change — see CHANGELOG for the cleanup-and-reinstall path.",
-                path.display()
+                "Unsupported manifest schema_version {schema} at {} (this inro version supports \
+                 schema_version {CURRENT_SCHEMA_VERSION}). See CHANGELOG for migration or \
+                 reinstall guidance.",
+                path.display(),
             );
         }
         let manifest: Manifest = serde_json::from_value(raw)

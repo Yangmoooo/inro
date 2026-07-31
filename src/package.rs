@@ -23,7 +23,7 @@ pub struct PkgDef {
 }
 
 /// A value that can be either a plain string or a platform-specific mapping.
-/// Using #[serde(untagged)] for backward compatibility.
+/// Both forms are supported registry syntax.
 #[derive(Clone, Debug, Deserialize)]
 #[serde(untagged)]
 pub enum PlatformAwareString {
@@ -333,7 +333,7 @@ pub enum PkgError {
     NoCandidates,
 
     #[error("Remote error: {0}")]
-    Remote(#[from] crate::remotes::Error),
+    Remote(#[from] crate::remotes::github::Error),
 
     #[error("Download failed: '{0}'")]
     Download(#[from] anyhow::Error),
@@ -366,7 +366,7 @@ pub enum PkgError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::remotes::{self, GitHubAssetDef};
+    use crate::remotes::{GitHubAssetDef, github};
 
     fn make_pkg_def(bins: Vec<BinDef>) -> PkgDef {
         PkgDef {
@@ -380,12 +380,11 @@ mod tests {
 
     #[test]
     fn remote_error_display_includes_specific_cause() {
-        let error =
-            PkgError::Remote(remotes::Error::GitHub(remotes::github::Error::NoMatchingAsset {
-                repo: "owner/tool".to_string(),
-                tag: "v1.0.0".to_string(),
-                selector: "macos-aarch64".to_string(),
-            }));
+        let error = PkgError::Remote(github::Error::NoMatchingAsset {
+            repo: "owner/tool".to_string(),
+            tag: "v1.0.0".to_string(),
+            selector: "macos-aarch64".to_string(),
+        });
 
         let message = error.to_string();
 
@@ -817,8 +816,7 @@ repo = "example/codex"
     }
 
     #[test]
-    fn backward_compatibility_with_string_binaries() {
-        // Ensure old-style string binaries still work
+    fn literal_string_binaries_apply_to_all_platforms() {
         let toml = r#"
 [remote.github]
 repo = "example/simple"
