@@ -34,6 +34,15 @@ jobs:
       - name: Run tests
         run: cargo test --locked --verbose
 
+      - name: Test Unix installer
+        if: runner.os == 'Linux'
+        run: ./tests/install.sh
+
+      - name: Test Windows installer
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: ./tests/install.ps1
+
   lint-and-format:
     name: Lint and Format
     runs-on: ubuntu-latest

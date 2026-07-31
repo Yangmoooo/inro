@@ -106,6 +106,10 @@ jobs:
           path: artifacts
           merge-multiple: true
 
+      - name: Generate checksums
+        working-directory: artifacts
+        run: sha256sum inro-* > SHA256SUMS
+
       - name: Install Changelog parser
         uses: taiki-e/install-action@parse-changelog
 

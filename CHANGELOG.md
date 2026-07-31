@@ -7,6 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Verified Bootstrap Installers**: `install.sh` and `install.ps1` install the latest or a selected release into a configurable directory, with platform detection and SHA-256 verification. Release publishing now includes a `SHA256SUMS` file.
+
+### Changed
+
+- **Defined 1.x Compatibility Scope**: Document the CLI, registry, state layout, and package-set formats that remain compatible throughout the 1.x series, while keeping human-readable progress output free to evolve.
+
 ## [0.9.1] - 2026-07-17
 
 ### Changed

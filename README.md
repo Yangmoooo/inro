@@ -6,7 +6,39 @@ Inro fetches command-line tools from GitHub Releases and installs them under you
 
 ## Installation
 
-You can install inro using either method below. Inro can later manage its own updates, but the bootstrap executable must remain outside the configured `bin_dir`: run `inro source update` and `inro install inro`, confirm that `bin_dir` is on your `PATH` and the managed binary is being invoked, then delete the bootstrap copy.
+### Installer Script
+
+On Linux or macOS:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://raw.githubusercontent.com/Yangmoooo/inro/main/install.sh | sh
+```
+
+On Windows PowerShell:
+
+```powershell
+irm https://raw.githubusercontent.com/Yangmoooo/inro/main/install.ps1 | iex
+```
+
+The scripts install the latest release to `~/.local/bin` and verify it against the release's
+`SHA256SUMS`. To select a version or directory:
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf \
+  https://raw.githubusercontent.com/Yangmoooo/inro/main/install.sh |
+  sh -s -- --version 1.0.0 --to "$HOME/bin"
+```
+
+```powershell
+$installer = [scriptblock]::Create((irm https://raw.githubusercontent.com/Yangmoooo/inro/main/install.ps1))
+& $installer -Version 1.0.0 -InstallDir "$HOME\bin"
+```
+
+Rerun the installer to update this bootstrap copy. Because `~/.local/bin` is also inro's default
+managed `bin_dir`, install the bootstrap somewhere else if you want inro to manage its own binary:
+run `inro source update` and `inro install inro`, confirm the managed binary is on `PATH`, then
+delete the bootstrap copy.
 
 ### From Binaries
 
@@ -102,10 +134,6 @@ the live file after the merged registry validates successfully. Inro uses `$VISU
 when set; the command must wait until editing finishes (for example, `code --wait`). Without either
 variable it falls back to `vi` on Linux/macOS, or `edit.exe` followed by `notepad.exe` on Windows.
 
-> Upgrading from 0.6.x? Your old installations under `~/.local/share/inro/` and `~/.config/inro/` (or `~/Library/Application Support/inro/` on macOS) are no longer read. See [CHANGELOG][changelog] for the cleanup-and-reinstall path.
-
-[changelog]: CHANGELOG.md
-
 ### Asset Selectors
 
 GitHub packages can define platform-specific asset selectors when automatic asset discovery is ambiguous.
@@ -122,6 +150,25 @@ repo = "aria2/aria2"
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
 - When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Automatic asset learning never writes to your files under `registry.d/`.
+
+## Compatibility
+
+Starting with 1.0, inro follows Semantic Versioning for its documented interfaces. Within the 1.x
+series:
+
+- Documented commands, flags, package specifications (`name` and `name@version`), config keys, and
+  environment variables remain compatible.
+- GitHub registry definitions continue to accept literal and platform-specific binary names, plus
+  the documented string and token-list asset selectors. New optional fields may be added.
+- `$INRO_HOME` keeps the documented ownership split between `registry.d/` and inro-managed files.
+  Manifest schema v2 and current install receipts remain readable; an incompatible state change
+  requires a schema change and explicit migration or reinstall guidance.
+- Exported package sets remain importable and keep the documented exact `name@version` line format.
+
+Human-readable progress and diagnostic wording are not a scripting interface. Scripts should use
+the process success/failure status and `inro export` rather than parsing ordinary terminal output.
+Prebuilt releases currently support Linux x86_64, Windows x86_64, and macOS arm64; unsupported
+Rust targets can still be built from source.
 
 ## Notice
 
