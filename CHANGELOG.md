@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-07-31
+
 ### Added
 
 - **Verified Bootstrap Installers**: `install.sh` and `install.ps1` install the latest or a selected release into a configurable directory, with platform detection and SHA-256 verification. Release publishing now includes a `SHA256SUMS` file.
