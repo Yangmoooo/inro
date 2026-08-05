@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - **Terminal Hyperlinks in tmux**: `show` now emits clickable links inside tmux when the client terminal advertises hyperlink support, while keeping redirected output free of terminal escape sequences unless explicitly forced.
+- **Complete Update Status Output**: Retain completed progress rows for the full batch so mixed updates consistently show every installed package, including packages that are already up to date.
 
 ## [1.0.0] - 2026-07-31
 

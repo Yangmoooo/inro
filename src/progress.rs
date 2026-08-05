@@ -2,8 +2,8 @@
 //!
 //! Provides multi-progress bar display for install/update commands.
 
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use colored::Colorize;
@@ -130,6 +130,7 @@ impl PkgProgress {
 
 /// Manager for multi-package progress display.
 pub struct ProgressManager {
+    retained_bars: Mutex<Vec<ProgressBar>>,
     multi: Option<Arc<MultiProgress>>,
     name_width: usize,
 }
@@ -143,7 +144,7 @@ impl ProgressManager {
         } else {
             Some(Arc::new(MultiProgress::new()))
         };
-        Self { multi, name_width }
+        Self { retained_bars: Mutex::new(Vec::new()), multi, name_width }
     }
 
     /// Temporarily suspend progress bars for interactive prompts.
@@ -161,6 +162,7 @@ impl ProgressManager {
             let bar = multi.add(ProgressBar::new(0));
             bar.set_style(spinner_style());
             bar.set_message(format!("◦ {name:<w$}  pending"));
+            self.retained_bars.lock().expect("progress bar lock poisoned").push(bar.clone());
             bar
         });
 
@@ -232,5 +234,21 @@ mod tests {
         let manager = ProgressManager::new(&["tool"]);
         let progress = manager.add_package("tool");
         progress.finish_unchanged("1.2.3");
+    }
+
+    #[test]
+    fn progress_manager_retains_finished_bars_across_suspend() {
+        let _reset = set_test_verbosity(0);
+        let manager = ProgressManager::new(&["tool"]);
+        let progress = manager.add_package("tool");
+        let weak_bar = progress.bar.as_ref().unwrap().downgrade();
+
+        progress.finish_unchanged("1.2.3");
+        drop(progress);
+
+        manager.suspend(|| {});
+        assert!(weak_bar.upgrade().is_some());
+        drop(manager);
+        assert!(weak_bar.upgrade().is_none());
     }
 }
