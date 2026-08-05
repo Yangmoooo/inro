@@ -1,9 +1,11 @@
 use std::collections::HashSet;
 use std::fs;
+use std::path::Path;
 
 use anyhow::Result;
 use colored::Colorize;
 use humansize::{DECIMAL, format_size};
+use walkdir::WalkDir;
 
 use super::CommandHandler;
 use crate::layout::InroLayout;
@@ -64,7 +66,7 @@ impl CommandHandler for CleanCommand {
                 }
 
                 if !keep_set.contains(&(pkg_name.clone(), ver_name.clone())) {
-                    let size = fs_extra::dir::get_size(&ver_path).unwrap_or(0);
+                    let size = directory_size(&ver_path).unwrap_or(0);
                     candidates_to_remove.push((pkg_name.clone(), ver_name.clone(), ver_path, size));
                 }
             }
@@ -116,5 +118,62 @@ impl CommandHandler for CleanCommand {
         }
 
         Ok(())
+    }
+}
+
+fn directory_size(path: &Path) -> Result<u64> {
+    WalkDir::new(path).follow_links(false).follow_root_links(false).into_iter().try_fold(
+        0,
+        |size, entry| -> Result<u64> {
+            let entry = entry?;
+            if entry.depth() == 0 || entry.file_type().is_dir() {
+                return Ok(size);
+            }
+            Ok(size.saturating_add(entry.metadata()?.len()))
+        },
+    )
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use super::*;
+
+    #[test]
+    fn directory_size_counts_nested_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let nested = temp.path().join("nested");
+        fs::create_dir(&nested).unwrap();
+        fs::write(temp.path().join("root.bin"), [0; 3]).unwrap();
+        fs::write(nested.join("nested.bin"), [0; 5]).unwrap();
+
+        assert_eq!(directory_size(temp.path()).unwrap(), 8);
+    }
+
+    #[test]
+    fn directory_size_rejects_a_missing_root() {
+        let temp = tempfile::tempdir().unwrap();
+
+        assert!(directory_size(&temp.path().join("missing")).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn directory_size_does_not_follow_symlinks() {
+        use std::os::unix::fs::symlink;
+
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().join("root");
+        let target = temp.path().join("target");
+        fs::create_dir(&root).unwrap();
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("large.bin"), [0; 64]).unwrap();
+
+        let link = root.join("target-link");
+        symlink(&target, &link).unwrap();
+        let link_size = fs::symlink_metadata(&link).unwrap().len();
+
+        assert_eq!(directory_size(&root).unwrap(), link_size);
     }
 }

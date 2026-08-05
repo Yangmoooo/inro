@@ -47,7 +47,6 @@ chrono-humanize = "0.2"
 supports-hyperlinks = "3.2"
 sevenz-rust2 = "0.21"
 humansize = "2.1"
-fs_extra = "1.3"
 shell-words = "1.1"
 
 [profile.release]
