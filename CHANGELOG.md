@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Terminal Hyperlinks in tmux**: `show` now emits clickable links inside tmux when the client terminal advertises hyperlink support, while keeping redirected output free of terminal escape sequences unless explicitly forced.
+
 ## [1.0.0] - 2026-07-31
 
 ### Added

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 use std::fs::{self, File};
-use std::io::{self, copy};
+use std::io::{self, IsTerminal, copy};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -8,7 +8,6 @@ use anyhow::{Context, Result, bail};
 use chrono::{DateTime, Local, Utc};
 use chrono_humanize::HumanTime;
 use futures::StreamExt;
-use supports_hyperlinks::supports_hyperlinks;
 use tokio::io::AsyncWriteExt;
 use walkdir::WalkDir;
 
@@ -386,11 +385,52 @@ pub fn format_date(dt: &DateTime<Utc>) -> String {
 
 /// Create a terminal hyperlink if supported.
 pub fn terminal_link(text: &str, url: &str) -> String {
-    if supports_hyperlinks() {
-        format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\")
-    } else {
-        text.to_string()
+    terminal_link_with_support(text, url, terminal_supports_hyperlinks())
+}
+
+fn terminal_link_with_support(text: &str, url: &str, supported: bool) -> String {
+    if supported { format!("\x1b]8;;{url}\x1b\\{text}\x1b]8;;\x1b\\") } else { text.to_string() }
+}
+
+fn terminal_supports_hyperlinks() -> bool {
+    terminal_supports_hyperlinks_with(io::stdout().is_terminal(), |name| std::env::var(name).ok())
+}
+
+fn terminal_supports_hyperlinks_with<F>(is_terminal: bool, env: F) -> bool
+where
+    F: Fn(&str) -> Option<String>,
+{
+    if let Some(value) = env("FORCE_HYPERLINK") {
+        return value.trim() != "0";
     }
+    if !is_terminal {
+        return false;
+    }
+
+    // tmux masks the outer terminal identity, but preserves OSC 8 when the
+    // client terminal advertises the `hyperlinks` feature.
+    env("TMUX").is_some()
+        || env("DOMTERM").is_some()
+        || env("VTE_VERSION")
+            .and_then(|version| version.parse::<u32>().ok())
+            .is_some_and(|version| version >= 5000)
+        || matches!(
+            env("TERM_PROGRAM").as_deref(),
+            Some(
+                "Hyper"
+                    | "iTerm.app"
+                    | "terminology"
+                    | "WezTerm"
+                    | "vscode"
+                    | "ghostty"
+                    | "zed"
+                    | "tmux"
+            )
+        )
+        || matches!(env("TERM").as_deref(), Some("xterm-kitty" | "alacritty" | "alacritty-direct"))
+        || matches!(env("COLORTERM").as_deref(), Some("xfce4-terminal"))
+        || env("WT_SESSION").is_some()
+        || env("KONSOLE_VERSION").is_some()
 }
 
 /// Parses "package" or "package@version".
@@ -405,6 +445,44 @@ pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn hyperlinks_supported(is_terminal: bool, vars: &[(&str, &str)]) -> bool {
+        terminal_supports_hyperlinks_with(is_terminal, |name| {
+            vars.iter().find(|(key, _)| *key == name).map(|(_, value)| (*value).to_string())
+        })
+    }
+
+    #[test]
+    fn hyperlink_force_setting_overrides_terminal_detection() {
+        assert!(hyperlinks_supported(false, &[("FORCE_HYPERLINK", "1")]));
+        assert!(!hyperlinks_supported(true, &[("FORCE_HYPERLINK", " 0 "), ("TMUX", "/tmp/tmux")]));
+    }
+
+    #[test]
+    fn hyperlinks_are_disabled_for_redirected_output() {
+        assert!(!hyperlinks_supported(false, &[("TERM_PROGRAM", "ghostty")]));
+    }
+
+    #[test]
+    fn hyperlinks_detect_direct_terminals() {
+        assert!(hyperlinks_supported(true, &[("TERM_PROGRAM", "ghostty")]));
+        assert!(hyperlinks_supported(true, &[("WT_SESSION", "session-id")]));
+        assert!(!hyperlinks_supported(true, &[("TERM_PROGRAM", "unknown")]));
+    }
+
+    #[test]
+    fn hyperlinks_detect_tmux() {
+        assert!(hyperlinks_supported(true, &[("TMUX", "/tmp/tmux-501/default,1,0")]));
+        assert!(hyperlinks_supported(true, &[("TERM_PROGRAM", "tmux")]));
+    }
+
+    #[test]
+    fn terminal_link_emits_osc_8_only_when_supported() {
+        let expected = "\x1b]8;;https://example.com/v1\x1b\\v1\x1b]8;;\x1b\\";
+
+        assert_eq!(terminal_link_with_support("v1", "https://example.com/v1", true), expected);
+        assert_eq!(terminal_link_with_support("v1", "https://example.com/v1", false), "v1");
+    }
 
     #[test]
     fn duplicate_package_versions_are_rejected() {
