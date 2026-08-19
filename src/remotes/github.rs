@@ -4,8 +4,7 @@ use std::env;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 
-use super::{AssetSelector, CandidateResult, InstallCandidate, MatchKind, RemoteType};
-use crate::package::PkgDef;
+use super::{AssetSelector, CandidateResult, GitHubAssetDef, InstallCandidate, MatchKind};
 use crate::platform::PlatformInfo;
 use crate::remotes::{VersionInfo, asset_matches_selector, is_ignored_format, is_supported_format};
 use crate::{client, detail};
@@ -497,12 +496,10 @@ impl GitHubProvider {
 
     pub async fn find_candidates_async(
         &self,
-        pkg: &PkgDef,
+        asset_def: &GitHubAssetDef,
         ver: Option<&str>,
     ) -> Result<CandidateResult> {
-        let repo = match &pkg.remote {
-            RemoteType::GitHub(asset_def) => &asset_def.repo,
-        };
+        let repo = &asset_def.repo;
 
         let release = if let Some(tag) = ver {
             self.fetch_release_by_tag_async(repo, tag).await?
@@ -510,7 +507,6 @@ impl GitHubProvider {
             self.find_latest_suitable_release_async(repo).await?
         };
 
-        let RemoteType::GitHub(asset_def) = &pkg.remote;
         let (assets, match_kind) = release.find_assets(&asset_def.asset)?;
 
         let asset_names = release.assets.iter().map(|asset| asset.name.clone()).collect();
@@ -523,8 +519,8 @@ impl GitHubProvider {
                 size: asset.size,
             })
             .collect();
-        let matched_selector = match (&pkg.remote, match_kind) {
-            (RemoteType::GitHub(asset_def), MatchKind::Explicit) => {
+        let matched_selector = match match_kind {
+            MatchKind::Explicit => {
                 let platform_key = PlatformInfo::current().key();
                 asset_def.asset.get(&platform_key).map(ToString::to_string)
             }
@@ -535,10 +531,12 @@ impl GitHubProvider {
 
     // ==================== Sync facade (for info/source) ====================
 
-    pub fn list_versions(&self, pkg: &PkgDef, limit: usize) -> Result<Vec<VersionInfo>> {
-        let repo = match &pkg.remote {
-            RemoteType::GitHub(asset_def) => &asset_def.repo,
-        };
+    pub fn list_versions(
+        &self,
+        asset_def: &GitHubAssetDef,
+        limit: usize,
+    ) -> Result<Vec<VersionInfo>> {
+        let repo = &asset_def.repo;
 
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()

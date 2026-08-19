@@ -15,9 +15,10 @@ use crate::package::{InstalledBin, PkgDef, PkgError, PkgReceipt, ResolvedPkg};
 use crate::platform::PlatformInfo;
 use crate::progress::{OpPhase, PkgProgress, ProgressManager};
 use crate::registry::{AssetSelectionWriteBack, Registry};
+use crate::remotes::direct::DirectProvider;
 use crate::remotes::github::GitHubProvider;
 use crate::remotes::{
-    CandidateResult, InstallCandidate, MatchKind, derive_asset_selector,
+    CandidateResult, InstallCandidate, MatchKind, RemoteType, derive_asset_selector,
     derive_asset_selector_from_assets,
 };
 use crate::reporter::print_error_chain;
@@ -198,8 +199,10 @@ async fn find_candidates(
 ) -> Result<CandidateResult, PkgError> {
     progress.set_phase(OpPhase::Fetching);
 
-    let provider = GitHubProvider;
-    let result = provider.find_candidates_async(pkg_def, ver).await?;
+    let result = match &pkg_def.remote {
+        RemoteType::GitHub(remote) => GitHubProvider.find_candidates_async(remote, ver).await?,
+        RemoteType::Direct(remote) => DirectProvider.find_candidates(remote, ver)?,
+    };
     if result.candidates.is_empty() {
         return Err(PkgError::NoCandidates);
     }

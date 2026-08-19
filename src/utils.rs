@@ -43,8 +43,14 @@ pub async fn download_file_with_progress(
     let response =
         response.error_for_status().with_context(|| format!("HTTP error for URL: {url}"))?;
 
-    let file_name =
-        Path::new(url).file_name().and_then(|s| s.to_str()).unwrap_or("inro-download.tmp");
+    let file_name = reqwest::Url::parse(url)
+        .ok()
+        .and_then(|url| {
+            url.path_segments()
+                .and_then(|mut segments| segments.rfind(|segment| !segment.is_empty()))
+                .map(str::to_string)
+        })
+        .unwrap_or_else(|| "inro-download.tmp".to_string());
 
     let dest_path = dest_dir.join(file_name);
     let mut dest_file = tokio::fs::File::create(&dest_path)
@@ -52,7 +58,7 @@ pub async fn download_file_with_progress(
         .with_context(|| format!("Failed to create destination file: {}", dest_path.display()))?;
 
     // Set progress bar length
-    progress.set_length(size);
+    progress.set_length(if size == 0 { response.content_length().unwrap_or(0) } else { size });
 
     // Stream the response body and update progress
     let mut stream = response.bytes_stream();

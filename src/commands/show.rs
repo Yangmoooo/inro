@@ -6,6 +6,7 @@ use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::registry::Registry;
+use crate::remotes::RemoteType;
 use crate::remotes::github::GitHubProvider;
 use crate::utils::{format_date, terminal_link};
 use crate::{done, step, warn};
@@ -76,27 +77,46 @@ impl CommandHandler for ShowCommand {
             println!("{}", "Not Installed".dimmed());
         }
 
-        step!("\nFetching remote info...");
-        let provider = GitHubProvider;
-        match provider.list_versions(pkg_def, REMOTE_DISPLAY_LIMIT + 1) {
-            Ok(versions) => {
-                done!("Recent available versions:");
-                let has_more = versions.len() > REMOTE_DISPLAY_LIMIT;
-                for ver in versions.iter().take(REMOTE_DISPLAY_LIMIT) {
-                    let clickable_tag = terminal_link(&ver.tag, &ver.url);
-                    let time_display = format!("({})", HumanTime::from(ver.published_at)).dimmed();
-                    let pre_tag = if ver.prerelease {
-                        " (pre-release)".dimmed().to_string()
-                    } else {
-                        String::new()
-                    };
-                    println!("  - {clickable_tag}  {time_display}{pre_tag}");
-                }
-                if has_more {
-                    println!("  {}", "... (and more, check the remote for details)".dimmed());
+        match &pkg_def.remote {
+            RemoteType::GitHub(remote) => {
+                step!("\nFetching remote info...");
+                match GitHubProvider.list_versions(remote, REMOTE_DISPLAY_LIMIT + 1) {
+                    Ok(versions) => {
+                        done!("Recent available versions:");
+                        let has_more = versions.len() > REMOTE_DISPLAY_LIMIT;
+                        for ver in versions.iter().take(REMOTE_DISPLAY_LIMIT) {
+                            let clickable_tag = terminal_link(&ver.tag, &ver.url);
+                            let time_display =
+                                format!("({})", HumanTime::from(ver.published_at)).dimmed();
+                            let pre_tag = if ver.prerelease {
+                                " (pre-release)".dimmed().to_string()
+                            } else {
+                                String::new()
+                            };
+                            println!("  - {clickable_tag}  {time_display}{pre_tag}");
+                        }
+                        if has_more {
+                            println!(
+                                "  {}",
+                                "... (and more, check the remote for details)".dimmed()
+                            );
+                        }
+                    }
+                    Err(e) => warn!("Failed to fetch remote versions: {e}"),
                 }
             }
-            Err(e) => warn!("Failed to fetch remote versions: {e}"),
+            RemoteType::Direct(remote) => {
+                done!("\nConfigured versions:");
+                let has_more = remote.versions.len() > REMOTE_DISPLAY_LIMIT;
+                for version in remote.versions.keys().take(REMOTE_DISPLAY_LIMIT) {
+                    println!("  - {version}");
+                }
+                if remote.versions.is_empty() {
+                    println!("  {}", "(none)".dimmed());
+                } else if has_more {
+                    println!("  {}", "... (and more in the registry)".dimmed());
+                }
+            }
         }
 
         Ok(())

@@ -335,6 +335,9 @@ pub enum PkgError {
     #[error("Remote error: {0}")]
     Remote(#[from] crate::remotes::github::Error),
 
+    #[error(transparent)]
+    DirectRemote(#[from] crate::remotes::direct::Error),
+
     #[error("Download failed: '{0}'")]
     Download(#[from] anyhow::Error),
 

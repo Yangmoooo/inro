@@ -1,7 +1,8 @@
 mod asset;
+pub mod direct;
 pub mod github;
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 use std::fmt;
 
 pub use asset::{
@@ -15,6 +16,7 @@ use serde::{Deserialize, Serialize};
 #[serde(rename_all = "lowercase")]
 pub enum RemoteType {
     GitHub(GitHubAssetDef),
+    Direct(DirectRemoteDef),
 }
 
 impl Default for RemoteType {
@@ -25,6 +27,7 @@ impl fmt::Display for RemoteType {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             RemoteType::GitHub(def) => write!(f, "github:{}", def.repo),
+            RemoteType::Direct(_) => write!(f, "direct"),
         }
     }
 }
@@ -34,6 +37,12 @@ pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
     pub asset: HashMap<String, AssetSelector>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Serialize)]
+pub struct DirectRemoteDef {
+    #[serde(flatten)]
+    pub versions: BTreeMap<String, BTreeMap<String, String>>,
 }
 
 #[derive(Debug, Clone)]
