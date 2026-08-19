@@ -2,7 +2,7 @@
 
 A minimalist, configuration-driven tool for installing and managing your favorite command-line tools.
 
-Inro fetches command-line tools from GitHub Releases and installs them under your home directory. It normally needs no admin rights; on Windows, creating the managed symlinks requires Developer Mode or an elevated shell.
+Inro fetches command-line tools from GitHub Releases or declarative direct download URLs and installs them under your home directory. It normally needs no admin rights; on Windows, creating the managed symlinks requires Developer Mode or an elevated shell.
 
 ## Installation
 
@@ -151,6 +151,36 @@ repo = "aria2/aria2"
 - Array selectors are all-of tokens. Every token must appear in the asset name.
 - When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Automatic asset learning never writes to your files under `registry.d/`.
 
+### Direct Downloads
+
+For tools whose maintainers publish archives outside GitHub Releases, a package can declare exact
+version-to-URL mappings:
+
+```toml
+[sqlite]
+
+[sqlite.remote.direct."3.53.4"]
+"linux-x86_64" = "https://www.sqlite.org/2026/sqlite-tools-linux-x64-3530400.zip"
+"macos-aarch64" = "https://www.sqlite.org/2026/sqlite-tools-osx-arm64-3530400.zip"
+"windows-x86_64" = "https://www.sqlite.org/2026/sqlite-tools-win-x64-3530400.zip"
+
+[[sqlite.bin]]
+name = "sqlite3"
+```
+
+The quoted table key is the package version, so a version cannot be declared without its platform
+URLs. Binary lookup still uses the normal package-level `[[package.bin]]` entries. The current
+platform must have an exact `<os>-<arch>` key.
+
+Direct remotes are deliberately declarative: inro does not scrape download pages, discover new
+versions, infer a latest version, or attach release dates. With one configured version,
+`inro install sqlite` and `inro update sqlite` use that version. With multiple configured versions,
+install and update require an exact specification such as `sqlite@3.53.4`; exact versions in import
+files work the same way. `inro show sqlite` lists the versions declared in the registry without
+network access. Additional versions can be merged in through a file under `registry.d/`.
+Direct remotes currently do not perform checksum verification, so the registry maintainer is
+responsible for keeping the declared URLs trustworthy.
+
 ## Compatibility
 
 Starting with 1.0, inro follows Semantic Versioning for its documented interfaces. Within the 1.x
@@ -160,6 +190,8 @@ series:
   environment variables remain compatible.
 - GitHub registry definitions continue to accept literal and platform-specific binary names, plus
   the documented string and token-list asset selectors. New optional fields may be added.
+- Direct registry definitions continue to use quoted version table keys with platform-specific
+  HTTP(S) URLs and the normal package-level binary definitions.
 - `$INRO_HOME` keeps the documented ownership split between `registry.d/` and inro-managed files.
   Manifest schema v2 and current install receipts remain readable; an incompatible state change
   requires a schema change and explicit migration or reinstall guidance.

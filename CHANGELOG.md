@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Declarative Direct Remotes**: Registry packages can map exact version keys to platform-specific HTTP(S) download URLs, enabling install, update, import, and offline `show` support for tools that do not publish suitable GitHub Release assets.
+
 ## [1.0.1] - 2026-08-06
 
 ### Fixed

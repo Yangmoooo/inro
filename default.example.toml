@@ -1,7 +1,7 @@
 # this package is just an example, DO NOT USE
 [example]
 
-# GitHub Releases is currently the supported package remote.
+# GitHub Releases is the primary package remote.
 [example.remote.github]
 repo = "example/example"
 
@@ -18,6 +18,16 @@ repo = "example/example"
 name = "example"
 # name to link the binary, defaults to the bin.name
 link = "example"
+
+# Direct URLs are available for tools without suitable GitHub Releases.
+# The version is the table key, which keeps each version bound to its URLs.
+[direct-example]
+[direct-example.remote.direct."1.0.0"]
+"linux-x86_64" = "https://example.com/direct-example-linux-x86_64.tar.gz"
+"macos-aarch64" = "https://example.com/direct-example-macos-aarch64.tar.gz"
+"windows-x86_64" = "https://example.com/direct-example-windows-x86_64.zip"
+[[direct-example.bin]]
+name = "direct-example"
 
 
 ### packages
