@@ -115,7 +115,63 @@ fn setup_tool_home(root: &Path) -> (PathBuf, PathBuf) {
 }
 
 #[cfg(unix)]
+fn setup_direct_tool_home(root: &Path, versions: &[(&str, &str)]) -> (PathBuf, PathBuf) {
+    let home = root.join("inro");
+    let bin_dir = root.join("bin");
+    fs::create_dir_all(home.join("registry.d")).unwrap();
+    fs::write(home.join("config.toml"), format!("bin_dir = {:?}\nupstreams = []\n", bin_dir))
+        .unwrap();
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let mut registry = String::from("[tool]\n");
+    for (version, url) in versions {
+        registry
+            .push_str(&format!("[tool.remote.direct.\"{version}\"]\n\"{platform}\" = \"{url}\"\n"));
+    }
+    fs::write(home.join("registry.d/tool.toml"), registry).unwrap();
+    (home, bin_dir)
+}
+
+#[cfg(unix)]
 fn tool_binary() -> Vec<u8> { b"\x7fELFfixture".to_vec() }
+
+#[cfg(unix)]
+fn serve_direct_asset(asset: Vec<u8>) -> (String, thread::JoinHandle<()>) {
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    listener.set_nonblocking(true).unwrap();
+    let address = listener.local_addr().unwrap();
+    let handle = thread::spawn(move || {
+        let deadline = std::time::Instant::now() + Duration::from_secs(2);
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+                    let mut request = [0u8; 2048];
+                    let read = stream.read(&mut request).unwrap();
+                    let request = String::from_utf8_lossy(&request[..read]);
+                    assert!(request.starts_with("GET /downloads/tool?source=test HTTP/1.1"));
+                    write!(
+                        stream,
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                        asset.len()
+                    )
+                    .unwrap();
+                    stream.write_all(&asset).unwrap();
+                    stream.flush().unwrap();
+                    return;
+                }
+                Err(error) if error.kind() == ErrorKind::WouldBlock => {
+                    assert!(
+                        std::time::Instant::now() < deadline,
+                        "direct download was not requested"
+                    );
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(error) => panic!("accept failed: {error}"),
+            }
+        }
+    });
+    (format!("http://{address}/downloads/tool?source=test"), handle)
+}
 
 #[cfg(unix)]
 #[derive(Clone, Copy)]
@@ -411,6 +467,59 @@ fn install_commits_files_link_receipt_and_manifest() {
 
 #[cfg(unix)]
 #[test]
+fn direct_install_uses_exact_configured_version_and_normal_workflow() {
+    let temp = tempfile::tempdir().unwrap();
+    let (asset_url, server) = serve_direct_asset(tool_binary());
+    let unavailable_url = format!("{}/unavailable-tool", closed_local_url());
+    let (home, bin_dir) =
+        setup_direct_tool_home(temp.path(), &[("1.0.0", &asset_url), ("2.0.0", &unavailable_url)]);
+
+    let output = run_inro(&home, &["install", "tool@1.0.0"]);
+    server.join().unwrap();
+
+    assert_success(&output);
+    let install_dir = home.join("pkgs/tool/1.0.0");
+    assert_eq!(fs::read(install_dir.join("tool")).unwrap(), tool_binary());
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), install_dir.join("tool"));
+
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(install_dir.join("inro-receipt.json")).unwrap()).unwrap();
+    assert_eq!(receipt["version"], "1.0.0");
+    assert!(receipt["remote"]["direct"]["1.0.0"].is_object());
+
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["packages"]["tool"]["current_version"], "1.0.0");
+    assert_eq!(manifest["packages"]["tool"]["versions"]["1.0.0"], receipt);
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_install_requires_a_version_when_multiple_are_configured() {
+    let temp = tempfile::tempdir().unwrap();
+    let unavailable_url = format!("{}/tool", closed_local_url());
+    let (home, _) = setup_direct_tool_home(
+        temp.path(),
+        &[("1.0.0", &unavailable_url), ("2.0.0", &unavailable_url)],
+    );
+
+    let output = run_inro(&home, &["-v", "install", "tool"]);
+
+    assert!(!output.status.success());
+    assert!(
+        String::from_utf8_lossy(&output.stderr).contains("specify an exact version"),
+        "stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    if home.join("manifest.json").exists() {
+        let manifest: serde_json::Value =
+            serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+        assert!(manifest["packages"].get("tool").is_none());
+    }
+}
+
+#[cfg(unix)]
+#[test]
 fn install_falls_back_to_a_release_page_when_latest_has_no_assets() {
     let temp = tempfile::tempdir().unwrap();
     let (home, bin_dir) = setup_tool_home(temp.path());
@@ -627,6 +736,28 @@ fn show_fetches_only_the_recent_release_page() {
     assert!(stdout.contains("v1.0.0"));
     assert_eq!(stdout.lines().filter(|line| line.starts_with("  - ")).count(), 5);
     assert!(stdout.contains("... (and more, check the remote for details)"));
+}
+
+#[cfg(unix)]
+#[test]
+fn show_lists_direct_versions_without_network_access() {
+    let temp = tempfile::tempdir().unwrap();
+    let unavailable_url = format!("{}/tool", closed_local_url());
+    let (home, _) = setup_direct_tool_home(
+        temp.path(),
+        &[("1.0.0", &unavailable_url), ("2.0.0", &unavailable_url)],
+    );
+
+    let output = run_inro(&home, &["show", "tool"]);
+
+    assert_success(&output);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stdout.contains("Source:     direct"));
+    assert!(stderr.contains("Configured versions:"));
+    assert!(stdout.contains("  - 1.0.0"), "stdout: {stdout}");
+    assert!(stdout.contains("  - 2.0.0"), "stdout: {stdout}");
+    assert!(!stderr.contains("Fetching remote info"));
 }
 
 #[test]

@@ -177,6 +177,50 @@ mod tests {
     }
 
     #[test]
+    fn direct_versions_parse_and_merge_across_registry_layers() {
+        let temp_dir = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp_dir.path());
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        fs::create_dir_all(&layout.user_registry_dir).unwrap();
+
+        let platform_key = PlatformInfo::current().key();
+        fs::write(
+            layout.managed_registry_dir.join("00-default.toml"),
+            format!(
+                r#"
+[sqlite]
+[sqlite.remote.direct."3.52.0"]
+"{platform_key}" = "https://example.com/sqlite-352.zip"
+[[sqlite.bin]]
+name = "sqlite3"
+"#
+            ),
+        )
+        .unwrap();
+        fs::write(
+            layout.user_registry_dir.join("sqlite.toml"),
+            format!(
+                r#"
+[sqlite.remote.direct."3.53.4"]
+"{platform_key}" = "https://example.com/sqlite-353.zip"
+"#
+            ),
+        )
+        .unwrap();
+
+        let registry = Registry::load(&layout).unwrap();
+        let pkg = registry.pkgs.get("sqlite").unwrap();
+        let RemoteType::Direct(direct) = &pkg.remote else {
+            panic!("expected direct remote");
+        };
+
+        assert_eq!(direct.versions.len(), 2);
+        assert_eq!(direct.versions["3.52.0"][&platform_key], "https://example.com/sqlite-352.zip");
+        assert_eq!(direct.versions["3.53.4"][&platform_key], "https://example.com/sqlite-353.zip");
+        assert_eq!(pkg.bin.len(), 1);
+    }
+
+    #[test]
     fn write_asset_selection_merges_with_upstream_package_definition() {
         let temp_dir = tempfile::tempdir().unwrap();
         let layout = test_layout(temp_dir.path());
@@ -209,7 +253,9 @@ link = "tool"
         let registry = Registry::load(&layout).unwrap();
         let pkg = registry.pkgs.get("tool").unwrap();
 
-        let RemoteType::GitHub(github) = &pkg.remote;
+        let RemoteType::GitHub(github) = &pkg.remote else {
+            panic!("expected GitHub remote");
+        };
         assert_eq!(github.repo, "owner/tool");
         assert_eq!(
             github.asset.get(&platform_key),
@@ -355,7 +401,9 @@ name = "tool"
 
         let registry = Registry::load(&layout).unwrap();
         let pkg = registry.pkgs.get("tool").unwrap();
-        let RemoteType::GitHub(github) = &pkg.remote;
+        let RemoteType::GitHub(github) = &pkg.remote else {
+            panic!("expected GitHub remote");
+        };
         assert_eq!(
             github.asset.get(&platform_key),
             Some(&AssetSelector::Glob("tool-from-auto.tar.gz".to_string()))
@@ -395,7 +443,9 @@ name = "tool"
 
         let registry = Registry::load(&layout).unwrap();
         let pkg = registry.pkgs.get("tool").unwrap();
-        let RemoteType::GitHub(github) = &pkg.remote;
+        let RemoteType::GitHub(github) = &pkg.remote else {
+            panic!("expected GitHub remote");
+        };
         assert_eq!(
             github.asset.get(&platform_key),
             Some(&AssetSelector::Glob("from-user.tar.gz".to_string()))
