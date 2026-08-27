@@ -29,6 +29,31 @@ impl PlatformInfo {
             _ => slice::from_ref(&self.arch),
         }
     }
+
+    /// Check whether an asset name identifies this platform using either the
+    /// usual independent OS/architecture markers or a compound marker such
+    /// as `win64`.
+    pub fn matches_asset_name(&self, name: &str) -> bool {
+        let name = name.to_ascii_lowercase();
+        let os_match = self.os_aliases().iter().any(|alias| name.contains(alias));
+        let arch_match = self.arch_aliases().iter().any(|alias| name.contains(alias));
+
+        if os_match && arch_match {
+            return true;
+        }
+
+        self.compound_asset_aliases().iter().any(|alias| {
+            name.split(|ch: char| !ch.is_ascii_alphanumeric()).any(|part| part == *alias)
+        })
+    }
+
+    fn compound_asset_aliases(&self) -> &[&str] {
+        match (self.os, self.arch) {
+            ("windows", "x86_64") => &["win64"],
+            ("windows", "x86") => &["win32"],
+            _ => &[],
+        }
+    }
 }
 
 #[cfg(test)]
@@ -102,5 +127,23 @@ mod tests {
         let platform = PlatformInfo { os: "freebsd", arch: "riscv64" };
         assert!(platform.os_aliases().contains(&"freebsd"));
         assert!(platform.arch_aliases().contains(&"riscv64"));
+    }
+
+    #[test]
+    fn asset_names_match_windows_compound_architectures() {
+        let x64 = PlatformInfo { os: "windows", arch: "x86_64" };
+        assert!(x64.matches_asset_name("upx-5.2.0-win64.zip"));
+        assert!(!x64.matches_asset_name("upx-5.2.0-win32.zip"));
+
+        let x86 = PlatformInfo { os: "windows", arch: "x86" };
+        assert!(x86.matches_asset_name("upx-5.2.0-win32.zip"));
+        assert!(!x86.matches_asset_name("upx-5.2.0-win64.zip"));
+    }
+
+    #[test]
+    fn compound_asset_aliases_require_a_token_boundary() {
+        let x64 = PlatformInfo { os: "windows", arch: "x86_64" };
+        assert!(!x64.matches_asset_name("upx-5.2.0-darwin64.zip"));
+        assert!(!x64.matches_asset_name("upx-5.2.0-win64msvc.zip"));
     }
 }

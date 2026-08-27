@@ -192,9 +192,7 @@ impl Release {
             .iter()
             .filter(|asset| {
                 let name_lower = asset.name.to_lowercase();
-                let os_match = os_aliases.iter().any(|&alias| name_lower.contains(alias));
-                let arch_match = arch_aliases.iter().any(|&alias| name_lower.contains(alias));
-                os_match && arch_match && is_supported_format(&name_lower)
+                platform.matches_asset_name(&name_lower) && is_supported_format(&name_lower)
             })
             .map(|asset| {
                 let score = calculate_heuristic_score(asset, platform);
@@ -701,6 +699,20 @@ mod tests {
         assert_eq!(match_kind, MatchKind::PlatformHeuristic);
         assert_eq!(assets.len(), 1);
         assert_eq!(assets[0].name, "chsrc-aarch64-macos");
+    }
+
+    #[test]
+    fn windows_candidates_match_compound_architecture_names() {
+        let release =
+            release_with_assets(vec![asset("upx-5.2.0-win64.zip"), asset("upx-5.2.0-win32.zip")]);
+        let platform = PlatformInfo { os: "windows", arch: "x86_64" };
+
+        let (assets, match_kind) =
+            release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
+
+        assert_eq!(match_kind, MatchKind::PlatformHeuristic);
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "upx-5.2.0-win64.zip");
     }
 
     // ==================== Rate-limit hint ====================
