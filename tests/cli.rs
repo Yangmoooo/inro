@@ -1,5 +1,7 @@
 use std::io::{ErrorKind, Read, Write};
 use std::net::TcpListener;
+#[cfg(unix)]
+use std::net::TcpStream;
 use std::path::Path;
 #[cfg(unix)]
 use std::path::PathBuf;
@@ -103,6 +105,23 @@ fn closed_local_url() -> String {
 }
 
 #[cfg(unix)]
+fn read_request_headers(stream: &mut TcpStream) -> String {
+    stream.set_nonblocking(false).unwrap();
+    stream.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+
+    let mut request = Vec::new();
+    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
+        let mut chunk = [0u8; 1024];
+        let read = stream.read(&mut chunk).unwrap();
+        assert!(read > 0, "connection closed before request headers completed");
+        request.extend_from_slice(&chunk[..read]);
+        assert!(request.len() <= 16 * 1024, "request headers too large");
+    }
+
+    String::from_utf8(request).unwrap()
+}
+
+#[cfg(unix)]
 fn setup_tool_home(root: &Path) -> (PathBuf, PathBuf) {
     let home = root.join("inro");
     let bin_dir = root.join("bin");
@@ -144,10 +163,7 @@ fn serve_direct_asset(asset: Vec<u8>) -> (String, thread::JoinHandle<()>) {
         loop {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-                    let mut request = [0u8; 2048];
-                    let read = stream.read(&mut request).unwrap();
-                    let request = String::from_utf8_lossy(&request[..read]);
+                    let request = read_request_headers(&mut stream);
                     assert!(request.starts_with("GET /downloads/tool?source=test HTTP/1.1"));
                     write!(
                         stream,
@@ -283,17 +299,7 @@ fn serve_tool_release_at(
         while served < expected_requests && std::time::Instant::now() < deadline {
             match listener.accept() {
                 Ok((mut stream, _)) => {
-                    stream.set_nonblocking(false).unwrap();
-                    stream.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
-                    let mut request = Vec::new();
-                    while !request.windows(4).any(|window| window == b"\r\n\r\n") {
-                        let mut chunk = [0u8; 1024];
-                        let read = stream.read(&mut chunk).unwrap();
-                        assert!(read > 0, "connection closed before request headers completed");
-                        request.extend_from_slice(&chunk[..read]);
-                        assert!(request.len() <= 16 * 1024, "request headers too large");
-                    }
-                    let request = String::from_utf8_lossy(&request);
+                    let request = read_request_headers(&mut stream);
                     let request_target = request
                         .lines()
                         .next()
