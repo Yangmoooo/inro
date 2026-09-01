@@ -101,39 +101,6 @@ pub fn download_file(url: &str, dest_dir: &Path) -> Result<PathBuf> {
     Ok(dest_path)
 }
 
-/// If the root directory contains a single subdirectory, move its contents up
-/// and remove it.
-pub fn flatten_single_directory(root_dir: &Path) -> Result<()> {
-    let entries: Vec<_> = fs::read_dir(root_dir)?.collect::<io::Result<_>>()?;
-
-    if entries.len() != 1 {
-        return Ok(());
-    }
-
-    let entry = &entries[0];
-    let entry_path = entry.path();
-
-    if !entry_path.is_dir() {
-        return Ok(());
-    }
-
-    let sub_entries: Vec<_> = fs::read_dir(&entry_path)?.collect::<io::Result<_>>()?;
-
-    for sub_entry in sub_entries {
-        let sub_path = sub_entry.path();
-        let file_name = sub_entry.file_name();
-        let target_path = root_dir.join(file_name);
-
-        fs::rename(&sub_path, &target_path).with_context(|| {
-            format!("Failed to move {} to {}", sub_path.display(), target_path.display())
-        })?;
-    }
-
-    fs::remove_dir(&entry_path)?;
-
-    Ok(())
-}
-
 /// Rename the single file in the root directory to the target name.
 pub fn rename_single_file(root_dir: &Path, target_name: &str) -> Result<()> {
     let entries: Vec<_> = fs::read_dir(root_dir)?.collect::<io::Result<_>>()?;

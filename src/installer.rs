@@ -23,7 +23,6 @@ use crate::remotes::{
 };
 use crate::reporter::print_error_chain;
 use crate::utils::*;
-use crate::warn;
 
 pub(crate) struct InstallRequest {
     name: String,
@@ -523,8 +522,7 @@ fn promote_install_dir(staging: &Path, final_dir: &Path) -> Result<Option<PathBu
     Ok(backup)
 }
 
-/// Unpack the downloaded file and perform post-processing like renaming and
-/// flattening.
+/// Unpack the downloaded file and rename standalone binaries when needed.
 fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Result<(), PkgError> {
     let ft = extract_file(src_path, dst_dir).map_err(|e| PkgError::Extraction {
         filename: src_path.file_name().map(|s| s.to_string_lossy().to_string()).unwrap_or_default(),
@@ -536,11 +534,6 @@ fn unpack_and_process(src_path: &Path, dst_dir: &Path, pkg: &ResolvedPkg) -> Res
         && let Some(first_bin) = pkg.bin.first()
     {
         rename_single_file(dst_dir, &first_bin.name)?;
-    }
-
-    // If there is only one directory, flatten it
-    if let Err(e) = flatten_single_directory(dst_dir) {
-        warn!("Failed to flatten single directory: {e}");
     }
 
     Ok(())
@@ -653,6 +646,22 @@ mod tests {
         dir_header.set_mode(0o755);
         dir_header.set_cksum();
         archive.append(&dir_header, std::io::empty()).unwrap();
+
+        archive.into_inner().unwrap().finish().unwrap()
+    }
+
+    #[cfg(unix)]
+    fn tar_gz_with_wrapped_tool() -> Vec<u8> {
+        let encoder = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        let mut archive = tar::Builder::new(encoder);
+
+        let binary = b"\x7fELFtest";
+        let mut header = tar::Header::new_gnu();
+        header.set_path("tool-v1.0.0/tool").unwrap();
+        header.set_size(binary.len() as u64);
+        header.set_mode(0o755);
+        header.set_cksum();
+        archive.append(&header, &binary[..]).unwrap();
 
         archive.into_inner().unwrap().finish().unwrap()
     }
@@ -772,6 +781,36 @@ mod tests {
         assert_eq!(saved.binaries.len(), 1);
         assert_eq!(saved.binaries[0].name, "tool");
         assert_eq!(saved.binaries[0].bin_subpath, PathBuf::from("tool"));
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn archive_install_preserves_upstream_directory_layout() {
+        let tmp = tempfile::tempdir().unwrap();
+        let layout = test_layout(tmp.path());
+        let config = test_config(tmp.path());
+        let body = tar_gz_with_wrapped_tool();
+        let (url, server) = serve_bytes("tool.tar.gz", body.clone());
+        let candidate = InstallCandidate {
+            version: "v1.0.0".to_string(),
+            asset_name: "tool.tar.gz".to_string(),
+            download_url: url,
+            size: body.len() as u64,
+        };
+        let pkg = package_with_tool();
+        let progress = ProgressManager::new(&["tool"]).add_package("tool");
+
+        let receipt =
+            install_candidate("tool", &candidate, &pkg, &config, &layout, &progress).await.unwrap();
+        server.join().unwrap();
+
+        let install_dir = receipt.install_dir(&layout.pkgs_dir);
+        assert_eq!(receipt.binaries[0].bin_subpath, PathBuf::from("tool-v1.0.0/tool"));
+        assert_eq!(fs::read(install_dir.join("tool-v1.0.0/tool")).unwrap(), b"\x7fELFtest");
+        assert_eq!(
+            fs::read_link(config.bin_dir.join("tool")).unwrap(),
+            install_dir.join("tool-v1.0.0/tool")
+        );
     }
 
     #[cfg(unix)]
