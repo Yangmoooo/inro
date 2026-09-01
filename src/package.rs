@@ -115,15 +115,17 @@ impl PkgDef {
             self.bin
                 .iter()
                 .filter_map(|b| {
-                    // Resolve name from PlatformAwareString; if it doesn't match the current
-                    // platform, skip this binary instead of falling back to the package name.
+                    // Resolve name from PlatformAwareString; if it doesn't
+                    // match the current platform, skip this
+                    // binary instead of falling back to the package name.
                     let raw_name = match &b.name {
                         Some(s) => s.resolve_for_platform(),
                         None => Some(pkg_name.to_string()),
                     }?;
                     let name = normalize_name(raw_name);
 
-                    // Resolve link from PlatformAwareString, defaulting to the resolved name
+                    // Resolve link from PlatformAwareString, defaulting to the
+                    // resolved name
                     let raw_link = b
                         .link
                         .as_ref()
@@ -677,7 +679,8 @@ mod tests {
 
     #[test]
     fn resolve_platform_specific_without_match_is_skipped() {
-        // Test that when platform doesn't match, the binary definition is skipped
+        // Test that when platform doesn't match, the binary definition is
+        // skipped
         let mut name_map = HashMap::new();
         name_map.insert("nonexistent-platform-xyz".to_string(), "nonexistent-bin".to_string());
 
@@ -690,7 +693,8 @@ mod tests {
         assert!(resolved.bin.is_empty());
     }
 
-    // ==================== PlatformAwareString deserialization ====================
+    // ==================== PlatformAwareString deserialization
+    // ====================
 
     #[test]
     fn deserialize_platform_aware_string_literal() {

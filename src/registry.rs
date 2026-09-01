@@ -33,8 +33,9 @@ impl Registry {
         let config = Config::load(layout)?;
         let mut figment = Figment::new();
 
-        // Managed registry: upstream-cached sources (priority-name.toml) filtered by
-        // config.upstreams.enabled, then auto.toml (always loaded if present).
+        // Managed registry: upstream-cached sources (priority-name.toml)
+        // filtered by config.upstreams.enabled, then auto.toml (always
+        // loaded if present).
         let managed_registry_dir = &layout.managed_registry_dir;
         let enabled_names: HashSet<String> = config
             .upstreams
@@ -333,8 +334,9 @@ link = "tool"
         let layout = test_layout(temp_dir.path());
         let platform_key = PlatformInfo::current().key();
 
-        // Write twice so the second invocation exercises the rename-over-existing
-        // path that previously deleted the destination before renaming.
+        // Write twice so the second invocation exercises the
+        // rename-over-existing path that previously deleted the
+        // destination before renaming.
         for selector in ["first.tar.gz", "second.tar.gz"] {
             Registry::write_asset_selections(
                 &layout,

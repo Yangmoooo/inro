@@ -261,8 +261,8 @@ fn select_candidate_with_interactivity(
         )));
     }
 
-    // Heuristic with multiple candidates, or fallback in non-interactive mode with
-    // one candidate.
+    // Heuristic with multiple candidates, or fallback in non-interactive mode
+    // with one candidate.
     if !interactive {
         // Non-interactive: auto-select first (highest score)
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
@@ -855,8 +855,9 @@ mod tests {
 
     #[test]
     fn unpack_and_process_with_empty_bin_does_not_panic() {
-        // When PlatformAwareString filters out every binary, `pkg.bin` is empty.
-        // Extracting a standalone binary asset must NOT panic on `pkg.bin[0]`.
+        // When PlatformAwareString filters out every binary, `pkg.bin` is
+        // empty. Extracting a standalone binary asset must NOT panic on
+        // `pkg.bin[0]`.
         let tmp = tempfile::tempdir().unwrap();
         let src = tmp.path().join("standalone-binary");
         let dst = tmp.path().join("out");
@@ -870,7 +871,8 @@ mod tests {
         fs::write(&src, [0xcf, 0xfa, 0xed, 0xfe, 0, 0, 0, 0]).unwrap();
         fs::create_dir_all(&dst).unwrap();
 
-        // Should complete without panic; the binary stays under its original name.
+        // Should complete without panic; the binary stays under its original
+        // name.
         unpack_and_process(&src, &dst, &pkg).unwrap();
         assert!(dst.join("standalone-binary").exists());
     }

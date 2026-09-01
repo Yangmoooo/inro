@@ -222,7 +222,8 @@ pub fn create_symlink(original: &Path, link: &Path, owned_root: &Path) -> Result
         match std::os::windows::fs::symlink_file(original, link) {
             Ok(()) => {}
             Err(e) => {
-                // error code 1314: a required privilege is not held by the client
+                // error code 1314: a required privilege is not held by the
+                // client
                 if let Some(os_err) = e.raw_os_error()
                     && os_err == 1314
                 {
@@ -548,7 +549,8 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path();
 
-        // A same-name plain data file should not be treated as an installable binary.
+        // A same-name plain data file should not be treated as an installable
+        // binary.
         let some_dir = root.join("usr/share/data");
         fs::create_dir_all(&some_dir).unwrap();
         fs::write(some_dir.join("mytool"), b"data").unwrap();

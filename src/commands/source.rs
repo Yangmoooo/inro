@@ -466,7 +466,8 @@ fn enable_disable_source(layout: &InroLayout, name: &str, enable: bool) -> Resul
             table.insert("enabled", enable.into());
         }
         None => {
-            // The entry only exists as a default — materialize it with the enabled flag
+            // The entry only exists as a default — materialize it with the
+            // enabled flag
             let mut tbl = InlineTable::new();
             tbl.insert("name", upstream_def.name.as_str().into());
             tbl.insert("priority", i64::from(upstream_def.priority).into());

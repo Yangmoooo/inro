@@ -147,7 +147,8 @@ impl CommandHandler for DoctorCommand {
                                 continue;
                             }
 
-                            // Symlink exists but its target file has been deleted
+                            // Symlink exists but its target file has been
+                            // deleted
                             if link.is_symlink() && !link.exists() {
                                 fail!(
                                     "{label}: broken symlink {} → {}",
@@ -246,9 +247,10 @@ impl CommandHandler for DoctorCommand {
                     warn!("{mismatches} mismatch(es) found — run 'inro doctor --fix' to repair");
                 }
 
-                // doctor --fix re-links symlinks but does not mutate the receipt
-                // itself (paths are derived from the layout, not stored), so no
-                // manifest save is needed when fixed > 0.
+                // doctor --fix re-links symlinks but does not mutate the
+                // receipt itself (paths are derived from the
+                // layout, not stored), so no manifest save is
+                // needed when fixed > 0.
                 let _ = fixed;
             }
         }

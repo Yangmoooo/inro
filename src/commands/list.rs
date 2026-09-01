@@ -49,7 +49,8 @@ impl CommandHandler for ListCommand {
                 None => ("(none)".to_string(), String::new()),
             };
 
-            // get source info, actually remote display from current version receipt
+            // get source info, actually remote display from current version
+            // receipt
             let remote_str = state
                 .current_version
                 .as_ref()

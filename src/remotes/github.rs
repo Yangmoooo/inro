@@ -360,7 +360,8 @@ fn calculate_heuristic_score(asset: &Asset, platform: &PlatformInfo) -> i32 {
 pub struct GitHubProvider;
 
 impl GitHubProvider {
-    // ==================== Async versions (for install/update) ====================
+    // ==================== Async versions (for install/update)
+    // ====================
 
     fn api_base() -> String {
         // CLI integration tests run a normal binary without cfg(test). Debug
