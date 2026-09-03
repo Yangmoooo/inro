@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.1.1] - 2026-09-03
+
 ### Fixed
 
 - **Broader GitHub Asset Detection**: Automatically recognize common compound Windows asset names such as `win32` and `win64` during platform matching.
