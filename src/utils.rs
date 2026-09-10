@@ -306,10 +306,18 @@ pub fn symlink_points_to(link: &Path, expected: &Path) -> bool {
 
 /// Resolve `p` to an absolute, normalized form: prefers `fs::canonicalize`
 /// (which follows existing symlinks), falling back to a purely lexical
-/// normalization for paths whose target does not exist (e.g. broken
-/// symlinks).
+/// normalization of the missing suffix for paths whose target does not exist
+/// (e.g. broken symlinks).
 fn canonicalize_or_lexical(p: &Path) -> PathBuf {
-    fs::canonicalize(p).unwrap_or_else(|_| normalize_lexical(p))
+    // Resolve the existing prefix so directory aliases still match for broken links.
+    for ancestor in p.ancestors() {
+        if let Ok(prefix) = fs::canonicalize(ancestor)
+            && let Ok(suffix) = p.strip_prefix(ancestor)
+        {
+            return normalize_lexical(&prefix.join(suffix));
+        }
+    }
+    normalize_lexical(p)
 }
 
 fn normalize_lexical(p: &Path) -> PathBuf {
@@ -419,6 +427,33 @@ pub fn parse_package_version(input: &str) -> (&str, Option<&str>) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn broken_links_under_directory_aliases_keep_their_ownership() {
+        use std::os::unix::fs::symlink;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let root = tmp.path().join("pkgs");
+        fs::create_dir(&root).unwrap();
+        let alias = tmp.path().join("alias");
+        symlink(&root, &alias).unwrap();
+        let link = tmp.path().join("tool");
+        symlink(alias.join("missing/tool"), &link).unwrap();
+
+        assert!(ensure_link_replaceable(&link, &root).is_ok());
+        assert!(is_inro_managed_symlink(&link, &root));
+        assert!(symlink_points_to(&link, &root.join("missing/tool")));
+
+        let foreign = tmp.path().join("foreign");
+        fs::create_dir(&foreign).unwrap();
+        symlink(&foreign, root.join("outside")).unwrap();
+        fs::remove_file(&link).unwrap();
+        symlink(alias.join("outside/missing/tool"), &link).unwrap();
+
+        assert!(ensure_link_replaceable(&link, &root).is_err());
+        assert!(!is_inro_managed_symlink(&link, &root));
+    }
 
     fn hyperlinks_supported(is_terminal: bool, vars: &[(&str, &str)]) -> bool {
         terminal_supports_hyperlinks_with(is_terminal, |name| {
