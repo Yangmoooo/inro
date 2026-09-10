@@ -19,7 +19,7 @@ pub struct Cli {
 pub fn command_with_grouped_help() -> clap::Command {
     const GROUPS: &[&[&str]] = &[
         &["install", "update", "uninstall"],
-        &["use", "unlink", "pin", "unpin"],
+        &["use", "unlink", "relink", "pin", "unpin"],
         &["list", "search", "show", "source"],
         &["export", "import"],
         &["clean", "doctor", "env"],
@@ -160,6 +160,19 @@ pub enum Command {
     /// Use 'inro use' to re-enable it later.
     Unlink {
         /// Package name to unlink
+        #[arg(value_name = "PKG")]
+        name: String,
+    },
+
+    /// Apply registry binary definitions to an active package's links
+    ///
+    /// Uses files already installed for the active version, without
+    /// downloading. Adds, removes, renames, or repairs links and updates
+    /// the installation record. For an unlinked package, first select a
+    /// version with 'inro use <PKG> <VERSION>'.
+    Relink {
+        /// Package whose active version should use the current registry binary
+        /// definitions
         #[arg(value_name = "PKG")]
         name: String,
     },

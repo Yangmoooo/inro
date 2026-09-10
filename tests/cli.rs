@@ -1132,3 +1132,290 @@ fn test_server_stops_waiting_without_a_connection() {
 
     assert!(started.elapsed() < Duration::from_secs(1));
 }
+
+#[cfg(unix)]
+mod relink {
+    use std::os::unix::fs::symlink;
+
+    use super::*;
+
+    fn setup(root: &Path) -> (PathBuf, PathBuf) {
+        let (home, bin_dir) = setup_tool_home(root);
+        fs::write(home.join("config.toml"), format!("bin_dir = {:?}\n", bin_dir)).unwrap();
+        fs::remove_file(home.join("registry.d/tool.toml")).unwrap();
+        fs::create_dir_all(home.join("registry")).unwrap();
+        fs::write(
+            home.join("registry/00-default.toml"),
+            r#"
+[tool]
+bin = [{ name = "tool" }, { name = "stale" }]
+[tool.remote.direct."v2.0.0"]
+"unsupported-platform" = "http://127.0.0.1:1/tool.tar.gz"
+"#,
+        )
+        .unwrap();
+        let install_dir = home.join("pkgs/tool/v1.0.0");
+        fs::create_dir_all(install_dir.join("bin")).unwrap();
+        fs::create_dir_all(&bin_dir).unwrap();
+        for name in ["tool", "helper", "stale"] {
+            fs::write(install_dir.join("bin").join(name), tool_binary()).unwrap();
+        }
+        let mut receipt = manifest_receipt("tool", "v1.0.0");
+        receipt["binaries"] = serde_json::json!([
+            { "name": "tool", "bin_subpath": "bin/tool" },
+            { "name": "stale", "bin_subpath": "bin/stale" },
+        ]);
+        fs::write(install_dir.join("inro-receipt.json"), serde_json::to_vec(&receipt).unwrap())
+            .unwrap();
+        fs::write(
+            home.join("manifest.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema_version": 2,
+                "packages": { "tool": {
+                    "current_version": "v1.0.0", "pinned": true,
+                    "versions": { "v1.0.0": receipt },
+                } },
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        symlink(install_dir.join("bin/tool"), bin_dir.join("tool")).unwrap();
+        symlink("../inro/pkgs/tool/v1.0.0/bin/stale", bin_dir.join("stale")).unwrap();
+        (home, bin_dir)
+    }
+
+    fn set_bins(home: &Path, bins: &str) {
+        fs::write(home.join("registry.d/local.toml"), format!("[tool]\nbin = {bins}\n")).unwrap();
+    }
+
+    fn json(path: &Path) -> serde_json::Value {
+        serde_json::from_slice(&fs::read(path).unwrap()).unwrap()
+    }
+
+    fn assert_absent(path: &Path) {
+        assert!(fs::symlink_metadata(path).is_err(), "unexpected entry: {}", path.display());
+    }
+
+    #[test]
+    fn relink_applies_local_bins_offline_and_use_preserves_the_new_record() {
+        let temp = tempfile::tempdir().unwrap();
+        let (home, bin_dir) = setup(temp.path());
+        let install_dir = home.join("pkgs/tool/v1.0.0");
+        let receipt_path = install_dir.join("inro-receipt.json");
+        let mut expected = json(&receipt_path);
+        set_bins(&home, r#"[{name="tool", link="renamed"}, {name="helper"}]"#);
+
+        assert_success(&run_inro(&home, &["relink", "tool"]));
+
+        assert_eq!(fs::read_link(bin_dir.join("renamed")).unwrap(), install_dir.join("bin/tool"));
+        assert_eq!(fs::read_link(bin_dir.join("helper")).unwrap(), install_dir.join("bin/helper"));
+        assert_absent(&bin_dir.join("tool"));
+        assert_absent(&bin_dir.join("stale"));
+        assert_eq!(fs::read(install_dir.join("bin/stale")).unwrap(), tool_binary());
+        expected["binaries"] = serde_json::json!([
+            { "name": "renamed", "bin_subpath": "bin/tool" },
+            { "name": "helper", "bin_subpath": "bin/helper" },
+        ]);
+        assert_eq!(json(&receipt_path), expected);
+        let manifest = json(&home.join("manifest.json"));
+        assert_eq!(manifest["packages"]["tool"]["versions"]["v1.0.0"], expected);
+        assert_eq!(manifest["packages"]["tool"]["current_version"], "v1.0.0");
+        assert_eq!(manifest["packages"]["tool"]["pinned"], true);
+
+        assert_success(&run_inro(&home, &["unlink", "tool"]));
+        assert_absent(&bin_dir.join("renamed"));
+        assert_absent(&bin_dir.join("helper"));
+        set_bins(&home, r#"[{name="missing"}]"#);
+        assert_success(&run_inro(&home, &["use", "tool", "v1.0.0"]));
+        assert!(bin_dir.join("renamed").exists());
+        assert!(bin_dir.join("helper").exists());
+        assert_absent(&bin_dir.join("stale"));
+    }
+
+    #[test]
+    fn relink_repairs_missing_and_broken_links_with_unchanged_configuration() {
+        let temp = tempfile::tempdir().unwrap();
+        let (home, bin_dir) = setup(temp.path());
+        let receipt_path = home.join("pkgs/tool/v1.0.0/inro-receipt.json");
+        let before = json(&receipt_path);
+        fs::remove_file(bin_dir.join("tool")).unwrap();
+        fs::remove_file(bin_dir.join("stale")).unwrap();
+        symlink(home.join("pkgs/tool/missing/stale"), bin_dir.join("stale")).unwrap();
+
+        assert_success(&run_inro(&home, &["relink", "tool"]));
+        assert_success(&run_inro(&home, &["relink", "tool"]));
+
+        assert_eq!(json(&receipt_path), before);
+        assert_eq!(
+            fs::read_link(bin_dir.join("tool")).unwrap(),
+            home.join("pkgs/tool/v1.0.0/bin/tool")
+        );
+        assert_eq!(
+            fs::read_link(bin_dir.join("stale")).unwrap(),
+            home.join("pkgs/tool/v1.0.0/bin/stale")
+        );
+    }
+
+    #[test]
+    fn relink_rejects_invalid_definitions_before_changing_links_or_records() {
+        for (bins, error) in [
+            (r#"[{name="helper"}, {name="missing"}]"#, "Binary 'missing' not found"),
+            (r#"[{name="helper",link="tool"}, {name="tool"}]"#, "Duplicate link name"),
+            (r#"[{name="helper",link="../outside"}]"#, "link name"),
+            (r#"[{name="../helper"}]"#, "binary name"),
+            (r#"[{name={"unsupported-platform"="helper"}}]"#, "no binary defined"),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let (home, bin_dir) = setup(temp.path());
+            let before = fs::read(home.join("manifest.json")).unwrap();
+            let receipt_path = home.join("pkgs/tool/v1.0.0/inro-receipt.json");
+            let receipt_before = fs::read(&receipt_path).unwrap();
+            let stale_before = fs::read_link(bin_dir.join("stale")).unwrap();
+            set_bins(&home, bins);
+
+            let result = run_inro(&home, &["relink", "tool"]);
+
+            assert!(!result.status.success());
+            assert!(String::from_utf8_lossy(&result.stderr).contains(error), "{result:?}");
+            assert_eq!(fs::read(home.join("manifest.json")).unwrap(), before);
+            assert_eq!(fs::read(receipt_path).unwrap(), receipt_before);
+            assert_eq!(fs::read_link(bin_dir.join("stale")).unwrap(), stale_before);
+            assert!(bin_dir.join("tool").exists());
+            assert_absent(&bin_dir.join("helper"));
+        }
+    }
+
+    #[test]
+    fn relink_refuses_files_foreign_symlinks_and_other_packages_before_changing_links() {
+        for kind in ["file", "foreign-link", "other-package"] {
+            let temp = tempfile::tempdir().unwrap();
+            let (home, bin_dir) = setup(temp.path());
+            let occupied = bin_dir.join("occupied");
+            match kind {
+                "file" => fs::write(&occupied, b"user file").unwrap(),
+                "foreign-link" => symlink(temp.path().join("user-tool"), &occupied).unwrap(),
+                _ => symlink(home.join("pkgs/other/v1/tool"), &occupied).unwrap(),
+            }
+            set_bins(&home, r#"[{name="helper"}, {name="tool",link="occupied"}]"#);
+            let before = fs::read(home.join("manifest.json")).unwrap();
+            let stale_before = fs::read_link(bin_dir.join("stale")).unwrap();
+
+            let result = run_inro(&home, &["relink", "tool"]);
+
+            assert!(!result.status.success());
+            assert!(String::from_utf8_lossy(&result.stderr).contains("Refusing"), "{result:?}");
+            assert_eq!(fs::read(home.join("manifest.json")).unwrap(), before);
+            assert_eq!(fs::read_link(bin_dir.join("stale")).unwrap(), stale_before);
+            assert!(bin_dir.join("tool").exists());
+            assert_absent(&bin_dir.join("helper"));
+            if kind == "file" {
+                assert_eq!(fs::read(&occupied).unwrap(), b"user file");
+            } else {
+                assert!(occupied.is_symlink());
+            }
+        }
+    }
+
+    #[test]
+    fn relink_leaves_obsolete_destinations_replaced_by_users_or_other_packages_alone() {
+        let temp = tempfile::tempdir().unwrap();
+        let (home, bin_dir) = setup(temp.path());
+        fs::remove_file(bin_dir.join("tool")).unwrap();
+        fs::write(bin_dir.join("tool"), b"user file").unwrap();
+        fs::remove_file(bin_dir.join("stale")).unwrap();
+        let foreign = home.join("pkgs/other/v1/stale");
+        symlink(&foreign, bin_dir.join("stale")).unwrap();
+        set_bins(&home, r#"[{name="helper"}]"#);
+
+        assert_success(&run_inro(&home, &["relink", "tool"]));
+
+        assert_eq!(fs::read(bin_dir.join("tool")).unwrap(), b"user file");
+        assert_eq!(fs::read_link(bin_dir.join("stale")).unwrap(), foreign);
+        assert!(bin_dir.join("helper").exists());
+    }
+
+    #[test]
+    fn relink_manifest_failure_restores_exact_links_and_receipt_state() {
+        for missing_receipt in [false, true] {
+            let temp = tempfile::tempdir().unwrap();
+            let (home, bin_dir) = setup(temp.path());
+            let receipt_path = home.join("pkgs/tool/v1.0.0/inro-receipt.json");
+            let receipt_before = fs::read(&receipt_path).unwrap();
+            if missing_receipt {
+                fs::remove_file(&receipt_path).unwrap();
+            }
+            let before = fs::read(home.join("manifest.json")).unwrap();
+            let stale_before = fs::read_link(bin_dir.join("stale")).unwrap();
+            fs::remove_file(bin_dir.join("tool")).unwrap();
+            let helper_before = home.join("pkgs/tool/v0/helper");
+            symlink(&helper_before, bin_dir.join("helper")).unwrap();
+            set_bins(&home, r#"[{name="helper"}, {name="tool"}, {name="tool",link="extra"}]"#);
+            fs::create_dir(home.join("manifest.tmp")).unwrap();
+
+            let result = run_inro(&home, &["relink", "tool"]);
+
+            assert!(!result.status.success());
+            assert_eq!(fs::read(home.join("manifest.json")).unwrap(), before);
+            if missing_receipt {
+                assert_absent(&receipt_path);
+            } else {
+                assert_eq!(fs::read(&receipt_path).unwrap(), receipt_before);
+            }
+            assert_eq!(fs::read_link(bin_dir.join("stale")).unwrap(), stale_before);
+            assert_eq!(fs::read_link(bin_dir.join("helper")).unwrap(), helper_before);
+            assert_absent(&bin_dir.join("tool"));
+            assert_absent(&bin_dir.join("extra"));
+            let count = fs::read_dir(home.join("pkgs/tool/v1.0.0")).unwrap().count();
+            assert_eq!(count, if missing_receipt { 1 } else { 2 });
+        }
+    }
+
+    #[test]
+    fn relink_receipt_staging_failure_keeps_links_and_manifest_unchanged() {
+        let temp = tempfile::tempdir().unwrap();
+        let (home, bin_dir) = setup(temp.path());
+        let receipt_path = home.join("pkgs/tool/v1.0.0/inro-receipt.json");
+        fs::remove_file(&receipt_path).unwrap();
+        fs::create_dir(&receipt_path).unwrap();
+        let before = fs::read(home.join("manifest.json")).unwrap();
+        let stale_before = fs::read_link(bin_dir.join("stale")).unwrap();
+        set_bins(&home, r#"[{name="helper"}]"#);
+
+        let result = run_inro(&home, &["relink", "tool"]);
+
+        assert!(!result.status.success());
+        assert!(String::from_utf8_lossy(&result.stderr).contains("not a regular file"));
+        assert_eq!(fs::read(home.join("manifest.json")).unwrap(), before);
+        assert_eq!(fs::read_link(bin_dir.join("stale")).unwrap(), stale_before);
+        assert!(bin_dir.join("tool").exists());
+        assert_absent(&bin_dir.join("helper"));
+    }
+
+    #[test]
+    fn relink_requires_an_installed_active_package_and_a_registry_definition() {
+        let temp = tempfile::tempdir().unwrap();
+        let (home, bin_dir) = setup(temp.path());
+        let missing = run_inro(&home, &["relink", "missing"]);
+        assert!(!missing.status.success());
+        assert!(String::from_utf8_lossy(&missing.stderr).contains("is not installed"));
+
+        assert_success(&run_inro(&home, &["unlink", "tool"]));
+        let before = fs::read(home.join("manifest.json")).unwrap();
+        let unlinked = run_inro(&home, &["relink", "tool"]);
+        assert!(!unlinked.status.success());
+        assert!(String::from_utf8_lossy(&unlinked.stderr).contains("inro use tool <VERSION>"));
+        assert_eq!(fs::read(home.join("manifest.json")).unwrap(), before);
+        assert_absent(&bin_dir.join("tool"));
+
+        assert_success(&run_inro(&home, &["use", "tool", "v1.0.0"]));
+        fs::write(
+            home.join("registry/00-default.toml"),
+            "[other.remote.github]\nrepo='test/other'\n",
+        )
+        .unwrap();
+        let unregistered = run_inro(&home, &["relink", "tool"]);
+        assert!(!unregistered.status.success());
+        assert!(String::from_utf8_lossy(&unregistered.stderr).contains("not found in registry"));
+        assert!(bin_dir.join("tool").exists());
+    }
+}
