@@ -88,6 +88,8 @@ inro install ripgrep@15.1.0
 inro list                # List installed packages
 inro update              # Update all packages
 inro use ripgrep 15.0.0  # Switch version
+inro unlink ripgrep      # Remove links while keeping installed files
+inro relink ripgrep      # Apply registry binary definitions to the active version
 inro uninstall ripgrep   # Remove a package
 ```
 
@@ -133,6 +135,50 @@ Use `inro source edit` to create or edit `registry.d/local.toml`, or
 the live file after the merged registry validates successfully. Inro uses `$VISUAL` or `$EDITOR`
 when set; the command must wait until editing finishes (for example, `code --wait`). Without either
 variable it falls back to `vi` on Linux/macOS, or `edit.exe` followed by `notepad.exe` on Windows.
+
+### Binary Links
+
+The package's `bin` list selects which installed executables are linked into `bin_dir`. Each `name`
+is a filename to find inside the installed package; `link` optionally gives it a different command
+name. Unlisted files remain in the installation directory.
+
+Local `bin` arrays replace the entire upstream list, so include every command you want linked.
+For example, after installing `uv`, run `inro source edit` and add this to
+`$INRO_HOME/registry.d/local.toml`:
+
+```toml
+[uv]
+bin = [
+  { name = "uv" },
+  { name = "uvx", link = "uv-tool" },
+]
+```
+
+The package's download configuration is inherited from the registry. Apply the new links with:
+
+```bash
+inro relink uv
+```
+
+This keeps `uv` linked, exposes `uvx` as `uv-tool`, and removes the old `uvx` link if it still belongs
+to this version. Editing the registry alone does not change existing links. Omitting `bin`, or
+setting `bin = []`, uses the package name as the default binary name; use `inro unlink uv` to
+temporarily remove all of the package's managed links.
+
+`relink` only operates on the active installed version and uses the merged registry already on
+disk. It adds, removes, renames, or repairs links, updates the manifest and installation receipt,
+and preserves the version, source, installation time, and pin state. It does not download files,
+refresh registry sources, or apply changes to download URLs. If the package is unlinked, first
+select an installed version with `inro use <package> <version>`, then run `inro relink <package>`.
+`use` and `doctor --fix` continue to restore links from installation records without applying
+registry edits.
+
+Missing binaries, duplicate link names, or conflicting destinations are rejected before links are
+changed. New links cannot replace user files or links belonging to other packages. Obsolete links
+replaced by user files or another version or package are left alone. If a later link or record
+update fails, inro attempts to restore the previous links and records and reports any rollback
+failure. When a requested executable is absent from the installed files, install a version that
+includes it before retrying.
 
 ### Asset Selectors
 

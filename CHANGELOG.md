@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Refresh Binary Links**: `inro relink <package>` applies the current registry's binary definitions to the active installed version without downloading again. It adds, removes, renames, or repairs links and updates the manifest and installation receipt. Unlinked packages must first select a version with `inro use <package> <version>`.
+
+### Changed
+
+- **Grouped Command Help**: Top-level help now groups related commands with blank lines while keeping names and descriptions aligned. Running `inro`, `inro -h`, `inro --help`, or `inro help` shows the same grouped list.
+
+### Fixed
+
+- **Broken Links Through Directory Aliases**: Resolve existing parent directories when checking links whose targets are missing, so aliases such as macOS `/var` and `/private/var` do not cause inro-managed broken links to be mistaken for foreign links.
+
 ## [1.1.1] - 2026-09-03
 
 ### Fixed
