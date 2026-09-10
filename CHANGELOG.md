@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.0] - 2026-09-10
+
 ### Added
 
 - **Refresh Binary Links**: `inro relink <package>` applies the current registry's binary definitions to the active installed version without downloading again. It adds, removes, renames, or repairs links and updates the manifest and installation receipt. Unlinked packages must first select a version with `inro use <package> <version>`.
