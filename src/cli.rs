@@ -52,7 +52,8 @@ pub fn command_with_grouped_help() -> clap::Command {
     let header = command.get_styles().get_header();
     let literal = command.get_styles().get_literal();
 
-    // Let clap render usage and options; only the top-level command list is custom.
+    // Let clap render usage and options; only the top-level command list is
+    // custom.
     let mut help = command
         .clone()
         .help_template("{before-help}{about-with-newline}\n{usage-heading} {usage}")

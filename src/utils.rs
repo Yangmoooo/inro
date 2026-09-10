@@ -309,7 +309,8 @@ pub fn symlink_points_to(link: &Path, expected: &Path) -> bool {
 /// normalization of the missing suffix for paths whose target does not exist
 /// (e.g. broken symlinks).
 fn canonicalize_or_lexical(p: &Path) -> PathBuf {
-    // Resolve the existing prefix so directory aliases still match for broken links.
+    // Resolve the existing prefix so directory aliases still match for broken
+    // links.
     for ancestor in p.ancestors() {
         if let Ok(prefix) = fs::canonicalize(ancestor)
             && let Ok(suffix) = p.strip_prefix(ancestor)
