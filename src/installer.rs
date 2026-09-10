@@ -421,7 +421,7 @@ async fn install_candidate(
     // so it survives the rename below. From here on, any error before the
     // rename completes must remove the staging dir explicitly.
     let staging_path = staging_dir.keep();
-    promote_and_relink_install(
+    promote_and_link_install(
         &staging_path,
         &final_install_dir,
         &receipt,
@@ -432,7 +432,7 @@ async fn install_candidate(
     Ok(receipt)
 }
 
-fn promote_and_relink_install(
+fn promote_and_link_install(
     staging: &Path,
     final_dir: &Path,
     receipt: &PkgReceipt,
@@ -447,7 +447,7 @@ fn promote_and_relink_install(
         }
     };
 
-    if let Err(link_error) = receipt.relink(bin_dir, pkgs_dir) {
+    if let Err(link_error) = receipt.link_binaries(bin_dir, pkgs_dir) {
         if let Err(remove_error) = fs::remove_dir_all(final_dir) {
             return Err(PkgError::Other(format!(
                 "{link_error}; additionally failed to remove incomplete install '{}': \
@@ -957,7 +957,7 @@ mod tests {
     }
 
     #[test]
-    fn relink_failure_after_promote_restores_existing_install() {
+    fn link_binaries_failure_after_promote_restores_existing_install() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let pkg_dir = pkgs_dir.join("tool");
@@ -984,7 +984,7 @@ mod tests {
             }],
         };
 
-        let error = promote_and_relink_install(&staging, &final_dir, &receipt, &bin_dir, &pkgs_dir)
+        let error = promote_and_link_install(&staging, &final_dir, &receipt, &bin_dir, &pkgs_dir)
             .unwrap_err();
 
         assert!(error.to_string().contains("Refusing to overwrite"));

@@ -198,9 +198,9 @@ fn do_uninstall(
             {
                 hint!("Auto-switching to fallback version '{next_ver}'...");
 
-                // get receipt and relink
+                // Restore links for the selected version.
                 if let Some(new_receipt) = state.versions.get(&next_ver) {
-                    if let Err(e) = new_receipt.relink(bin_dir, pkgs_dir) {
+                    if let Err(e) = new_receipt.link_binaries(bin_dir, pkgs_dir) {
                         warn!("Failed to auto-switch symlinks: {e:?}");
                     } else {
                         state.current_version = Some(next_ver.clone());
@@ -217,7 +217,7 @@ fn do_uninstall(
 
 fn cleanup_files(receipt: &PkgReceipt, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
     // Remove only links that still point to this receipt's binaries.
-    receipt.unlink(bin_dir, pkgs_dir)?;
+    receipt.unlink_binaries(bin_dir, pkgs_dir)?;
     for bin in &receipt.binaries {
         let link = receipt.link_path(bin, bin_dir);
         if !link.exists() && !link.is_symlink() {

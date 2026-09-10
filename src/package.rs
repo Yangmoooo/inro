@@ -222,31 +222,18 @@ impl PkgReceipt {
     /// Link the binaries into `bin_dir`. Overwrites only links inro itself
     /// already manages (i.e. pointing inside `pkgs_dir`); foreign files are
     /// refused by the underlying `create_symlink`.
-    pub fn relink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
-        self.relink_with(bin_dir, pkgs_dir, create_symlink)
+    pub fn link_binaries(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
+        self.link_binaries_with(bin_dir, pkgs_dir, create_symlink)
     }
 
-    fn relink_with<F>(&self, bin_dir: &Path, pkgs_dir: &Path, mut link_file: F) -> Result<()>
+    fn link_binaries_with<F>(&self, bin_dir: &Path, pkgs_dir: &Path, mut link_file: F) -> Result<()>
     where
         F: FnMut(&Path, &Path, &Path) -> Result<()>,
     {
         fs::create_dir_all(bin_dir)
             .with_context(|| format!("Failed to create bin dir: {}", bin_dir.display()))?;
 
-        let mut previous_links = Vec::with_capacity(self.binaries.len());
-        for bin in &self.binaries {
-            validate_path_component(&bin.name, "link name")?;
-            let link = self.link_path(bin, bin_dir);
-            ensure_link_replaceable(&link, pkgs_dir)?;
-            let previous_target = if link.is_symlink() {
-                Some(fs::read_link(&link).with_context(|| {
-                    format!("Failed to read existing symlink: {}", link.display())
-                })?)
-            } else {
-                None
-            };
-            previous_links.push((link, previous_target));
-        }
+        let previous_links = self.snapshot_binary_links(bin_dir, pkgs_dir)?;
 
         for (index, bin) in self.binaries.iter().enumerate() {
             let target = &previous_links[index].0;
@@ -265,10 +252,34 @@ impl PkgReceipt {
         Ok(())
     }
 
+    /// Validate destinations and capture their exact targets for rollback.
+    pub(crate) fn snapshot_binary_links(
+        &self,
+        bin_dir: &Path,
+        owned_root: &Path,
+    ) -> Result<Vec<(PathBuf, Option<PathBuf>)>> {
+        self.binaries
+            .iter()
+            .map(|bin| {
+                validate_path_component(&bin.name, "link name")?;
+                let link = self.link_path(bin, bin_dir);
+                ensure_link_replaceable(&link, owned_root)?;
+                let target = if link.is_symlink() {
+                    Some(fs::read_link(&link).with_context(|| {
+                        format!("Failed to read existing symlink: {}", link.display())
+                    })?)
+                } else {
+                    None
+                };
+                Ok((link, target))
+            })
+            .collect()
+    }
+
     /// Remove the binaries' symlinks from `bin_dir`. Only entries that are
     /// still inro-managed symlinks (pointing inside `pkgs_dir`) are removed;
     /// anything the user replaced by hand is left alone.
-    pub fn unlink(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
+    pub fn unlink_binaries(&self, bin_dir: &Path, pkgs_dir: &Path) -> Result<()> {
         for bin in &self.binaries {
             validate_path_component(&bin.name, "link name")?;
             let link = self.link_path(bin, bin_dir);
@@ -289,7 +300,7 @@ impl PkgReceipt {
     }
 }
 
-fn rollback_links<F>(
+pub(crate) fn rollback_links<F>(
     links: &[(PathBuf, Option<PathBuf>)],
     pkgs_dir: &Path,
     link_file: &mut F,
@@ -852,7 +863,7 @@ link = "simple-link"
         }
     }
 
-    // ==================== PkgReceipt::relink() / unlink() ====================
+    // ==================== Receipt binary links ====================
 
     #[cfg(unix)]
     fn make_receipt(install_subdir: &str, bin_name: &str) -> PkgReceipt {
@@ -874,10 +885,11 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn relink_propagates_target_dir_creation_failure() {
+    fn link_binaries_propagates_target_dir_creation_failure() {
         // Pick a target path whose parent is not a directory, so create_dir_all
-        // is guaranteed to fail. relink() must surface that error instead of
-        // silently swallowing it and failing later in create_symlink.
+        // is guaranteed to fail. link_binaries() must surface that error
+        // instead of silently swallowing it and failing later in
+        // create_symlink.
         let tmp = tempfile::tempdir().unwrap();
         let file_path = tmp.path().join("not-a-dir");
         fs::write(&file_path, b"file content").unwrap();
@@ -889,14 +901,14 @@ link = "simple-link"
         fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        let err = receipt.relink(&unreachable_dir, &pkgs_dir).unwrap_err();
+        let err = receipt.link_binaries(&unreachable_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Failed to create bin dir"), "unexpected error chain: {msg}");
     }
 
     #[cfg(unix)]
     #[test]
-    fn relink_refuses_to_overwrite_foreign_file() {
+    fn link_binaries_refuses_to_overwrite_foreign_file() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -914,7 +926,7 @@ link = "simple-link"
         fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+        let err = receipt.link_binaries(&bin_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Refusing to overwrite"), "unexpected error: {msg}");
         // Foreign file must remain intact.
@@ -923,7 +935,7 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn relink_replaces_existing_inro_owned_symlink() {
+    fn link_binaries_replaces_existing_inro_owned_symlink() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -938,14 +950,14 @@ link = "simple-link"
         let link_path = bin_dir.join("tool");
         std::os::unix::fs::symlink(&old_target, &link_path).unwrap();
 
-        // Now relink to a fresh v1.0.0.
+        // Switch the links to a fresh v1.0.0.
         let new_install = pkgs_dir.join("tool/v1.0.0");
         fs::create_dir_all(&new_install).unwrap();
         let new_target = new_install.join("tool");
         fs::write(&new_target, b"\x7fELF new").unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        receipt.relink(&bin_dir, &pkgs_dir).unwrap();
+        receipt.link_binaries(&bin_dir, &pkgs_dir).unwrap();
 
         let resolved = std::fs::read_link(&link_path).unwrap();
         assert_eq!(resolved, new_target);
@@ -953,7 +965,7 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn relink_checks_all_destinations_before_changing_links() {
+    fn link_binaries_checks_all_destinations_before_changing_links() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -984,7 +996,7 @@ link = "simple-link"
             ],
         };
 
-        receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+        receipt.link_binaries(&bin_dir, &pkgs_dir).unwrap_err();
 
         assert_eq!(fs::read_link(first_link).unwrap(), old_target);
         assert_eq!(fs::read(bin_dir.join("helper")).unwrap(), b"user-owned");
@@ -992,7 +1004,7 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn relink_rolls_back_when_later_link_creation_fails() {
+    fn link_binaries_rolls_back_when_later_link_creation_fails() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1027,7 +1039,7 @@ link = "simple-link"
 
         let mut calls = 0usize;
         let error = receipt
-            .relink_with(&bin_dir, &pkgs_dir, |original, link, owned_root| {
+            .link_binaries_with(&bin_dir, &pkgs_dir, |original, link, owned_root| {
                 calls += 1;
                 if calls == 2 {
                     anyhow::bail!("simulated link failure");
@@ -1043,7 +1055,7 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn relink_refuses_symlink_pointing_outside_pkgs_dir() {
+    fn link_binaries_refuses_symlink_pointing_outside_pkgs_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1064,7 +1076,7 @@ link = "simple-link"
         fs::write(install_dir.join("tool"), b"\x7fELF").unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        let err = receipt.relink(&bin_dir, &pkgs_dir).unwrap_err();
+        let err = receipt.link_binaries(&bin_dir, &pkgs_dir).unwrap_err();
         let msg = format!("{err:#}");
         assert!(msg.contains("Refusing to replace"), "unexpected error: {msg}");
         // Original symlink must still be there.
@@ -1074,7 +1086,7 @@ link = "simple-link"
 
     #[cfg(unix)]
     #[test]
-    fn unlink_removes_inro_managed_symlink() {
+    fn unlink_binaries_removes_inro_managed_symlink() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1090,14 +1102,14 @@ link = "simple-link"
         std::os::unix::fs::symlink(&bin_path, &link_path).unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
+        receipt.unlink_binaries(&bin_dir, &pkgs_dir).unwrap();
 
         assert!(!link_path.exists() && !link_path.is_symlink(), "managed symlink should be gone");
     }
 
     #[cfg(unix)]
     #[test]
-    fn unlink_keeps_link_owned_by_another_version() {
+    fn unlink_binaries_keeps_link_owned_by_another_version() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1115,14 +1127,14 @@ link = "simple-link"
         std::os::unix::fs::symlink(&current_target, &link_path).unwrap();
 
         let old_receipt = make_receipt("tool/v0.9.0", "tool");
-        old_receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
+        old_receipt.unlink_binaries(&bin_dir, &pkgs_dir).unwrap();
 
         assert_eq!(fs::read_link(link_path).unwrap(), current_target);
     }
 
     #[cfg(unix)]
     #[test]
-    fn unlink_skips_foreign_regular_file() {
+    fn unlink_binaries_skips_foreign_regular_file() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1135,14 +1147,14 @@ link = "simple-link"
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
         // Must succeed (not fail), but must NOT delete the foreign file.
-        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
+        receipt.unlink_binaries(&bin_dir, &pkgs_dir).unwrap();
 
         assert_eq!(fs::read(&link_path).unwrap(), b"user's own binary");
     }
 
     #[cfg(unix)]
     #[test]
-    fn unlink_skips_symlink_pointing_outside_pkgs_dir() {
+    fn unlink_binaries_skips_symlink_pointing_outside_pkgs_dir() {
         let tmp = tempfile::tempdir().unwrap();
         let pkgs_dir = tmp.path().join("pkgs");
         let bin_dir = tmp.path().join("bin");
@@ -1159,7 +1171,7 @@ link = "simple-link"
         std::os::unix::fs::symlink(&foreign_target, &link_path).unwrap();
 
         let receipt = make_receipt("tool/v1.0.0", "tool");
-        receipt.unlink(&bin_dir, &pkgs_dir).unwrap();
+        receipt.unlink_binaries(&bin_dir, &pkgs_dir).unwrap();
 
         // Foreign symlink must remain intact.
         assert!(link_path.is_symlink());

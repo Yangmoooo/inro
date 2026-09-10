@@ -34,8 +34,8 @@ impl CommandHandler for UnlinkCommand {
 
         step!("Unlinking '{}' ({}) ...", self.name, receipt.version);
 
-        if let Err(unlink_error) = receipt.unlink(&config.bin_dir, &layout.pkgs_dir) {
-            if let Err(rollback_error) = receipt.relink(&config.bin_dir, &layout.pkgs_dir) {
+        if let Err(unlink_error) = receipt.unlink_binaries(&config.bin_dir, &layout.pkgs_dir) {
+            if let Err(rollback_error) = receipt.link_binaries(&config.bin_dir, &layout.pkgs_dir) {
                 return Err(anyhow::anyhow!(
                     "{unlink_error}; additionally failed to restore links: {rollback_error}"
                 ));
@@ -45,7 +45,7 @@ impl CommandHandler for UnlinkCommand {
 
         manifest.unlink_package(&self.name);
         if let Err(save_error) = manifest.save(&layout.manifest_path) {
-            if let Err(rollback_error) = receipt.relink(&config.bin_dir, &layout.pkgs_dir) {
+            if let Err(rollback_error) = receipt.link_binaries(&config.bin_dir, &layout.pkgs_dir) {
                 return Err(anyhow::anyhow!(
                     "{save_error}; additionally failed to restore links: {rollback_error}"
                 ));
