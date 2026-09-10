@@ -1,6 +1,7 @@
+use std::fmt::Write;
 use std::path::PathBuf;
 
-use clap::{Parser, Subcommand, ValueEnum};
+use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
 
 #[derive(Parser, Debug)]
 #[command(name = "inro", author = "Yangmoooo")]
@@ -13,6 +14,68 @@ pub struct Cli {
     /// Enable verbose output. Use -v for details, -vv for debug tracing
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8, // can be used with any command as a counter. `-v` -> 1, `-vv` -> 2
+}
+
+pub fn command_with_grouped_help() -> clap::Command {
+    const GROUPS: &[&[&str]] = &[
+        &["install", "update", "uninstall"],
+        &["use", "unlink", "pin", "unpin"],
+        &["list", "search", "show", "source"],
+        &["export", "import"],
+        &["clean", "doctor", "env"],
+        &["help"],
+    ];
+
+    let mut command = Cli::command();
+    command.build();
+    let mut entries: Vec<_> = command
+        .get_subcommands()
+        .filter(|subcommand| !subcommand.is_hide_set())
+        .map(|subcommand| {
+            let order = GROUPS
+                .iter()
+                .enumerate()
+                .find_map(|(group, names)| {
+                    names
+                        .iter()
+                        .position(|name| *name == subcommand.get_name())
+                        .map(|index| (group, index))
+                })
+                // New commands remain visible even before being assigned a group.
+                .unwrap_or((GROUPS.len(), subcommand.get_display_order()));
+            (order, subcommand)
+        })
+        .collect();
+    entries.sort_by_key(|(order, _)| *order);
+    let width =
+        entries.iter().map(|(_, subcommand)| subcommand.get_name().len()).max().unwrap_or(0);
+    let header = command.get_styles().get_header();
+    let literal = command.get_styles().get_literal();
+
+    // Let clap render usage and options; only the top-level command list is custom.
+    let mut help = command
+        .clone()
+        .help_template("{before-help}{about-with-newline}\n{usage-heading} {usage}")
+        .render_help();
+    writeln!(help, "\n{header}Commands:{header:#}").unwrap();
+    let mut previous_group = None;
+    for ((group, _), subcommand) in entries {
+        if previous_group.is_some_and(|previous| previous != group) {
+            help.push_str("\n");
+        }
+        let name = subcommand.get_name();
+        let about = subcommand.get_about().or_else(|| subcommand.get_long_about());
+        write!(help, "  {literal}{name:width$}{literal:#}  ").unwrap();
+        if let Some(about) = about {
+            write!(help, "{}", about.ansi()).unwrap();
+        }
+        help.push_str("\n");
+        previous_group = Some(group);
+    }
+    writeln!(help, "\n{header}Options:{header:#}").unwrap();
+    let options = command.clone().help_template("{options}{after-help}").render_help();
+    write!(help, "{}", options.ansi()).unwrap();
+    command.override_help(help)
 }
 
 #[derive(Subcommand, Debug)]

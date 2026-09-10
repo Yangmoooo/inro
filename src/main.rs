@@ -20,14 +20,15 @@ mod utils;
 use std::sync::LazyLock;
 use std::sync::atomic::{AtomicU8, Ordering};
 
-use clap::{CommandFactory, Parser};
+use clap::FromArgMatches;
 use cli::{Cli, Command};
 use commands::*;
 
 static VERBOSITY: LazyLock<AtomicU8> = LazyLock::new(AtomicU8::default);
 
 fn main() -> anyhow::Result<()> {
-    let cli = Cli::parse();
+    let mut command = cli::command_with_grouped_help();
+    let cli = Cli::from_arg_matches(&command.get_matches_mut())?;
     VERBOSITY.store(cli.verbose, Ordering::Relaxed);
 
     if let Some(command) = cli.command {
@@ -51,7 +52,7 @@ fn main() -> anyhow::Result<()> {
             Command::Generate { generator, out } => GenerateCommand { generator, out }.handle(),
         }?;
     } else {
-        Cli::command().print_long_help()?;
+        command.print_long_help()?;
     }
 
     Ok(())
