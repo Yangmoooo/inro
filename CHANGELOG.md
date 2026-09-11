@@ -7,7 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-## [1.2.0] - 2026-09-10
+## [1.2.0] - 2026-09-11
 
 ### Added
 
@@ -16,6 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 
 - **Grouped Command Help**: Top-level help now groups related commands with blank lines while keeping names and descriptions aligned. Running `inro`, `inro -h`, `inro --help`, or `inro help` shows the same grouped list.
+- **Visible Command Aliases**: Help now lists existing aliases beside the command name, such as `uninstall, rm, remove`, in an aligned command column. `inro source --help` uses the same format for `list, ls`.
 
 ### Fixed
 

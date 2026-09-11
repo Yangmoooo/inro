@@ -28,11 +28,16 @@ pub fn command_with_grouped_help() -> clap::Command {
 
     let mut command = Cli::command();
     command.build();
+    command = command.mut_subcommand("source", |source| with_grouped_help(source, &[]));
+    with_grouped_help(command, GROUPS)
+}
+
+fn with_grouped_help(command: clap::Command, groups: &[&[&str]]) -> clap::Command {
     let mut entries: Vec<_> = command
         .get_subcommands()
         .filter(|subcommand| !subcommand.is_hide_set())
         .map(|subcommand| {
-            let order = GROUPS
+            let order = groups
                 .iter()
                 .enumerate()
                 .find_map(|(group, names)| {
@@ -42,31 +47,32 @@ pub fn command_with_grouped_help() -> clap::Command {
                         .map(|index| (group, index))
                 })
                 // New commands remain visible even before being assigned a group.
-                .unwrap_or((GROUPS.len(), subcommand.get_display_order()));
-            (order, subcommand)
+                .unwrap_or((groups.len(), subcommand.get_display_order()));
+            let names = std::iter::once(subcommand.get_name())
+                .chain(subcommand.get_visible_aliases())
+                .collect::<Vec<_>>()
+                .join(", ");
+            (order, subcommand, names)
         })
         .collect();
-    entries.sort_by_key(|(order, _)| *order);
-    let width =
-        entries.iter().map(|(_, subcommand)| subcommand.get_name().len()).max().unwrap_or(0);
+    entries.sort_by_key(|(order, ..)| *order);
+    let width = entries.iter().map(|(_, _, names)| names.len()).max().unwrap_or(0);
     let header = command.get_styles().get_header();
     let literal = command.get_styles().get_literal();
 
-    // Let clap render usage and options; only the top-level command list is
-    // custom.
+    // Let clap render usage and options; only the command list is custom.
     let mut help = command
         .clone()
         .help_template("{before-help}{about-with-newline}\n{usage-heading} {usage}")
         .render_help();
     writeln!(help, "\n{header}Commands:{header:#}").unwrap();
     let mut previous_group = None;
-    for ((group, _), subcommand) in entries {
+    for ((group, _), subcommand, names) in entries {
         if previous_group.is_some_and(|previous| previous != group) {
             help.push_str("\n");
         }
-        let name = subcommand.get_name();
         let about = subcommand.get_about().or_else(|| subcommand.get_long_about());
-        write!(help, "  {literal}{name:width$}{literal:#}  ").unwrap();
+        write!(help, "  {literal}{names:width$}{literal:#}  ").unwrap();
         if let Some(about) = about {
             write!(help, "{}", about.ansi()).unwrap();
         }
@@ -87,7 +93,7 @@ pub enum Command {
     /// directory. You can specify a version using '@' (e.g.,
     /// 'ripgrep@15.1.0'). If no version is specified, the latest stable
     /// version is installed.
-    #[command(alias = "i")]
+    #[command(visible_alias = "i")]
     Install {
         /// Names of the packages to install (e.g., 'ripgrep', 'just@1.45.0')
         #[arg(num_args = 1.., value_name = "PKG")]
@@ -99,7 +105,7 @@ pub enum Command {
     /// Removes the package files and unlinks the binaries.
     /// By default, only the currently active version is removed unless --all is
     /// specified.
-    #[command(aliases = ["rm", "remove"])]
+    #[command(visible_aliases = ["rm", "remove"])]
     Uninstall {
         /// Names of the packages to uninstall
         #[arg(num_args = 1.., value_name = "PKG")]
@@ -114,7 +120,7 @@ pub enum Command {
     /// List all installed packages and their versions
     ///
     /// Shows the current active version.
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List,
 
     /// Manage remote package sources (registries)
@@ -126,7 +132,7 @@ pub enum Command {
     /// Search for available packages in the registry
     ///
     /// Searches package names and binary names. Case-insensitive.
-    #[command(alias = "s")]
+    #[command(visible_alias = "s")]
     Search {
         /// The query string to search for
         #[arg(value_name = "QUERY")]
@@ -182,7 +188,7 @@ pub enum Command {
     ///
     /// Checks remote sources for newer versions. If found, installs the new
     /// version and switches to it. Old versions are kept as backups.
-    #[command(alias = "upgrade")]
+    #[command(visible_alias = "upgrade")]
     Update {
         /// Names of packages to update. If omitted, updates all installed
         /// packages.
@@ -273,7 +279,7 @@ pub enum SourceSubCommand {
     Update,
 
     /// List all configured remote sources and their status
-    #[command(alias = "ls")]
+    #[command(visible_alias = "ls")]
     List {
         /// Check remote registries for updates
         #[arg(long)]
