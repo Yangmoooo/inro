@@ -526,6 +526,166 @@ fn direct_install_requires_a_version_when_multiple_are_configured() {
 
 #[cfg(unix)]
 #[test]
+fn direct_update_without_version_skips_ambiguous_versions() {
+    let temp = tempfile::tempdir().unwrap();
+    let (asset_url, server) = serve_direct_asset(tool_binary());
+    let unavailable_url = format!("{}/unavailable-tool", closed_local_url());
+    let (home, bin_dir) =
+        setup_direct_tool_home(temp.path(), &[("1.0.0", &asset_url), ("2.0.0", &unavailable_url)]);
+    let installed = run_inro(&home, &["install", "tool@1.0.0"]);
+    server.join().unwrap();
+    assert_success(&installed);
+    let manifest_before = fs::read(home.join("manifest.json")).unwrap();
+    let link_before = fs::read_link(bin_dir.join("tool")).unwrap();
+
+    for args in
+        [vec!["update"], vec!["-v", "update"], vec!["update", "tool"], vec!["update", "--force"]]
+    {
+        let output = run_inro(&home, &args);
+        assert_success(&output);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains("skipping"), "{stderr}");
+        assert!(stderr.contains("inro update tool@<version>"), "{stderr}");
+        assert!(!stderr.contains("failed"), "{stderr}");
+        assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+        assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), link_before);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_update_exact_version_still_updates_and_reports_real_errors() {
+    let temp = tempfile::tempdir().unwrap();
+    let (first_url, first_server) = serve_direct_asset(tool_binary());
+    let (second_url, second_server) = serve_direct_asset(tool_binary());
+    let unavailable_url = format!("{}/tool", closed_local_url());
+    let (home, bin_dir) = setup_direct_tool_home(
+        temp.path(),
+        &[("1.0.0", &first_url), ("2.0.0", &second_url), ("3.0.0", &unavailable_url)],
+    );
+    let installed = run_inro(&home, &["install", "tool@1.0.0"]);
+    first_server.join().unwrap();
+    assert_success(&installed);
+    let updated = run_inro(&home, &["update", "tool@2.0.0"]);
+    second_server.join().unwrap();
+    assert_success(&updated);
+    let manifest_before = fs::read(home.join("manifest.json")).unwrap();
+    let manifest: serde_json::Value = serde_json::from_slice(&manifest_before).unwrap();
+    assert_eq!(manifest["packages"]["tool"]["current_version"], "2.0.0");
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/2.0.0/tool"));
+
+    assert_success(&run_inro(&home, &["update", "tool@2.0.0"]));
+    for (version, error) in [("tool@unknown", "not defined"), ("tool@3.0.0", "Download failed")] {
+        let output = run_inro(&home, &["-v", "update", version]);
+        assert!(!output.status.success());
+        assert!(String::from_utf8_lossy(&output.stderr).contains(error), "{output:?}");
+        assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn direct_update_requires_a_version_after_registry_replaces_the_installed_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let (first_url, first_server) = serve_direct_asset(tool_binary());
+    let (home, bin_dir) = setup_direct_tool_home(temp.path(), &[("1.0.0", &first_url)]);
+    let installed = run_inro(&home, &["install", "tool"]);
+    first_server.join().unwrap();
+    assert_success(&installed);
+    let manifest_before = fs::read(home.join("manifest.json")).unwrap();
+    let skipped = run_inro(&home, &["update"]);
+    assert_success(&skipped);
+    assert!(String::from_utf8_lossy(&skipped.stderr).contains("inro update tool@<version>"));
+    assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+
+    let (second_url, second_server) = serve_direct_asset(tool_binary());
+    setup_direct_tool_home(temp.path(), &[("2.0.0", &second_url)]);
+    for args in [vec!["update"], vec!["update", "tool"], vec!["update", "--force"]] {
+        let skipped = run_inro(&home, &args);
+        assert_success(&skipped);
+        assert!(String::from_utf8_lossy(&skipped.stderr).contains("inro update tool@<version>"));
+        assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+        assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/1.0.0/tool"));
+    }
+    let exported = run_inro(&home, &["export"]);
+    assert_success(&exported);
+    assert!(String::from_utf8_lossy(&exported.stdout).contains("tool@1.0.0"));
+    assert_success(&run_inro(&home, &["use", "tool", "1.0.0"]));
+    let missing_version = run_inro(&home, &["-v", "install", "tool@1.0.0"]);
+    assert!(!missing_version.status.success());
+    assert!(String::from_utf8_lossy(&missing_version.stderr).contains("not defined"));
+
+    let updated = run_inro(&home, &["update", "tool@2.0.0"]);
+    second_server.join().unwrap();
+    assert_success(&updated);
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/2.0.0/tool"));
+    assert_success(&run_inro(&home, &["use", "tool", "1.0.0"]));
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/1.0.0/tool"));
+    assert_success(&run_inro(&home, &["uninstall", "tool@1.0.0"]));
+    assert!(!home.join("pkgs/tool/1.0.0").exists());
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/2.0.0/tool"));
+}
+
+#[cfg(unix)]
+#[test]
+fn update_skips_ambiguous_direct_packages_while_updating_github_packages() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_tool_home(temp.path());
+    install_tool(&home, "v1.0.0");
+    fs::write(
+        home.join("registry.d/mysql.toml"),
+        r#"
+[mysql.remote.direct."8.4.11"]
+macos-aarch64 = "http://127.0.0.1:1/mysql.tar.gz"
+[mysql.remote.direct."9.7.2"]
+macos-aarch64 = "http://127.0.0.1:1/mysql.tar.gz"
+"#,
+    )
+    .unwrap();
+    let mut mysql_receipt = manifest_receipt("mysql", "8.4.11");
+    mysql_receipt["remote"] = serde_json::json!({ "direct": {
+        "8.4.11": { "macos-aarch64": "http://127.0.0.1:1/mysql.tar.gz" },
+        "9.7.2": { "macos-aarch64": "http://127.0.0.1:1/mysql.tar.gz" },
+    } });
+    let mysql_dir = home.join("pkgs/mysql/8.4.11");
+    fs::create_dir_all(&mysql_dir).unwrap();
+    fs::write(mysql_dir.join("mysql"), tool_binary()).unwrap();
+    std::os::unix::fs::symlink(mysql_dir.join("mysql"), bin_dir.join("mysql")).unwrap();
+    let mut manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    manifest["packages"]["mysql"] = serde_json::json!({
+        "current_version": "8.4.11",
+        "versions": { "8.4.11": mysql_receipt },
+        "pinned": false,
+    });
+    let mysql_before = manifest["packages"]["mysql"].clone();
+    fs::write(home.join("manifest.json"), serde_json::to_vec(&manifest).unwrap()).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), true);
+
+    let output =
+        run_inro_with_env(&home, &["-v", "update"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+
+    assert_success(&output);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Updated 1 package(s)"), "{stderr}");
+    assert!(stderr.contains("Skipped 1 package(s)"), "{stderr}");
+    assert!(!stderr.contains("failed"), "{stderr}");
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["packages"]["mysql"], mysql_before);
+    assert_eq!(manifest["packages"]["tool"]["current_version"], "v2.0.0");
+    assert_eq!(fs::read_link(bin_dir.join("mysql")).unwrap(), mysql_dir.join("mysql"));
+
+    let invalid = run_inro(&home, &["-v", "update", "mysql", "not-installed"]);
+    assert!(!invalid.status.success());
+    let stderr = String::from_utf8_lossy(&invalid.stderr);
+    assert!(stderr.contains("Skipped 1 package(s)"), "{stderr}");
+    assert!(stderr.contains("1 package(s) failed to update"), "{stderr}");
+}
+
+#[cfg(unix)]
+#[test]
 fn install_falls_back_to_a_release_page_when_latest_has_no_assets() {
     let temp = tempfile::tempdir().unwrap();
     let (home, bin_dir) = setup_tool_home(temp.path());
@@ -702,8 +862,8 @@ fn update_aligns_skipped_and_installed_package_statuses() {
     let installed_line =
         stderr.lines().find(|line| line.contains("tool") && line.contains("v2.0.0")).unwrap();
     assert_eq!(
-        skipped_line.find("pinned, skipping"),
-        installed_line.find("v2.0.0"),
+        skipped_line.split("pinned, skipping").next().unwrap().chars().count(),
+        installed_line.split("v2.0.0").next().unwrap().chars().count(),
         "status columns should align:\n{stderr}"
     );
 }

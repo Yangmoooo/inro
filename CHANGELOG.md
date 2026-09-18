@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Direct Packages in Updates**: Unversioned updates now skip all direct packages and show an exact-version command hint instead of failing on multiple configured versions or automatically switching to the only configured version. Use `inro update <package>@<version>` to update a direct package, even when the registry defines only one version. Skipped packages are reported separately from failures.
+
 ## [1.2.0] - 2026-09-11
 
 ### Added

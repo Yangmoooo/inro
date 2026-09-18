@@ -188,6 +188,8 @@ pub enum Command {
     ///
     /// Checks remote sources for newer versions. If found, installs the new
     /// version and switches to it. Old versions are kept as backups.
+    /// Direct packages are skipped unless
+    /// an exact version is specified, e.g. 'inro update mysql@8.4.11'.
     #[command(visible_alias = "upgrade")]
     Update {
         /// Names of packages to update. If omitted, updates all installed

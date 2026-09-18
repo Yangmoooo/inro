@@ -8,6 +8,7 @@ use crate::layout::InroLayout;
 use crate::manifest::Manifest;
 use crate::progress::ProgressManager;
 use crate::registry::Registry;
+use crate::remotes::RemoteType;
 use crate::utils::{ensure_unique_package_args, parse_package_version};
 use crate::warn;
 
@@ -50,18 +51,31 @@ impl CommandHandler for UpdateCommand {
 
         let mut requests = Vec::new();
         let mut not_installed = 0usize;
+        let mut skipped = 0usize;
 
         for (pkg_name, pkg_ver) in &parsed {
             match manifest.pkgs.get(pkg_name) {
                 Some(state) => {
                     if state.pinned && !self.force {
-                        pm.add_package(pkg_name).finish_error("pinned, skipping");
+                        pm.add_package(pkg_name).finish_skipped("pinned, skipping");
+                        skipped += 1;
                         continue;
                     }
                     let Some(current_ver) = state.current_version.as_deref() else {
-                        pm.add_package(pkg_name).finish_error("unlinked, skipping");
+                        pm.add_package(pkg_name).finish_skipped("unlinked, skipping");
+                        skipped += 1;
                         continue;
                     };
+                    if pkg_ver.is_none()
+                        && let Some(definition) = registry.pkgs.get(pkg_name)
+                        && let RemoteType::Direct(_) = &definition.remote
+                    {
+                        pm.add_package(pkg_name).finish_skipped(&format!(
+                            "direct package, skipping; use 'inro update {pkg_name}@<version>'"
+                        ));
+                        skipped += 1;
+                        continue;
+                    }
                     requests.push(InstallRequest::update(
                         pkg_name.clone(),
                         pkg_ver.clone(),
@@ -93,7 +107,7 @@ impl CommandHandler for UpdateCommand {
             manifest.save(&layout.manifest_path)?;
         }
 
-        print_summary(updated, unchanged, failed);
+        print_summary(updated, unchanged, skipped, failed);
 
         if failed > 0 {
             anyhow::bail!("{failed} package(s) failed to update");
@@ -102,17 +116,20 @@ impl CommandHandler for UpdateCommand {
     }
 }
 
-fn print_summary(updated: usize, up_to_date: usize, failed: usize) {
+fn print_summary(updated: usize, up_to_date: usize, skipped: usize, failed: usize) {
     eprintln!();
     if updated > 0 && failed == 0 {
         eprintln!("{} Updated {} package(s)", "✓".green().bold(), updated);
     } else if updated > 0 && failed > 0 {
         eprintln!("{} Updated {} package(s), {} failed", "!".yellow().bold(), updated, failed);
     } else if failed > 0 {
-        eprintln!("{} All {} package(s) failed", "✗".red().bold(), failed);
+        eprintln!("{} {} package(s) failed", "✗".red().bold(), failed);
     } else if up_to_date > 0 {
-        eprintln!("{} All {} package(s) are up to date", "✓".green().bold(), up_to_date);
+        eprintln!("{} {} package(s) are up to date", "✓".green().bold(), up_to_date);
     } else {
         eprintln!("{} Nothing to update", "·".dimmed());
+    }
+    if skipped > 0 {
+        eprintln!("{} Skipped {} package(s)", "=".dimmed(), skipped);
     }
 }

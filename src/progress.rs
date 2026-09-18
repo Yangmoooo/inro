@@ -115,6 +115,21 @@ impl PkgProgress {
         }
     }
 
+    /// Mark as skipped without implying an update failure.
+    pub fn finish_skipped(&self, reason: &str) {
+        let name = &self.name;
+        let w = self.max_name_width;
+        if let Some(bar) = &self.bar {
+            let hidden = bar.is_hidden();
+            bar.set_style(status_style());
+            bar.finish_with_message(format!("= {name:<w$}  {reason}").dimmed().to_string());
+            if !hidden {
+                return;
+            }
+        }
+        crate::reporter::print_skip(&format!("{name:<w$}  {reason}"));
+    }
+
     /// Mark as failed with error message.
     pub fn finish_error(&self, err: &str) {
         let name = &self.name;

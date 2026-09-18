@@ -220,10 +220,17 @@ platform must have an exact `<os>-<arch>` key.
 
 Direct remotes are deliberately declarative: inro does not scrape download pages, discover new
 versions, infer a latest version, or attach release dates. With one configured version,
-`inro install sqlite` and `inro update sqlite` use that version. With multiple configured versions,
-install and update require an exact specification such as `sqlite@3.53.4`; exact versions in import
-files work the same way. `inro show sqlite` lists the versions declared in the registry without
+`inro install sqlite` uses that version. With multiple configured versions,
+install requires an exact specification such as `sqlite@3.53.4`. Unversioned updates (`inro update`
+or `inro update sqlite`) skip all direct packages with a reminder to choose a version, without treating
+the skip as a failure or interrupting other updates. Use `inro update sqlite@3.53.4` to select an
+exact version; `--force` only bypasses pinning and does not choose a version. Invalid versions and
+download failures still fail normally. Exact versions in import files work the same way.
+`inro show sqlite` lists the versions declared in the registry without
 network access. Additional versions can be merged in through a file under `registry.d/`.
+Removing a version from the registry does not remove its installed files or installation record:
+it can still be used, selected with `use`, or uninstalled. Downloading that version again (including
+importing an exported package set on another machine) requires restoring its URL definition.
 Direct remotes currently do not perform checksum verification, so the registry maintainer is
 responsible for keeping the declared URLs trustworthy.
 
