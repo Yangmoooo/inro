@@ -21,24 +21,40 @@ On Windows PowerShell:
 irm https://raw.githubusercontent.com/Yangmoooo/inro/main/install.ps1 | iex
 ```
 
-The scripts install the latest release to `~/.local/bin` and verify it against the release's
-`SHA256SUMS`. To select a version or directory:
+The scripts download the latest release, verify its archive against `SHA256SUMS`, and place only
+the `inro` binary (`inro.exe` on Windows) in the **current directory**. They do not run the binary
+or modify PATH, configuration, registries, or the manifest. Existing files, directories, and
+symbolic links with the same name are never overwritten.
+
+To select a version or output directory:
 
 ```bash
 curl --proto '=https' --tlsv1.2 -LsSf \
   https://raw.githubusercontent.com/Yangmoooo/inro/main/install.sh |
-  sh -s -- --version 1.0.0 --to "$HOME/bin"
+  sh -s -- --version 1.2.0 --to "$HOME/Downloads/inro"
 ```
 
 ```powershell
 $installer = [scriptblock]::Create((irm https://raw.githubusercontent.com/Yangmoooo/inro/main/install.ps1))
-& $installer -Version 1.0.0 -InstallDir "$HOME\bin"
+& $installer -Version 1.2.0 -InstallDir "$HOME\Downloads\inro"
 ```
 
-Rerun the installer to update this bootstrap copy. Because `~/.local/bin` is also inro's default
-managed `bin_dir`, install the bootstrap somewhere else if you want inro to manage its own binary:
-run `inro source update` and `inro install inro`, confirm the managed binary is on `PATH`, then
-delete the bootstrap copy.
+`INRO_VERSION` and `INRO_INSTALL_DIR` provide the same options; command-line arguments take
+precedence. The scripts print the downloaded binary's path and suggested next steps.
+
+You can run `./inro --help` (PowerShell: `.\inro.exe --help`), or move the binary to a directory
+on PATH for manual use. To let inro manage itself, keep this copy outside the configured
+`bin_dir` (default `~/.local/bin`) and run:
+
+```bash
+./inro source update
+./inro install inro
+```
+
+On PowerShell, use `.\inro.exe` in place of `./inro`. These optional commands download a managed
+copy, create its links and installation records, and require the usual network access and, on
+Windows, symbolic-link permissions. After confirming that the managed binary is on PATH and
+works, you can remove the original downloaded copy. Future updates use `inro update inro`.
 
 ### From Binaries
 
