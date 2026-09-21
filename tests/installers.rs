@@ -274,6 +274,51 @@ fn failure(output: &Output, message: &str) {
     assert!(text.contains(message), "{text}");
 }
 
+fn assert_powershell_hint(hint: &str, args: &str, target: &Path) {
+    let encoded = hint
+        .trim()
+        .strip_prefix("& '")
+        .and_then(|value| value.strip_suffix(&format!("' {args}")))
+        .unwrap_or_else(|| panic!("invalid PowerShell hint: {hint:?}"));
+    let decoded = encoded.replace("''", "'");
+    assert_eq!(decoded.replace('\'', "''"), encoded, "unescaped quote in {hint:?}");
+    // PowerShell may print a different spelling of a Windows path (for example,
+    // an expanded short path). Check the file it resolves to, not a substring.
+    let actual = fs::canonicalize(&decoded)
+        .unwrap_or_else(|error| panic!("hint path cannot be resolved: {hint:?}: {error}"));
+    assert_eq!(actual, target.canonicalize().unwrap(), "hint points to a different file: {hint:?}");
+}
+
+#[test]
+fn powershell_hint_accepts_equivalent_paths_and_escaped_quotes() {
+    let temp = tempfile::tempdir().unwrap();
+    let directory = temp.path().join("space's [dir]");
+    fs::create_dir_all(directory.join("child")).unwrap();
+    let target = directory.join("inro.exe");
+    fs::write(&target, PAYLOAD).unwrap();
+    let equivalent = directory.join("child").join("..").join("inro.exe");
+    let quoted = equivalent.to_string_lossy().replace('\'', "''");
+    assert_powershell_hint(&format!("  & '{quoted}' --help"), "--help", &target);
+}
+
+#[test]
+#[should_panic(expected = "unescaped quote")]
+fn powershell_hint_rejects_unescaped_quotes() {
+    assert_powershell_hint("& 'space's/inro.exe' --help", "--help", Path::new("unused"));
+}
+
+#[test]
+#[should_panic(expected = "hint points to a different file")]
+fn powershell_hint_rejects_another_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let target = temp.path().join("inro.exe");
+    let other = temp.path().join("other.exe");
+    fs::write(&target, PAYLOAD).unwrap();
+    fs::write(&other, PAYLOAD).unwrap();
+    let quoted = other.to_string_lossy().replace('\'', "''");
+    assert_powershell_hint(&format!("& '{quoted}' --help"), "--help", &target);
+}
+
 #[test]
 fn downloads_only_binary_to_current_directory_and_prints_usable_hints() {
     let fixture = Fixture::new();
@@ -296,7 +341,13 @@ fn downloads_only_binary_to_current_directory_and_prints_usable_hints() {
         );
     }
     #[cfg(windows)]
-    assert!(text.contains(&target.to_string_lossy().replace('\'', "''")));
+    for args in ["--help", "source update", "install inro"] {
+        let hint = text
+            .lines()
+            .find(|line| line.ends_with(&format!("' {args}")))
+            .unwrap_or_else(|| panic!("missing {args} hint in output:\n{text}"));
+        assert_powershell_hint(hint, args, &target);
+    }
     let requests = fixture.request_count();
     failure(&fixture.invoke(&cwd, &[], &[]), "already exists");
     assert_eq!(fixture.request_count(), requests);
