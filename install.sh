@@ -4,23 +4,23 @@ set -eu
 
 RELEASES_URL=${INRO_RELEASES_URL:-https://github.com/Yangmoooo/inro/releases}
 version=${INRO_VERSION:-latest}
-install_dir=${INRO_INSTALL_DIR:-${HOME:?HOME is not set}/.local/bin}
+install_dir=${INRO_INSTALL_DIR:-.}
 temp_dir=
-staged_binary=
+staging_dir=
 
 usage() {
     cat <<'EOF'
-Install inro from a GitHub Release.
+Download and verify the inro binary from a GitHub Release.
 
 Usage: install.sh [--version <version>] [--to <directory>]
 
 Options:
-  --version <version>  Install a specific version instead of the latest release
-  --to <directory>     Install directory (default: $HOME/.local/bin)
+  --version <version>  Download a specific version instead of the latest release
+  --to <directory>     Output directory (default: current directory)
   -h, --help           Show this help
 
 The INRO_VERSION and INRO_INSTALL_DIR environment variables provide the same
-settings. Command-line options take precedence.
+settings. Command-line options take precedence. Existing files are never replaced.
 EOF
 }
 
@@ -33,8 +33,8 @@ cleanup() {
     if [ -n "$temp_dir" ]; then
         rm -rf "$temp_dir"
     fi
-    if [ -n "$staged_binary" ]; then
-        rm -f "$staged_binary"
+    if [ -n "$staging_dir" ]; then
+        rm -rf "$staging_dir"
     fi
 }
 trap cleanup EXIT
@@ -49,6 +49,7 @@ while [ "$#" -gt 0 ]; do
             ;;
         --to|--install-dir)
             [ "$#" -ge 2 ] || fail "$1 requires a value"
+            [ -n "$2" ] || fail "$1 requires a non-empty directory"
             install_dir=$2
             shift 2
             ;;
@@ -61,6 +62,12 @@ while [ "$#" -gt 0 ]; do
             ;;
     esac
 done
+
+mkdir -p "$install_dir"
+install_dir=$(CDPATH= cd -- "$install_dir" && pwd -P)
+target_path="$install_dir/inro"
+[ ! -e "$target_path" ] && [ ! -L "$target_path" ] \
+    || fail "$target_path already exists; choose another directory with --to"
 
 case $(uname -s) in
     Linux)
@@ -133,15 +140,19 @@ fi
 tar -xJf "$archive" -C "$extract_dir"
 [ -f "$extract_dir/inro" ] || fail "release archive does not contain the inro binary"
 
-mkdir -p "$install_dir"
-staged_binary="$install_dir/.inro-install.$$"
-cp "$extract_dir/inro" "$staged_binary"
-chmod 755 "$staged_binary"
-mv -f "$staged_binary" "$install_dir/inro"
-staged_binary=
+# Stage on the destination filesystem, then publish without overwriting a file or link.
+staging_dir=$(mktemp -d "$install_dir/.inro-download.XXXXXX")
+cp "$extract_dir/inro" "$staging_dir/inro"
+chmod 755 "$staging_dir/inro"
+[ ! -d "$target_path" ] || fail "$target_path already exists as a directory"
+ln -n "$staging_dir/inro" "$target_path" \
+    || fail "could not create $target_path; an existing destination will not be replaced"
 
-printf 'Installed inro to %s/inro\n' "$install_dir"
-case ":${PATH:-}:" in
-    *:"$install_dir":*) ;;
-    *) printf 'Add %s to PATH to run inro.\n' "$install_dir" ;;
-esac
+# Quote the actual path so these commands also work with spaces and shell metacharacters.
+command_path=$(printf '%s' "$target_path" | sed "s/'/'\\\\''/g")
+printf "Downloaded and verified: %s\\n\\n" "$target_path"
+printf "Run directly:\\n  '%s' --help\\n\\n" "$command_path"
+printf "To let inro manage itself:\\n  '%s' source update\\n  '%s' install inro\\n" "$command_path" "$command_path"
+printf '\nKeep this downloaded copy outside your configured bin_dir (default ~/.local/bin) for self-management.\n'
+printf 'After confirming the managed inro works, you can remove this downloaded copy.\n'
+printf 'Alternatively, move it into a directory on PATH for manual use.\n'

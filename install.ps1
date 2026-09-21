@@ -1,3 +1,11 @@
+<#
+.SYNOPSIS
+Download and verify the inro binary without installing or running it.
+.PARAMETER Version
+Release version, with an optional v prefix; defaults to latest.
+.PARAMETER InstallDir
+Output directory; defaults to the current directory. Existing files are not replaced.
+#>
 [CmdletBinding()]
 param(
     [string]$Version = $env:INRO_VERSION,
@@ -12,7 +20,7 @@ if ([string]::IsNullOrWhiteSpace($Version)) {
     $Version = "latest"
 }
 if ([string]::IsNullOrWhiteSpace($InstallDir)) {
-    $InstallDir = Join-Path $HOME ".local/bin"
+    $InstallDir = (Get-Location).Path
 }
 
 if ($env:OS -ne "Windows_NT") {
@@ -26,6 +34,12 @@ else {
 }
 if ($Architecture -ine "AMD64") {
     throw "Windows releases currently require x86_64"
+}
+
+$InstallDir = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($InstallDir)
+$TargetPath = Join-Path $InstallDir "inro.exe"
+if ($null -ne (Get-Item -LiteralPath $TargetPath -Force -ErrorAction SilentlyContinue)) {
+    throw "$TargetPath already exists; choose another directory with -InstallDir"
 }
 
 $Asset = "inro-windows-x86_64-msvc.zip"
@@ -94,23 +108,30 @@ try {
         throw "release archive does not contain inro.exe"
     }
 
-    New-Item -ItemType Directory -Force -Path $InstallDir | Out-Null
-    $StagedBinary = Join-Path $InstallDir ".inro-install-$PID.exe"
-    Copy-Item -Path $ExtractedBinary -Destination $StagedBinary -Force
-    Move-Item -Path $StagedBinary -Destination (Join-Path $InstallDir "inro.exe") -Force
+    [IO.Directory]::CreateDirectory($InstallDir) | Out-Null
+    $StagedBinary = Join-Path $InstallDir (".inro-download-" + [guid]::NewGuid() + ".exe")
+    [IO.File]::Copy($ExtractedBinary, $StagedBinary, $false)
+    # The two-argument Move overload refuses an existing destination, including links.
+    [IO.File]::Move($StagedBinary, $TargetPath)
     $StagedBinary = $null
 
-    Write-Host "Installed inro to $(Join-Path $InstallDir 'inro.exe')"
-    $NormalizedInstallDir = $InstallDir.TrimEnd([char[]]"\/")
-    $OnPath = ($env:PATH -split [IO.Path]::PathSeparator) |
-        Where-Object { $_.TrimEnd([char[]]"\/") -ieq $NormalizedInstallDir }
-    if (-not $OnPath) {
-        Write-Host "Add $InstallDir to PATH to run inro."
-    }
+    $CommandPath = $TargetPath.Replace("'", "''")
+    Write-Host "Downloaded and verified: $TargetPath"
+    Write-Host ""
+    Write-Host "Run directly:"
+    Write-Host "  & '$CommandPath' --help"
+    Write-Host ""
+    Write-Host "To let inro manage itself:"
+    Write-Host "  & '$CommandPath' source update"
+    Write-Host "  & '$CommandPath' install inro"
+    Write-Host ""
+    Write-Host "Keep this downloaded copy outside your configured bin_dir (default ~/.local/bin) for self-management."
+    Write-Host "After confirming the managed inro works, you can remove this downloaded copy."
+    Write-Host "Alternatively, move it into a directory on PATH for manual use."
 }
 finally {
     if ($null -ne $StagedBinary) {
-        Remove-Item -Force -ErrorAction SilentlyContinue $StagedBinary
+        Remove-Item -LiteralPath $StagedBinary -Force -ErrorAction SilentlyContinue
     }
     Remove-Item -Recurse -Force -ErrorAction SilentlyContinue $TempDir
 }
