@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.1] - 2026-09-22
+
 ### Changed
 
 - **Standalone Downloads**: The shell and PowerShell scripts now save the verified inro binary to the current directory by default, with optional version and output-directory selection. They refuse to overwrite existing files or links and print instructions for direct use or optional self-management via `source update` and `install inro`. The scripts do not run inro or modify its configuration and installation state.
