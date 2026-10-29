@@ -7,13 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-29
+
 ### Added
 
 - **Reset Asset Selections**: `inro clean --assets [package]` clears remembered asset choices for one package or all packages, across all platforms. Supports `--dry-run` and preserves installed versions and hand-written registry overrides.
 
+### Changed
+
+- **Dependencies**: Updated dependencies, including zip 9 and sevenz-rust2 0.24.
+
 ### Fixed
 
 - **Stale Automatic Asset Rules**: Install/update now retries an obsolete remembered selector against the same release using the upstream rule or platform matching. Ambiguous replacements require an interactive choice. Hand-written rules remain strict, and automatic records change only after a successful installation.
+- **Redirected Error Output**: Package errors and recovery instructions remain visible when output is redirected and progress bars are hidden, without requiring verbose mode.
 
 ## [1.2.1] - 2026-09-22
 
