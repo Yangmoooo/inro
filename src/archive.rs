@@ -264,7 +264,10 @@ fn extract_zip_buffered(file_path: &Path, dest_dir: &Path) -> Result<()> {
         let out_path = match zip_file.enclosed_name() {
             Some(path) => dest_dir.join(path),
             None => {
-                warn!("Skipping zip entry with suspicious path: '{}'", zip_file.name());
+                let name = zip_file
+                    .name()
+                    .unwrap_or_else(|_| String::from_utf8_lossy(zip_file.name_raw()));
+                warn!("Skipping zip entry with suspicious path: '{name}'");
                 continue;
             }
         };
@@ -302,6 +305,25 @@ fn extract_zip_buffered(file_path: &Path, dest_dir: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn extract_zip_skips_escaping_paths_and_keeps_valid_entries() {
+        let temp = tempfile::tempdir().unwrap();
+        let archive_path = temp.path().join("test.zip");
+        let dest = temp.path().join("out");
+        fs::create_dir(&dest).unwrap();
+        let mut archive = zip::ZipWriter::new(File::create(&archive_path).unwrap());
+        let options = zip::write::SimpleFileOptions::default();
+        archive.start_file("../outside", options).unwrap();
+        archive.write_all(b"must be skipped").unwrap();
+        archive.start_file("inside", options).unwrap();
+        archive.write_all(b"valid entry").unwrap();
+        archive.finish().unwrap();
+
+        extract_zip_buffered(&archive_path, &dest).unwrap();
+        assert!(!temp.path().join("outside").exists());
+        assert_eq!(fs::read(dest.join("inside")).unwrap(), b"valid entry");
+    }
 
     // ==================== FileType::from_extension() ====================
 

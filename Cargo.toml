@@ -39,12 +39,12 @@ tempfile = "3"
 tar = "0.4"
 flate2 = "1.1"
 xz2 = { version = "0.1", features = ["static"] }
-zip = "8"
+zip = "9"
 bzip2 = "0.6"
 walkdir = "2.5"
 chrono = { version = "0.4", features = ["serde"] }
 chrono-humanize = "0.2"
-sevenz-rust2 = "0.23"
+sevenz-rust2 = "0.24"
 humansize = "2.1"
 shell-words = "1.1"
 
