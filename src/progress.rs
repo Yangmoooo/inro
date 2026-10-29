@@ -135,11 +135,14 @@ impl PkgProgress {
         let name = &self.name;
         let w = self.max_name_width;
         if let Some(bar) = &self.bar {
+            let hidden = bar.is_hidden();
             bar.set_style(status_style());
             bar.finish_with_message(format!("✗ {name:<w$}  {err}"));
-        } else {
-            crate::reporter::print_fail(&format!("{name:<w$}  {err}"));
+            if !hidden {
+                return;
+            }
         }
+        crate::reporter::print_fail(&format!("{name:<w$}  {err}"));
     }
 }
 
