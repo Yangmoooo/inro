@@ -389,6 +389,155 @@ fn install_tool(home: &Path, version: &str) {
     assert_success(&output);
 }
 
+#[cfg(unix)]
+fn setup_learned_tool_home(root: &Path) -> (PathBuf, PathBuf) {
+    let (home, bin_dir) = setup_tool_home(root);
+    install_tool(&home, "v1.0.0");
+    fs::write(home.join("config.toml"), format!("bin_dir = {bin_dir:?}\n")).unwrap();
+    fs::remove_file(home.join("registry.d/tool.toml")).unwrap();
+    fs::create_dir_all(home.join("registry")).unwrap();
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    fs::write(
+        home.join("registry/00-default.toml"),
+        format!("[tool.remote.github]\nrepo = \"test/tool\"\n[tool.remote.github.asset]\n{platform} = \"tool\"\n"),
+    )
+    .unwrap();
+    let auto_path = home.join("registry/auto.toml");
+    fs::write(
+        &auto_path,
+        format!("[tool.remote.github.asset]\n{platform} = \"old-name.zip\"\nother-platform = \"keep.zip\"\n"),
+    )
+    .unwrap();
+    (home, bin_dir)
+}
+
+#[cfg(unix)]
+#[test]
+fn update_recovers_from_stale_auto_asset_using_upstream_rule() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_learned_tool_home(temp.path());
+    let auto_path = home.join("registry/auto.toml");
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), true);
+    let output =
+        run_inro_with_env(&home, &["update", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    assert_success(&output);
+    server.join().unwrap();
+    let auto: toml::Value = toml::from_str(&fs::read_to_string(auto_path).unwrap()).unwrap();
+    assert!(auto["tool"]["remote"]["github"]["asset"].get(&platform).is_none());
+    assert_eq!(
+        auto["tool"]["remote"]["github"]["asset"]["other-platform"].as_str(),
+        Some("keep.zip")
+    );
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no longer matches"));
+}
+
+#[cfg(unix)]
+#[test]
+fn failed_auto_recovery_preserves_selection_and_installed_version() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_learned_tool_home(temp.path());
+    let auto_path = home.join("registry/auto.toml");
+    let auto_before = fs::read(&auto_path).unwrap();
+    let manifest_before = fs::read(home.join("manifest.json")).unwrap();
+    let link_before = fs::read_link(bin_dir.join("tool")).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", b"invalid binary".to_vec(), true);
+    let output = run_inro_with_env(
+        &home,
+        &["-v", "update", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
+    server.join().unwrap();
+    assert!(!output.status.success());
+    assert!(String::from_utf8_lossy(&output.stderr).contains("no longer matches"));
+    assert_eq!(fs::read(&auto_path).unwrap(), auto_before);
+    assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), link_before);
+
+    let api_url = closed_local_url();
+    let output = run_inro_with_env(
+        &home,
+        &["-v", "update", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("no longer matches"));
+    assert_eq!(fs::read(auto_path).unwrap(), auto_before);
+}
+
+#[cfg(unix)]
+#[test]
+fn user_asset_rule_is_strict_even_when_identical_to_auto() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_learned_tool_home(temp.path());
+    let auto_path = home.join("registry/auto.toml");
+    let auto_before = fs::read(&auto_path).unwrap();
+    fs::write(home.join("registry.d/local.toml"), &auto_before).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), false);
+    let output = run_inro_with_env(
+        &home,
+        &["-v", "update", "tool"],
+        &[("INRO_TEST_GITHUB_API_URL", &api_url)],
+    );
+    server.join().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("old-name.zip"), "{stderr}");
+    assert!(!stderr.contains("no longer matches"), "{stderr}");
+    assert_eq!(fs::read(auto_path).unwrap(), auto_before);
+}
+
+#[test]
+fn valid_auto_override_allows_loading_an_invalid_upstream_selector() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    fs::create_dir_all(home.join("registry")).unwrap();
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    fs::write(home.join("registry/00-default.toml"), format!(
+        "[tool.remote.github]\nrepo = \"test/tool\"\n[tool.remote.github.asset]\n{platform} = 7\n"
+    )).unwrap();
+    let auto_path = home.join("registry/auto.toml");
+    let auto = format!("[tool.remote.github.asset]\n{platform} = \"tool.zip\"\n");
+    fs::write(&auto_path, &auto).unwrap();
+    let output = run_inro(home, &["search", "tool"]);
+    assert_success(&output);
+    assert!(String::from_utf8_lossy(&output.stdout).contains("tool"));
+    assert_eq!(fs::read_to_string(auto_path).unwrap(), auto);
+}
+
+#[cfg(unix)]
+#[test]
+fn invalid_upstream_selector_is_checked_only_when_auto_recovery_needs_it() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_learned_tool_home(temp.path());
+    let platform = format!("{}-{}", std::env::consts::OS, std::env::consts::ARCH);
+    fs::write(home.join("registry/00-default.toml"), format!(
+        "[tool.remote.github]\nrepo = \"test/tool\"\n[tool.remote.github.asset]\n{platform} = 7\n"
+    )).unwrap();
+    let auto_path = home.join("registry/auto.toml");
+    let auto_before = fs::read(&auto_path).unwrap();
+    let manifest_before = fs::read(home.join("manifest.json")).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), false);
+    let output =
+        run_inro_with_env(&home, &["update", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("Invalid fallback asset selector"), "{stderr}");
+    assert_eq!(fs::read(&auto_path).unwrap(), auto_before);
+    assert_eq!(fs::read(home.join("manifest.json")).unwrap(), manifest_before);
+
+    let valid_auto = format!("[tool.remote.github.asset]\n{platform} = \"tool\"\n");
+    fs::write(&auto_path, &valid_auto).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), true);
+    let output =
+        run_inro_with_env(&home, &["update", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    assert_success(&output);
+    server.join().unwrap();
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("no longer matches"));
+    assert_eq!(fs::read_to_string(auto_path).unwrap(), valid_auto);
+}
+
 #[test]
 fn source_update_rejects_invalid_registry() {
     let temp = tempfile::tempdir().unwrap();

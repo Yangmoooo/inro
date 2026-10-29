@@ -37,6 +37,16 @@ pub struct GitHubAssetDef {
     pub repo: String,
     #[serde(default)]
     pub asset: HashMap<String, AssetSelector>,
+    /// Current-platform auto rule and its fallback, populated only while
+    /// loading a registry.
+    #[serde(skip)]
+    pub learned_asset: Option<LearnedAsset>,
+}
+
+#[derive(Clone, Debug)]
+pub struct LearnedAsset {
+    /// Keep the overridden value untyped until recovery actually needs it.
+    pub fallback: Option<toml::Value>,
 }
 
 #[derive(Clone, Debug, Default, Deserialize, Serialize)]
@@ -61,6 +71,7 @@ pub struct CandidateResult {
     pub asset_names: Vec<String>,
     pub match_kind: MatchKind,
     pub matched_selector: Option<String>,
+    pub recovered_auto: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

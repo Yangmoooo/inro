@@ -50,6 +50,16 @@ pub enum Error {
     )]
     NoMatchingAsset { repo: String, tag: String, selector: String },
 
+    #[error(
+        "Invalid fallback asset selector for repo '{repo}' on platform '{platform}' after the remembered selector stopped matching: {source}"
+    )]
+    InvalidFallbackSelector {
+        repo: String,
+        platform: String,
+        #[source]
+        source: Box<toml::de::Error>,
+    },
+
     #[error("GitHub API rate limit exceeded for '{repo}'. {hint}")]
     RateLimited { repo: String, hint: String },
 }
@@ -117,6 +127,56 @@ struct Asset {
 }
 
 impl Release {
+    /// Retry an obsolete learned selector against the same release, without
+    /// another API request.
+    fn find_candidates(&self, asset_def: &GitHubAssetDef) -> Result<CandidateResult> {
+        let platform_key = PlatformInfo::current().key();
+        let mut asset_map = asset_def.asset.clone();
+        let (assets, match_kind, recovered_auto) =
+            match (self.find_assets(&asset_map), &asset_def.learned_asset) {
+                (Ok((assets, kind)), _) => (assets, kind, false),
+                (Err(Error::NoMatchingAsset { .. }), Some(learned)) => {
+                    if let Some(value) = &learned.fallback {
+                        let selector = value.clone().try_into().map_err(|source| {
+                            Error::InvalidFallbackSelector {
+                                repo: self.repo.clone(),
+                                platform: platform_key.clone(),
+                                source: Box::new(source),
+                            }
+                        })?;
+                        asset_map.insert(platform_key.clone(), selector);
+                    } else {
+                        asset_map.remove(&platform_key);
+                    }
+                    let (assets, kind) = self.find_assets(&asset_map)?;
+                    (assets, kind, true)
+                }
+                (Err(error), _) => return Err(error),
+            };
+        let asset_names = self.assets.iter().map(|asset| asset.name.clone()).collect();
+        let candidates = assets
+            .into_iter()
+            .map(|asset| InstallCandidate {
+                version: self.tag_name.clone(),
+                asset_name: asset.name.clone(),
+                download_url: asset.browser_download_url.clone(),
+                size: asset.size,
+            })
+            .collect();
+        let matched_selector = if match_kind == MatchKind::Explicit {
+            asset_map.get(&platform_key).map(ToString::to_string)
+        } else {
+            None
+        };
+        Ok(CandidateResult {
+            candidates,
+            asset_names,
+            match_kind,
+            matched_selector,
+            recovered_auto,
+        })
+    }
+
     /// Check if the release is suitable (non-draft, non-prerelease, with
     /// assets).
     fn is_suitable(&self) -> bool { !self.draft && !self.prerelease && !self.assets.is_empty() }
@@ -506,26 +566,7 @@ impl GitHubProvider {
             self.find_latest_suitable_release_async(repo).await?
         };
 
-        let (assets, match_kind) = release.find_assets(&asset_def.asset)?;
-
-        let asset_names = release.assets.iter().map(|asset| asset.name.clone()).collect();
-        let candidates: Vec<InstallCandidate> = assets
-            .into_iter()
-            .map(|asset| InstallCandidate {
-                version: release.tag_name.clone(),
-                asset_name: asset.name.clone(),
-                download_url: asset.browser_download_url.clone(),
-                size: asset.size,
-            })
-            .collect();
-        let matched_selector = match match_kind {
-            MatchKind::Explicit => {
-                let platform_key = PlatformInfo::current().key();
-                asset_def.asset.get(&platform_key).map(ToString::to_string)
-            }
-            _ => None,
-        };
-        Ok(CandidateResult { candidates, asset_names, match_kind, matched_selector })
+        release.find_candidates(asset_def)
     }
 
     // ==================== Sync facade (for info/source) ====================
@@ -632,6 +673,62 @@ mod tests {
             published_at: Some(Utc::now()),
             assets,
         }
+    }
+
+    #[test]
+    fn stale_auto_rule_recovers_using_platform_matching() {
+        let platform = PlatformInfo::current();
+        let name = format!("renamed-{}-{}.zip", platform.os, platform.arch);
+        let release = release_with_assets(vec![asset(&name)]);
+        let remote = GitHubAssetDef {
+            repo: "owner/tool".to_string(),
+            asset: HashMap::from([(platform.key(), AssetSelector::Glob("old.zip".to_string()))]),
+            learned_asset: Some(crate::remotes::LearnedAsset { fallback: None }),
+        };
+        let result = release.find_candidates(&remote).unwrap();
+        assert!(result.recovered_auto);
+        assert_eq!(result.match_kind, MatchKind::PlatformHeuristic);
+        assert_eq!(result.candidates[0].asset_name, name);
+    }
+
+    #[test]
+    fn explicit_and_upstream_fallback_rules_remain_strict() {
+        let platform = PlatformInfo::current();
+        let name = format!("renamed-{}-{}.zip", platform.os, platform.arch);
+        let release = release_with_assets(vec![asset(&name)]);
+        let mut remote = GitHubAssetDef {
+            repo: "owner/tool".to_string(),
+            asset: HashMap::from([(platform.key(), AssetSelector::Glob("old.zip".to_string()))]),
+            learned_asset: None,
+        };
+        assert!(matches!(release.find_candidates(&remote), Err(Error::NoMatchingAsset { .. })));
+        remote.learned_asset = Some(crate::remotes::LearnedAsset {
+            fallback: Some(toml::Value::String("also-obsolete.zip".to_string())),
+        });
+        let error = release.find_candidates(&remote).unwrap_err();
+        assert!(
+            matches!(error, Error::NoMatchingAsset { selector, .. } if selector == "also-obsolete.zip")
+        );
+    }
+
+    #[test]
+    fn valid_auto_rule_keeps_the_learned_choice_and_does_not_serialize_metadata() {
+        let platform = PlatformInfo::current();
+        let release = release_with_assets(vec![asset("chosen.zip"), asset("alternative.zip")]);
+        let remote = GitHubAssetDef {
+            repo: "owner/tool".to_string(),
+            asset: HashMap::from([(platform.key(), AssetSelector::Glob("chosen.zip".to_string()))]),
+            learned_asset: Some(crate::remotes::LearnedAsset {
+                fallback: Some(toml::Value::String("alternative.zip".to_string())),
+            }),
+        };
+        let result = release.find_candidates(&remote).unwrap();
+        assert!(!result.recovered_auto);
+        assert_eq!(result.candidates[0].asset_name, "chosen.zip");
+        let value = serde_json::to_value(&remote).unwrap();
+        assert_eq!(value.as_object().unwrap().len(), 2);
+        let restored: GitHubAssetDef = serde_json::from_value(value).unwrap();
+        assert!(restored.learned_asset.is_none());
     }
 
     #[test]

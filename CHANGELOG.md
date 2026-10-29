@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Stale Automatic Asset Rules**: Install/update now retries an obsolete remembered selector against the same release using the upstream rule or platform matching. Ambiguous replacements require an interactive choice. Hand-written rules remain strict, and automatic records change only after a successful installation.
+
 ## [1.2.1] - 2026-09-22
 
 ### Changed

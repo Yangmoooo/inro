@@ -85,6 +85,7 @@ impl DirectProvider {
             asset_names: vec![asset_name],
             match_kind: MatchKind::Explicit,
             matched_selector: None,
+            recovered_auto: false,
         })
     }
 }

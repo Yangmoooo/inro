@@ -265,6 +265,7 @@ mod tests {
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/tool".to_string(),
                 asset: HashMap::new(),
+                learned_asset: None,
             }),
             installed_at: Utc::now(),
             install_subdir: PathBuf::from("tool/v1.0.0"),

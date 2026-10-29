@@ -211,7 +211,8 @@ repo = "aria2/aria2"
 
 - String selectors are minimal glob patterns matched against the full asset name. `*` matches any number of characters and `?` matches one character.
 - Array selectors are all-of tokens. Every token must appear in the asset name.
-- When inro picks an asset interactively, it caches the choice in `$INRO_HOME/registry/auto.toml`. If a learned selector no longer matches (e.g. upstream renamed its assets), delete that file and re-run the install/update — inro will re-learn. Automatic asset learning never writes to your files under `registry.d/`.
+- When inro picks an asset interactively, it remembers the choice in `$INRO_HOME/registry/auto.toml`. If that rule no longer matches (for example, upstream renamed its assets), install/update retries the same release using the upstream rule, or platform matching when no rule is configured. Ambiguous replacements require an interactive choice; non-interactive runs report how to resolve the ambiguity. Hand-written rules remain strict, including rules in `registry.d/` that repeat an automatic choice.
+- Obsolete automatic rules are removed or replaced only after installation succeeds, and only for the affected package and platform. Network/download errors, failed installations, and cancelled selections leave the remembered rules intact. Automatic asset learning never writes to your files under `registry.d/`.
 
 ### Direct Downloads
 

@@ -230,17 +230,35 @@ fn select_candidate_with_interactivity(
 ) -> Result<AssetSelection, PkgError> {
     let platform_key = PlatformInfo::current().key();
 
+    let clear_obsolete_rule = result.recovered_auto.then(|| AssetSelectionWriteBack {
+        pkg_name: pkg_name.to_string(),
+        platform_key: platform_key.clone(),
+        selector: None,
+    });
+    if result.recovered_auto {
+        crate::warn!(
+            "Remembered asset selector for '{pkg_name}' ({platform_key}) no longer matches; selecting again."
+        );
+        let ambiguous = result.candidates.len() > 1 || result.match_kind == MatchKind::Fallback;
+        if ambiguous && !interactive {
+            return Err(PkgError::Other(format!(
+                "Cannot safely replace the remembered asset selection for '{pkg_name}' without input; \
+                 run in an interactive terminal or set an asset selector in registry.d/."
+            )));
+        }
+    }
+
     // Explicit config with a unique match: auto-select, no write-back needed.
     if result.match_kind == MatchKind::Explicit && result.candidates.len() == 1 {
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
-        return Ok(AssetSelection { candidate, write_back: None });
+        return Ok(AssetSelection { candidate, write_back: clear_obsolete_rule });
     }
 
     // Heuristic with single candidate: auto-select, but don't write back.
     // Only explicit user choices should become persistent local config.
     if result.match_kind == MatchKind::PlatformHeuristic && result.candidates.len() == 1 {
         let candidate = result.candidates.into_iter().next().ok_or(PkgError::NoCandidates)?;
-        return Ok(AssetSelection { candidate, write_back: None });
+        return Ok(AssetSelection { candidate, write_back: clear_obsolete_rule });
     }
 
     if matches!(result.match_kind, MatchKind::Fallback | MatchKind::Explicit)
@@ -325,7 +343,7 @@ fn select_candidate_with_interactivity(
         write_back: Some(AssetSelectionWriteBack {
             pkg_name: pkg_name.to_string(),
             platform_key,
-            selector,
+            selector: Some(selector),
         }),
         candidate,
     })
@@ -684,6 +702,7 @@ mod tests {
             candidates,
             asset_names,
             match_kind,
+            recovered_auto: false,
             matched_selector: if match_kind == MatchKind::Explicit {
                 Some("tool".to_string())
             } else {
@@ -716,6 +735,33 @@ mod tests {
 
         assert_eq!(selection.candidate.asset_name, "tool-v1.0.0-linux-x86_64.tar.gz");
         assert!(selection.write_back.is_none());
+    }
+
+    #[test]
+    fn recovered_unique_match_removes_old_auto_rule_without_learning_a_guess() {
+        for kind in [MatchKind::Explicit, MatchKind::PlatformHeuristic] {
+            let mut result = candidate_result(vec![candidate("new-tool.tar.gz")], kind);
+            result.recovered_auto = true;
+            let selection = select_candidate_with_interactivity("tool", result, false).unwrap();
+            let update = selection.write_back.unwrap();
+            assert_eq!(update.pkg_name, "tool");
+            assert_eq!(update.platform_key, PlatformInfo::current().key());
+            assert!(update.selector.is_none());
+        }
+    }
+
+    #[test]
+    fn recovered_ambiguous_or_unverified_match_requires_input() {
+        for (kind, names) in [
+            (MatchKind::Explicit, vec!["gnu.zip", "musl.zip"]),
+            (MatchKind::PlatformHeuristic, vec!["gnu.zip", "musl.zip"]),
+            (MatchKind::Fallback, vec!["unknown-platform.zip"]),
+        ] {
+            let mut result = candidate_result(names.into_iter().map(candidate).collect(), kind);
+            result.recovered_auto = true;
+            let error = select_candidate_with_interactivity("tool", result, false).err().unwrap();
+            assert!(error.to_string().contains("interactive terminal"));
+        }
     }
 
     #[test]
@@ -865,6 +911,7 @@ mod tests {
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/empty".to_string(),
                 asset: Default::default(),
+                learned_asset: None,
             }),
             bin: vec![],
         };
@@ -1002,6 +1049,7 @@ mod tests {
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "RubyMetric/chsrc".to_string(),
                 asset: Default::default(),
+                learned_asset: None,
             }),
             bin: vec![ResolvedBin { name: "chsrc".to_string(), link: "chsrc".to_string() }],
         };

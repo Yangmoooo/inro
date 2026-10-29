@@ -13,13 +13,15 @@ use crate::config::Config;
 use crate::debug;
 use crate::layout::InroLayout;
 use crate::package::PkgDef;
-use crate::remotes::AssetSelector;
+use crate::platform::PlatformInfo;
+use crate::remotes::{AssetSelector, LearnedAsset, RemoteType};
 
 /// Information needed for writing an asset selection back to a local registry.
 pub struct AssetSelectionWriteBack {
     pub pkg_name: String,
     pub platform_key: String,
-    pub selector: AssetSelector,
+    /// None removes an obsolete learned rule after a successful installation.
+    pub selector: Option<AssetSelector>,
 }
 
 #[derive(Debug, Default, Deserialize)]
@@ -54,10 +56,15 @@ impl Registry {
             debug!("Loading managed registry: {}", file_path.display());
             figment = figment.merge(Toml::file(file_path));
         }
+        let mut without_auto = figment.clone();
+        let platform_key = PlatformInfo::current().key();
         let auto_path = managed_registry_dir.join("auto.toml");
+        let mut learned_packages = HashSet::new();
         if auto_path.exists() {
             debug!("Loading automatic registry overrides: {}", auto_path.display());
-            figment = figment.merge(Toml::file(auto_path));
+            let source = Figment::from(Toml::file(&auto_path));
+            learned_packages = packages_with_asset_rule(&source, &platform_key)?;
+            figment = figment.merge(source);
         }
 
         // User registry: hand-written overrides (highest precedence).
@@ -65,21 +72,41 @@ impl Registry {
         let files = collect_toml_files(user_registry_dir)?;
         for file_path in files {
             debug!("Loading user registry override: {}", file_path.display());
-            figment = figment.merge(Toml::file(file_path));
+            let source = Figment::from(Toml::file(&file_path));
+            for name in packages_with_asset_rule(&source, &platform_key)? {
+                learned_packages.remove(&name);
+            }
+            without_auto = without_auto.merge(source.clone());
+            figment = figment.merge(source);
         }
 
-        let registry: Registry = figment.extract()?;
+        let mut registry: Registry = figment.extract()?;
         if registry.pkgs.is_empty() {
             return Err(anyhow!("No package definitions found in registry"));
         }
 
+        if !learned_packages.is_empty() {
+            // Only the final merged registry needs to satisfy the package
+            // schema. An overridden value can be invalid and must
+            // remain unused until recovery.
+            let fallback: toml::Table = without_auto.extract()?;
+            for name in learned_packages {
+                if let Some(pkg) = registry.pkgs.get_mut(&name)
+                    && let RemoteType::GitHub(remote) = &mut pkg.remote
+                {
+                    let selector =
+                        fallback.get(&name).and_then(|pkg| asset_rule(pkg, &platform_key)).cloned();
+                    remote.learned_asset = Some(LearnedAsset { fallback: selector });
+                }
+            }
+        }
         Ok(registry)
     }
 
     /// Write auto-detected asset selections to the managed registry.
     ///
-    /// Creates or updates `auto.toml` in `managed_registry_dir`, setting
-    /// `[pkg_name.remote.github.asset].<platform_key> = selector` for each
+    /// Creates or updates `auto.toml` in `managed_registry_dir`, setting or
+    /// removing `[pkg_name.remote.github.asset].<platform_key>` for each
     /// entry. User-written files under `user_registry_dir` keep precedence.
     pub fn write_asset_selections(
         layout: &InroLayout,
@@ -95,13 +122,21 @@ impl Registry {
         let mut doc: DocumentMut =
             content.parse().map_err(|e| anyhow!("Failed to parse {}: {e}", file_path.display()))?;
 
+        let mut changed = false;
         for sel in selections {
+            let Some(selector) = &sel.selector else {
+                changed |= remove_asset_rule(
+                    doc.as_table_mut(),
+                    &[&sel.pkg_name, "remote", "github", "asset", &sel.platform_key],
+                );
+                continue;
+            };
             let pkg_table = get_or_create_table(doc.as_table_mut(), &sel.pkg_name, true)?;
             let remote_table = get_or_create_table(pkg_table, "remote", true)?;
             let github_table = get_or_create_table(remote_table, "github", true)?;
             let asset_table = get_or_create_table(github_table, "asset", false)?;
 
-            let value = match &sel.selector {
+            let value = match selector {
                 AssetSelector::Glob(pattern) => toml_edit::value(pattern),
                 AssetSelector::Tokens(tokens) => {
                     let mut array = toml_edit::Array::new();
@@ -112,17 +147,59 @@ impl Registry {
                 }
             };
             asset_table.insert(&sel.platform_key, value);
+            changed = true;
         }
 
-        fs::create_dir_all(&layout.managed_registry_dir)?;
-        let temp_path = file_path.with_extension("tmp");
-        fs::write(&temp_path, doc.to_string())?;
-        // Atomic replace: `fs::rename` overwrites an existing file on Linux,
-        // macOS, and modern Windows, so the registry never appears to be
-        // missing or partially written from another process's view.
-        fs::rename(&temp_path, &file_path)?;
+        if changed {
+            save_auto_registry(&file_path, &doc)?;
+        }
 
         Ok(())
+    }
+}
+
+fn save_auto_registry(path: &Path, doc: &DocumentMut) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let temp_path = path.with_extension("tmp");
+    fs::write(&temp_path, doc.to_string())?;
+    // Replace atomically, keeping the existing file visible until the new one
+    // is complete.
+    fs::rename(&temp_path, path)?;
+    Ok(())
+}
+
+/// Track key presence rather than comparing values: a user may explicitly
+/// repeat an auto rule.
+fn packages_with_asset_rule(source: &Figment, platform: &str) -> Result<HashSet<String>> {
+    let doc: toml::Table = source.extract()?;
+    Ok(doc
+        .iter()
+        .filter_map(|(name, pkg)| {
+            asset_rule(pkg, platform)?;
+            Some(name.clone())
+        })
+        .collect())
+}
+
+fn asset_rule<'a>(pkg: &'a toml::Value, platform: &str) -> Option<&'a toml::Value> {
+    pkg.get("remote")?.get("github")?.get("asset")?.get(platform)
+}
+
+/// Remove a leaf and prune only the tables that become empty along its path.
+fn remove_asset_rule(table: &mut dyn toml_edit::TableLike, path: &[&str]) -> bool {
+    let Some((key, rest)) = path.split_first() else { return false };
+    if rest.is_empty() {
+        table.remove(key).is_some()
+    } else if let Some(child) = table.get_mut(key).and_then(Item::as_table_like_mut) {
+        let removed = remove_asset_rule(child, rest);
+        if removed && child.is_empty() {
+            table.remove(key);
+        }
+        removed
+    } else {
+        false
     }
 }
 
@@ -175,6 +252,38 @@ mod tests {
             user_registry_dir: inro_dir.join("registry.d"),
             inro_dir,
         }
+    }
+
+    #[test]
+    fn learned_rule_retains_upstream_fallback_when_user_overrides_another_platform() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp.path());
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        fs::create_dir_all(&layout.user_registry_dir).unwrap();
+        let platform = PlatformInfo::current().key();
+        fs::write(layout.managed_registry_dir.join("00-default.toml"), format!(
+            "[tool.remote.github]\nrepo = \"owner/tool\"\n[tool.remote.github.asset]\n{platform} = \"upstream.zip\"\n"
+        )).unwrap();
+        fs::write(
+            layout.managed_registry_dir.join("auto.toml"),
+            format!("[tool.remote.github.asset]\n{platform} = \"remembered.zip\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            layout.user_registry_dir.join("local.toml"),
+            "[tool.remote.github.asset]\nother-platform = \"user.zip\"\n",
+        )
+        .unwrap();
+        let registry = Registry::load(&layout).unwrap();
+        let RemoteType::GitHub(remote) = &registry.pkgs["tool"].remote else {
+            panic!("expected GitHub")
+        };
+        assert_eq!(remote.asset[&platform], AssetSelector::Glob("remembered.zip".into()));
+        assert_eq!(
+            remote.learned_asset.as_ref().unwrap().fallback,
+            Some(toml::Value::String("upstream.zip".into()))
+        );
+        assert_eq!(remote.asset["other-platform"], AssetSelector::Glob("user.zip".into()));
     }
 
     #[test]
@@ -246,7 +355,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "tool".to_string(),
                 platform_key: platform_key.clone(),
-                selector: AssetSelector::Glob("*linux-x86_64.tar.gz".to_string()),
+                selector: Some(AssetSelector::Glob("*linux-x86_64.tar.gz".to_string())),
             }],
         )
         .unwrap();
@@ -281,7 +390,9 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                selector: AssetSelector::Glob("codex-*-aarch64-apple-darwin.tar.gz".to_string()),
+                selector: Some(AssetSelector::Glob(
+                    "codex-*-aarch64-apple-darwin.tar.gz".to_string(),
+                )),
             }],
         )
         .unwrap();
@@ -309,7 +420,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                selector: AssetSelector::Glob("old.tar.gz".to_string()),
+                selector: Some(AssetSelector::Glob("old.tar.gz".to_string())),
             }],
         )
         .unwrap();
@@ -318,7 +429,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: platform_key.clone(),
-                selector: AssetSelector::Glob("new.tar.gz".to_string()),
+                selector: Some(AssetSelector::Glob("new.tar.gz".to_string())),
             }],
         )
         .unwrap();
@@ -343,7 +454,7 @@ link = "tool"
                 &[AssetSelectionWriteBack {
                     pkg_name: "codex".to_string(),
                     platform_key: platform_key.clone(),
-                    selector: AssetSelector::Glob(selector.to_string()),
+                    selector: Some(AssetSelector::Glob(selector.to_string())),
                 }],
             )
             .unwrap();
@@ -368,7 +479,7 @@ link = "tool"
             &[AssetSelectionWriteBack {
                 pkg_name: "codex".to_string(),
                 platform_key: PlatformInfo::current().key(),
-                selector: AssetSelector::Glob("codex.tar.gz".to_string()),
+                selector: Some(AssetSelector::Glob("codex.tar.gz".to_string())),
             }],
         )
         .unwrap_err();

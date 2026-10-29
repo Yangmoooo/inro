@@ -389,6 +389,7 @@ mod tests {
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/repo".to_string(),
                 asset: HashMap::new(),
+                learned_asset: None,
             }),
             bin: bins,
         }
@@ -873,6 +874,7 @@ link = "simple-link"
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: "test/tool".to_string(),
                 asset: HashMap::new(),
+                learned_asset: None,
             }),
             installed_at: Utc::now(),
             install_subdir: PathBuf::from(install_subdir),

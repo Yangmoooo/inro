@@ -109,6 +109,7 @@ mod tests {
             remote: RemoteType::GitHub(GitHubAssetDef {
                 repo: format!("test/{name}"),
                 asset: HashMap::new(),
+                learned_asset: None,
             }),
             installed_at: Utc::now(),
             install_subdir: PathBuf::from(name).join(version),
