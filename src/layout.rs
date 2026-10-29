@@ -77,8 +77,8 @@ mod tests {
             let guard = ENV_LOCK.lock().unwrap();
             let previous = std::env::var("INRO_HOME").ok();
             match value {
-                // SAFETY: tests are serialized by ENV_LOCK above; no other thread reads
-                // INRO_HOME while a guard is alive.
+                // SAFETY: tests are serialized by ENV_LOCK above; no other
+                // thread reads INRO_HOME while a guard is alive.
                 Some(v) => unsafe { std::env::set_var("INRO_HOME", v) },
                 None => unsafe { std::env::remove_var("INRO_HOME") },
             }
