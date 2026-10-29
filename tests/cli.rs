@@ -487,6 +487,83 @@ fn user_asset_rule_is_strict_even_when_identical_to_auto() {
     assert_eq!(fs::read(auto_path).unwrap(), auto_before);
 }
 
+#[cfg(unix)]
+#[test]
+fn stale_auto_without_a_verified_platform_reports_reselection_hint_without_verbose() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, _) = setup_learned_tool_home(temp.path());
+    fs::write(
+        home.join("registry/00-default.toml"),
+        "[tool.remote.github]\nrepo = \"test/tool\"\n",
+    )
+    .unwrap();
+    let auto_path = home.join("registry/auto.toml");
+    let before = fs::read(&auto_path).unwrap();
+    let (api_url, server) = serve_tool_release("v2.0.0", tool_binary(), false);
+    let output =
+        run_inro_with_env(&home, &["update", "tool"], &[("INRO_TEST_GITHUB_API_URL", &api_url)]);
+    server.join().unwrap();
+    assert!(!output.status.success());
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(stderr.contains("interactive terminal"), "{stderr}");
+    assert!(stderr.contains("inro clean --assets tool"), "{stderr}");
+    assert_eq!(fs::read(auto_path).unwrap(), before);
+}
+
+#[test]
+fn clean_assets_supports_package_all_and_dry_run_without_touching_installed_files() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    fs::create_dir_all(home.join("registry")).unwrap();
+    fs::create_dir_all(home.join("registry.d")).unwrap();
+    fs::create_dir_all(home.join("pkgs/tool/v1")).unwrap();
+    fs::write(home.join("pkgs/tool/v1/tool"), "keep binary").unwrap();
+    fs::write(home.join("manifest.json"), "invalid manifest, unused for asset cleanup").unwrap();
+    let user = "[tool.remote.github.asset]\nlinux-x86_64 = \"user.zip\"\n";
+    fs::write(home.join("registry.d/local.toml"), user).unwrap();
+    fs::write(home.join("registry/00-default.toml"), "upstream fixture").unwrap();
+    let auto_path = home.join("registry/auto.toml");
+    let original = "# remembered choices\n[tool.remote.github.asset]\nlinux-x86_64 = \"old.zip\"\nmacos-aarch64 = \"old-mac.zip\"\n[other.remote.github.asset]\nlinux-x86_64 = \"other.zip\"\n";
+    fs::write(&auto_path, original).unwrap();
+
+    let dry_run = run_inro(home, &["clean", "--assets", "tool", "--dry-run"]);
+    assert_success(&dry_run);
+    assert!(String::from_utf8_lossy(&dry_run.stdout).contains("tool (linux-x86_64)"));
+    assert_eq!(fs::read_to_string(&auto_path).unwrap(), original);
+
+    assert_success(&run_inro(home, &["clean", "--assets", "missing"]));
+    assert_eq!(fs::read_to_string(&auto_path).unwrap(), original);
+    assert_success(&run_inro(home, &["clean", "--assets", "tool"]));
+    let auto: toml::Table = toml::from_str(&fs::read_to_string(&auto_path).unwrap()).unwrap();
+    assert!(!auto.contains_key("tool"));
+    assert!(auto.contains_key("other"));
+    assert_success(&run_inro(home, &["clean", "--assets"]));
+    let auto: toml::Table = toml::from_str(&fs::read_to_string(auto_path).unwrap()).unwrap();
+    assert!(auto.is_empty());
+    assert_eq!(fs::read_to_string(home.join("registry.d/local.toml")).unwrap(), user);
+    assert_eq!(
+        fs::read_to_string(home.join("registry/00-default.toml")).unwrap(),
+        "upstream fixture"
+    );
+    assert_eq!(fs::read_to_string(home.join("pkgs/tool/v1/tool")).unwrap(), "keep binary");
+    assert_eq!(
+        fs::read_to_string(home.join("manifest.json")).unwrap(),
+        "invalid manifest, unused for asset cleanup"
+    );
+    assert!(!run_inro(home, &["clean", "tool"]).status.success());
+}
+
+#[test]
+fn plain_clean_preserves_remembered_asset_selections() {
+    let temp = tempfile::tempdir().unwrap();
+    fs::create_dir_all(temp.path().join("registry")).unwrap();
+    let auto_path = temp.path().join("registry/auto.toml");
+    let content = "[tool.remote.github.asset]\nlinux-x86_64 = \"chosen.zip\"\n";
+    fs::write(&auto_path, content).unwrap();
+    assert_success(&run_inro(temp.path(), &["clean"]));
+    assert_eq!(fs::read_to_string(auto_path).unwrap(), content);
+}
+
 #[test]
 fn valid_auto_override_allows_loading_an_invalid_upstream_selector() {
     let temp = tempfile::tempdir().unwrap();

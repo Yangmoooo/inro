@@ -45,7 +45,9 @@ fn main() -> anyhow::Result<()> {
             Command::Use { name, version } => UseCommand { name, version }.handle(),
             Command::Unlink { name } => UnlinkCommand { name }.handle(),
             Command::Relink { name } => RelinkCommand { name }.handle(),
-            Command::Clean { dry_run } => CleanCommand { dry_run }.handle(),
+            Command::Clean { dry_run, assets, name } => {
+                CleanCommand { dry_run, assets, name }.handle()
+            }
             Command::Doctor { fix } => DoctorCommand { fix }.handle(),
             Command::Env => EnvCommand {}.handle(),
             Command::Export { output } => ExportCommand { output }.handle(),

@@ -243,7 +243,8 @@ fn select_candidate_with_interactivity(
         if ambiguous && !interactive {
             return Err(PkgError::Other(format!(
                 "Cannot safely replace the remembered asset selection for '{pkg_name}' without input; \
-                 run in an interactive terminal or set an asset selector in registry.d/."
+                 run in an interactive terminal or set an asset selector in registry.d/. \
+                 Use `inro clean --assets {pkg_name}` to reset remembered selections"
             )));
         }
     }
@@ -761,6 +762,7 @@ mod tests {
             result.recovered_auto = true;
             let error = select_candidate_with_interactivity("tool", result, false).err().unwrap();
             assert!(error.to_string().contains("interactive terminal"));
+            assert!(error.to_string().contains("inro clean --assets tool"));
         }
     }
 

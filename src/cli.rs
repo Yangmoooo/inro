@@ -219,12 +219,23 @@ pub enum Command {
         name: String,
     },
 
-    /// Clean up unused package versions to free up disk space
+    /// Clean up unused package versions or remembered asset selections
     ///
     /// Removes versions that are not currently active (linked).
     /// Use --dry-run to see what would be deleted without actually deleting
     /// anything.
+    /// With --assets, only clears remembered asset selections, across all
+    /// platforms. Specify a package to reset its selections, or omit it to
+    /// reset all selections.
     Clean {
+        /// Clear remembered asset selections instead of unused package versions
+        #[arg(long)]
+        assets: bool,
+
+        /// Limit --assets cleanup to one package
+        #[arg(value_name = "PKG", requires = "assets")]
+        name: Option<String>,
+
         /// Perform a dry run without deleting any files
         #[arg(long)]
         dry_run: bool,

@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **Reset Asset Selections**: `inro clean --assets [package]` clears remembered asset choices for one package or all packages, across all platforms. Supports `--dry-run` and preserves installed versions and hand-written registry overrides.
+
 ### Fixed
 
 - **Stale Automatic Asset Rules**: Install/update now retries an obsolete remembered selector against the same release using the upstream rule or platform matching. Ambiguous replacements require an interactive choice. Hand-written rules remain strict, and automatic records change only after a successful installation.

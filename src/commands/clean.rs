@@ -10,17 +10,38 @@ use walkdir::WalkDir;
 use super::CommandHandler;
 use crate::layout::InroLayout;
 use crate::manifest::Manifest;
+use crate::registry::Registry;
 use crate::utils::sanitize_version;
 use crate::{detail, done, hint, warn};
 
 pub struct CleanCommand {
     pub dry_run: bool,
+    pub assets: bool,
+    pub name: Option<String>,
 }
 
 impl CommandHandler for CleanCommand {
     fn handle(&self) -> Result<()> {
         let layout = InroLayout::new()?;
         let _lock = if self.dry_run { None } else { Some(crate::lock::acquire(&layout)?) };
+        if self.assets {
+            let removed =
+                Registry::clear_asset_selections(&layout, self.name.as_deref(), self.dry_run)?;
+            if removed.is_empty() {
+                done!("No remembered asset selections found.");
+            } else if self.dry_run {
+                for (name, platform) in &removed {
+                    println!("  - {name} ({platform})");
+                }
+                hint!(
+                    "Dry run complete. Use without --dry-run to clear {} remembered asset selection(s).",
+                    removed.len()
+                );
+            } else {
+                done!("Cleared {} remembered asset selection(s).", removed.len());
+            }
+            return Ok(());
+        }
         let mut manifest = Manifest::load(&layout.manifest_path)?;
         let pkgs_root = layout.pkgs_dir;
 

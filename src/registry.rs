@@ -156,6 +156,49 @@ impl Registry {
 
         Ok(())
     }
+
+    /// Clear learned selectors for one package or all packages, across all
+    /// platforms. This deliberately works without loading the merged
+    /// registry or a manifest.
+    pub fn clear_asset_selections(
+        layout: &InroLayout,
+        package: Option<&str>,
+        dry_run: bool,
+    ) -> Result<Vec<(String, String)>> {
+        let path = layout.managed_registry_dir.join("auto.toml");
+        if !path.exists() {
+            return Ok(Vec::new());
+        }
+        let mut doc: DocumentMut = fs::read_to_string(&path)?
+            .parse()
+            .map_err(|e| anyhow!("Failed to parse {}: {e}", path.display()))?;
+        let mut removed = Vec::new();
+        for (name, pkg) in doc.iter() {
+            if package.is_some_and(|package| package != name) {
+                continue;
+            }
+            if let Some(assets) = pkg
+                .get("remote")
+                .and_then(|remote| remote.get("github"))
+                .and_then(|github| github.get("asset"))
+                .and_then(Item::as_table_like)
+            {
+                removed.extend(
+                    assets.iter().map(|(platform, _)| (name.to_string(), platform.to_string())),
+                );
+            }
+        }
+        if !dry_run && !removed.is_empty() {
+            for (name, platform) in &removed {
+                remove_asset_rule(
+                    doc.as_table_mut(),
+                    &[name, "remote", "github", "asset", platform],
+                );
+            }
+            save_auto_registry(&path, &doc)?;
+        }
+        Ok(removed)
+    }
 }
 
 fn save_auto_registry(path: &Path, doc: &DocumentMut) -> Result<()> {
@@ -284,6 +327,26 @@ mod tests {
             Some(toml::Value::String("upstream.zip".into()))
         );
         assert_eq!(remote.asset["other-platform"], AssetSelector::Glob("user.zip".into()));
+    }
+
+    #[test]
+    fn asset_cleanup_handles_missing_files_and_preserves_unrelated_auto_content() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp.path());
+        assert!(Registry::clear_asset_selections(&layout, None, false).unwrap().is_empty());
+        assert!(!layout.managed_registry_dir.exists());
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        let path = layout.managed_registry_dir.join("auto.toml");
+        fs::write(&path, "# keep\n[tool.remote.github]\nrepo = \"owner/tool\"\nasset = { linux-x86_64 = \"old.zip\" }\n").unwrap();
+        assert_eq!(
+            Registry::clear_asset_selections(&layout, Some("tool"), false).unwrap().len(),
+            1
+        );
+        let content = fs::read_to_string(&path).unwrap();
+        let doc: toml::Table = toml::from_str(&content).unwrap();
+        assert_eq!(doc["tool"]["remote"]["github"]["repo"].as_str(), Some("owner/tool"));
+        assert!(doc["tool"]["remote"]["github"].get("asset").is_none());
+        assert!(content.contains("# keep"));
     }
 
     #[test]

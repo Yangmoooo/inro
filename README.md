@@ -214,6 +214,17 @@ repo = "aria2/aria2"
 - When inro picks an asset interactively, it remembers the choice in `$INRO_HOME/registry/auto.toml`. If that rule no longer matches (for example, upstream renamed its assets), install/update retries the same release using the upstream rule, or platform matching when no rule is configured. Ambiguous replacements require an interactive choice; non-interactive runs report how to resolve the ambiguity. Hand-written rules remain strict, including rules in `registry.d/` that repeat an automatic choice.
 - Obsolete automatic rules are removed or replaced only after installation succeeds, and only for the affected package and platform. Network/download errors, failed installations, and cancelled selections leave the remembered rules intact. Automatic asset learning never writes to your files under `registry.d/`.
 
+To reset remembered choices manually, use:
+
+```sh
+inro clean --assets terraform           # Clear this package's choices on all platforms
+inro clean --assets                    # Clear all remembered choices
+inro clean --assets terraform --dry-run # Preview the choices that would be cleared
+```
+
+Asset cleanup only changes automatic selections. It preserves installed versions, upstream registry
+files, and hand-written overrides. Plain `inro clean` continues to clean unused package versions.
+
 ### Direct Downloads
 
 For tools whose maintainers publish archives outside GitHub Releases, a package can declare exact
