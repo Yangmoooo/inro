@@ -4,7 +4,6 @@
 
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
 
 use colored::Colorize;
 use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
@@ -70,7 +69,8 @@ impl PkgProgress {
             }
             _ => {
                 bar.set_style(spinner_style());
-                bar.enable_steady_tick(Duration::from_millis(80));
+                // This template contains only static text. A steady tick would
+                // erase and redraw the entire package list without changing it.
                 bar.set_message(format!("{symbol} {name:<w$}  {msg}"));
             }
         }
@@ -210,6 +210,7 @@ fn download_style() -> ProgressStyle {
 mod tests {
     use std::sync::atomic::Ordering;
     use std::sync::{LazyLock, Mutex, MutexGuard};
+    use std::time::Duration;
 
     use super::*;
 
@@ -228,6 +229,81 @@ mod tests {
         let guard = VERBOSITY_TEST_LOCK.lock().unwrap();
         let previous = crate::VERBOSITY.swap(level, Ordering::Relaxed);
         VerbosityReset { _guard: guard, previous }
+    }
+
+    #[derive(Clone, Debug, Default)]
+    struct DrawCounter(Arc<(Mutex<usize>, std::sync::Condvar)>);
+
+    impl DrawCounter {
+        fn assert_idle(&self) {
+            let (count, changed) = &*self.0;
+            let count = count.lock().unwrap();
+            let previous = *count;
+            let (count, _) = changed
+                .wait_timeout_while(count, Duration::from_millis(250), |count| *count == previous)
+                .unwrap();
+            assert_eq!(*count, previous, "unchanged progress rows must not be redrawn on a timer");
+        }
+    }
+
+    // Exercise indicatif's real multi-progress drawing without a physical
+    // terminal.
+    impl indicatif::TermLike for DrawCounter {
+        fn width(&self) -> u16 { 120 }
+
+        fn move_cursor_up(&self, _: usize) -> std::io::Result<()> { Ok(()) }
+
+        fn move_cursor_down(&self, _: usize) -> std::io::Result<()> { Ok(()) }
+
+        fn move_cursor_right(&self, _: usize) -> std::io::Result<()> { Ok(()) }
+
+        fn move_cursor_left(&self, _: usize) -> std::io::Result<()> { Ok(()) }
+
+        fn write_line(&self, _: &str) -> std::io::Result<()> { Ok(()) }
+
+        fn write_str(&self, _: &str) -> std::io::Result<()> { Ok(()) }
+
+        fn clear_line(&self) -> std::io::Result<()> { Ok(()) }
+
+        fn flush(&self) -> std::io::Result<()> {
+            let (count, changed) = &*self.0;
+            *count.lock().unwrap() += 1;
+            changed.notify_all();
+            Ok(())
+        }
+    }
+
+    #[test]
+    fn unchanged_progress_rows_do_not_redraw_in_the_background() {
+        let _reset = set_test_verbosity(0);
+        let manager = ProgressManager::new(&["done", "first", "second"]);
+        let draws = DrawCounter::default();
+        manager
+            .multi
+            .as_ref()
+            .unwrap()
+            .set_draw_target(indicatif::ProgressDrawTarget::term_like(Box::new(draws.clone())));
+        manager.add_package("done").finish_unchanged("1.2.3");
+        let first = manager.add_package("first");
+        let second = manager.add_package("second");
+
+        first.set_phase(OpPhase::Fetching);
+        second.set_phase(OpPhase::Fetching);
+        draws.assert_idle();
+
+        first.set_phase(OpPhase::Downloading);
+        first.set_length(100);
+        let before_download = *draws.0.0.lock().unwrap();
+        first.inc(50);
+        assert!(
+            *draws.0.0.lock().unwrap() > before_download,
+            "download progress must still redraw"
+        );
+        draws.assert_idle();
+
+        first.set_phase(OpPhase::Extracting);
+        second.set_phase(OpPhase::Extracting);
+        draws.assert_idle();
     }
 
     #[test]
