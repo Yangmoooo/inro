@@ -9,6 +9,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Versioned Standalone Assets**: Platform matching now recognizes extensionless binaries with dotted version numbers, such as `opam-2.6.1-arm64-macos`, while continuing to exclude signatures, checksums, and unknown file extensions.
 - **Progress List Flicker**: Install/update progress lists no longer redraw unchanged status rows on a timer while fetching releases or extracting packages. Status changes and download progress still refresh the display.
 
 ## [1.3.0] - 2026-10-29

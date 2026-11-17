@@ -57,10 +57,11 @@ pub fn is_supported_format(name: &str) -> bool {
     if ALLOW_EXTENSIONS.iter().any(|ext| name.ends_with(ext)) {
         return true;
     }
-    if !name.contains('.') {
-        return true;
-    }
-    false // An elf like xxx-v0.1.0-linux-x86_64 need to be specified in registry
+    // Extensionless binaries may contain dotted versions, such as
+    // `opam-2.6.1-arm64-macos`. Only treat dots followed by digits as version
+    // separators; textual suffixes such as `.sig` or `.unknown` still need
+    // to be excluded from automatic selection.
+    name.split('.').skip(1).all(|part| part.as_bytes().first().is_some_and(u8::is_ascii_digit))
 }
 
 /// Derive a version-agnostic asset selector from an asset filename.
@@ -429,6 +430,28 @@ mod tests {
     fn is_supported_format_no_extension() {
         // ELF binaries often have no extension
         assert!(is_supported_format("ripgrep-linux-x86_64"));
+    }
+
+    #[test]
+    fn is_supported_format_dotted_version_without_extension() {
+        for name in [
+            "opam-2.6.1-arm64-macos",
+            "opam-2.6.1-x86_64-linux",
+            "tool-v0.1.0-linux-x86_64",
+            "tool_v1.2.3_aarch64_apple_darwin",
+            "tool-1.2.3-rc1-linux-amd64",
+            "tool-linux-amd64-1.2.3",
+        ] {
+            assert!(is_supported_format(name), "{name}");
+        }
+    }
+
+    #[test]
+    fn is_supported_format_rejects_sidecars_and_unknown_extensions_after_versions() {
+        for suffix in ["sig", "sha256", "sha512", "asc", "json", "txt", "unknown", ""] {
+            let name = format!("opam-2.6.1-arm64-macos.{suffix}");
+            assert!(!is_supported_format(&name), "{name}");
+        }
     }
 
     #[test]

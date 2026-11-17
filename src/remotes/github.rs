@@ -800,6 +800,27 @@ mod tests {
     }
 
     #[test]
+    fn macos_candidates_include_versioned_extensionless_opam_binary() {
+        let release = release_with_assets(vec![
+            asset("opam-2.6.1-arm64-macos"),
+            asset("opam-2.6.1-arm64-macos.sig"),
+            asset("opam-2.6.1-arm64-macos.sha512"),
+            asset("opam-2.6.1-arm64-linux"),
+            asset("opam-2.6.1-x86_64-macos"),
+            asset("opam-2.6.1-x86_64-windows.exe"),
+            asset("opam-full-2.6.1.tar.gz"),
+        ]);
+        let platform = PlatformInfo { os: "macos", arch: "aarch64" };
+
+        let (assets, match_kind) =
+            release.find_assets_for_platform(&HashMap::new(), &platform).unwrap();
+
+        assert_eq!(match_kind, MatchKind::PlatformHeuristic);
+        assert_eq!(assets.len(), 1);
+        assert_eq!(assets[0].name, "opam-2.6.1-arm64-macos");
+    }
+
+    #[test]
     fn windows_candidates_match_compound_architecture_names() {
         let release =
             release_with_assets(vec![asset("upx-5.2.0-win64.zip"), asset("upx-5.2.0-win32.zip")]);
