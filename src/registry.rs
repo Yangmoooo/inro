@@ -3,9 +3,10 @@ use std::fs::{self, read_dir};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Result, anyhow};
-use figment::Figment;
-use figment::providers::{Format, Toml};
+use anyhow::{Context, Result, anyhow, bail};
+use figment::providers::Serialized;
+use figment::value::{Dict, Map};
+use figment::{Figment, Metadata, Profile, Provider};
 use serde::Deserialize;
 use toml_edit::{DocumentMut, Item, Table};
 
@@ -54,7 +55,7 @@ impl Registry {
         });
         for file_path in upstream_files {
             debug!("Loading managed registry: {}", file_path.display());
-            figment = figment.merge(Toml::file(file_path));
+            figment = figment.merge(load_registry_source(&file_path)?);
         }
         let mut without_auto = figment.clone();
         let platform_key = PlatformInfo::current().key();
@@ -62,7 +63,7 @@ impl Registry {
         let mut learned_packages = HashSet::new();
         if auto_path.exists() {
             debug!("Loading automatic registry overrides: {}", auto_path.display());
-            let source = Figment::from(Toml::file(&auto_path));
+            let source = load_registry_source(&auto_path)?;
             learned_packages = packages_with_asset_rule(&source, &platform_key)?;
             figment = figment.merge(source);
         }
@@ -72,7 +73,7 @@ impl Registry {
         let files = collect_toml_files(user_registry_dir)?;
         for file_path in files {
             debug!("Loading user registry override: {}", file_path.display());
-            let source = Figment::from(Toml::file(&file_path));
+            let source = load_registry_source(&file_path)?;
             for name in packages_with_asset_rule(&source, &platform_key)? {
                 learned_packages.remove(&name);
             }
@@ -201,6 +202,56 @@ impl Registry {
     }
 }
 
+/// A parsed file keeps its source path in Figment's type-error diagnostics.
+struct RegistrySource {
+    path: PathBuf,
+    data: toml::Table,
+}
+
+impl Provider for RegistrySource {
+    fn metadata(&self) -> Metadata { Metadata::from("TOML registry", self.path.as_path()) }
+
+    fn data(&self) -> std::result::Result<Map<Profile, Dict>, figment::Error> {
+        Serialized::defaults(&self.data).data()
+    }
+}
+
+/// Normalize each layer before merging so both syntaxes share the same keys,
+/// precedence, and automatic-selector provenance. Do not synthesize a remote
+/// for partial overrides that only define binaries.
+fn load_registry_source(path: &Path) -> Result<Figment> {
+    let content = fs::read_to_string(path)
+        .with_context(|| format!("Failed to read registry: {}", path.display()))?;
+    let mut data: toml::Table = toml::from_str(&content)
+        .with_context(|| format!("Failed to parse registry: {}", path.display()))?;
+    for (name, value) in data.iter_mut() {
+        let Some(pkg) = value.as_table_mut() else { continue };
+        if !pkg.contains_key("repo") && !pkg.contains_key("asset") {
+            continue;
+        }
+        if pkg.contains_key("remote") {
+            bail!(
+                "Package '{name}' in {} cannot combine GitHub shorthand ('repo'/'asset') with explicit 'remote'; use one syntax per package in each file",
+                path.display()
+            );
+        }
+        let mut github = toml::Table::new();
+        for key in ["repo", "asset"] {
+            if let Some(value) = pkg.remove(key) {
+                github.insert(key.to_string(), value);
+            }
+        }
+        pkg.insert(
+            "remote".to_string(),
+            toml::Value::Table(toml::Table::from_iter([(
+                "github".to_string(),
+                toml::Value::Table(github),
+            )])),
+        );
+    }
+    Ok(Figment::from(RegistrySource { path: path.to_path_buf(), data }))
+}
+
 fn save_auto_registry(path: &Path, doc: &DocumentMut) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
@@ -295,6 +346,149 @@ mod tests {
             user_registry_dir: inro_dir.join("registry.d"),
             inro_dir,
         }
+    }
+
+    #[test]
+    fn github_shorthand_merges_with_explicit_rules_in_either_direction() {
+        let platform = PlatformInfo::current().key();
+        let short =
+            format!("[tool]\nrepo = \"owner/tool\"\n[tool.asset]\n{platform} = \"upstream.zip\"\n");
+        let explicit = format!(
+            "[tool.remote.github]\nrepo = \"owner/tool\"\n[tool.remote.github.asset]\n{platform} = \"upstream.zip\"\n"
+        );
+        for (upstream, local) in [
+            (
+                &short,
+                format!(
+                    "[tool.remote.github]\nrepo = \"user/tool\"\n[tool.remote.github.asset]\n{platform} = [\"chosen\", \"zip\"]\n"
+                ),
+            ),
+            (
+                &explicit,
+                format!(
+                    "[tool]\nrepo = \"user/tool\"\n[tool.asset]\n{platform} = [\"chosen\", \"zip\"]\n"
+                ),
+            ),
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let layout = test_layout(temp.path());
+            fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+            fs::create_dir_all(&layout.user_registry_dir).unwrap();
+            fs::write(layout.managed_registry_dir.join("00-default.toml"), upstream).unwrap();
+            fs::write(
+                layout.managed_registry_dir.join("auto.toml"),
+                format!("[tool.remote.github.asset]\n{platform} = \"remembered.zip\"\n"),
+            )
+            .unwrap();
+            fs::write(layout.user_registry_dir.join("local.toml"), local).unwrap();
+            let registry = Registry::load(&layout).unwrap();
+            let RemoteType::GitHub(remote) = &registry.pkgs["tool"].remote else {
+                panic!("expected GitHub")
+            };
+            assert_eq!(remote.repo, "user/tool");
+            assert_eq!(
+                remote.asset[&platform],
+                AssetSelector::Tokens(vec!["chosen".into(), "zip".into()])
+            );
+            assert!(remote.learned_asset.is_none());
+        }
+    }
+
+    #[test]
+    fn github_shorthand_preserves_auto_provenance_and_fallback() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp.path());
+        let platform = PlatformInfo::current().key();
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        fs::create_dir_all(&layout.user_registry_dir).unwrap();
+        fs::write(
+            layout.managed_registry_dir.join("00-default.toml"),
+            format!("[tool]\nrepo = \"owner/tool\"\n[tool.asset]\n{platform} = \"upstream.zip\"\n"),
+        )
+        .unwrap();
+        fs::write(
+            layout.managed_registry_dir.join("auto.toml"),
+            format!("[tool.remote.github.asset]\n{platform} = \"remembered.zip\"\n"),
+        )
+        .unwrap();
+        let local_path = layout.user_registry_dir.join("local.toml");
+        fs::write(&local_path, "[tool]\nbin = [{ name = \"tool\", link = \"alias\" }]\n").unwrap();
+        let registry = Registry::load(&layout).unwrap();
+        let RemoteType::GitHub(remote) = &registry.pkgs["tool"].remote else {
+            panic!("expected GitHub")
+        };
+        assert_eq!(remote.asset[&platform], AssetSelector::Glob("remembered.zip".into()));
+        assert_eq!(
+            remote.learned_asset.as_ref().unwrap().fallback,
+            Some(toml::Value::String("upstream.zip".into()))
+        );
+        assert_eq!(
+            registry.pkgs["tool"].resolve("tool").bin[0].link,
+            if cfg!(windows) { "alias.exe" } else { "alias" }
+        );
+
+        fs::write(&local_path, format!("[tool.asset]\n{platform} = \"remembered.zip\"\n")).unwrap();
+        let registry = Registry::load(&layout).unwrap();
+        let RemoteType::GitHub(remote) = &registry.pkgs["tool"].remote else {
+            panic!("expected GitHub")
+        };
+        assert!(remote.learned_asset.is_none(), "an identical user shorthand remains strict");
+    }
+
+    #[test]
+    fn github_shorthand_rejects_mixed_remote_syntax_in_one_file() {
+        for remote in [
+            "[tool.remote.github]\nrepo = \"owner/tool\"\n",
+            "[tool.remote.direct.\"1.0\"]\nlinux-x86_64 = \"https://example.com/tool.zip\"\n",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let layout = test_layout(temp.path());
+            fs::create_dir_all(&layout.user_registry_dir).unwrap();
+            let path = layout.user_registry_dir.join("local.toml");
+            fs::write(&path, format!("[tool]\nrepo = \"owner/tool\"\n{remote}")).unwrap();
+            let error = Registry::load(&layout).unwrap_err();
+            let message = format!("{error:#}");
+            assert!(message.contains("tool") && message.contains("local.toml"), "{message}");
+            assert!(message.contains("cannot combine"), "{message}");
+        }
+    }
+
+    #[test]
+    fn github_shorthand_rejects_invalid_and_incomplete_definitions() {
+        for content in [
+            "[tool]\nrepo = 7\n",
+            "[tool]\nrepo = \"owner/tool\"\nasset = \"bad type\"\n",
+            "[tool.asset]\nmacos-aarch64 = \"tool.zip\"\n",
+            "[tool]\nbin = [{ name = \"tool\" }]\n",
+        ] {
+            let temp = tempfile::tempdir().unwrap();
+            let layout = test_layout(temp.path());
+            fs::create_dir_all(&layout.user_registry_dir).unwrap();
+            fs::write(layout.user_registry_dir.join("local.toml"), content).unwrap();
+            assert!(Registry::load(&layout).is_err(), "invalid definition accepted: {content}");
+        }
+    }
+
+    #[test]
+    fn binary_only_override_keeps_direct_remote_and_replaces_binary_list() {
+        let temp = tempfile::tempdir().unwrap();
+        let layout = test_layout(temp.path());
+        let platform = PlatformInfo::current().key();
+        fs::create_dir_all(&layout.managed_registry_dir).unwrap();
+        fs::create_dir_all(&layout.user_registry_dir).unwrap();
+        fs::write(layout.managed_registry_dir.join("00-default.toml"), format!(
+            "[tool.remote.direct.\"1.0.0\"]\n{platform} = \"https://example.com/tool.zip\"\n[[tool.bin]]\nname = \"old\"\n"
+        )).unwrap();
+        fs::write(layout.user_registry_dir.join("local.toml"), "[tool]\nbin = []\n").unwrap();
+        let registry = Registry::load(&layout).unwrap();
+        let pkg = &registry.pkgs["tool"];
+        let RemoteType::Direct(remote) = &pkg.remote else { panic!("expected direct") };
+        assert_eq!(remote.versions["1.0.0"][&platform], "https://example.com/tool.zip");
+        assert!(pkg.bin.is_empty());
+        assert_eq!(
+            pkg.resolve("tool").bin[0].name,
+            if cfg!(windows) { "tool.exe" } else { "tool" }
+        );
     }
 
     #[test]

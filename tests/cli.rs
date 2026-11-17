@@ -667,6 +667,49 @@ fn source_update_installs_valid_registry() {
     assert!(home.join("registry/00-test.toml").exists());
 }
 
+#[test]
+fn source_update_accepts_github_shorthand_without_rewriting_the_cached_file() {
+    let temp = tempfile::tempdir().unwrap();
+    let home = temp.path();
+    let content = "[tool]\nrepo = \"test/tool\"\n";
+    let (url, server) = serve_once(content);
+    fs::write(
+        home.join("config.toml"),
+        format!(
+            "upstreams = [{{ name = \"test\", priority = 0, enabled = true, url = \"{url}\" }}]\n"
+        ),
+    )
+    .unwrap();
+    let output = run_inro(home, &["source", "update"]);
+    server.join().unwrap();
+    assert_success(&output);
+    assert_eq!(fs::read_to_string(home.join("registry/00-test.toml")).unwrap(), content);
+    assert_success(&run_inro(home, &["search", "tool"]));
+}
+
+#[cfg(unix)]
+#[test]
+fn github_shorthand_install_keeps_receipt_and_manifest_remote_format() {
+    let temp = tempfile::tempdir().unwrap();
+    let (home, bin_dir) = setup_tool_home(temp.path());
+    let path = home.join("registry.d/tool.toml");
+    let content = "[tool]\nrepo = \"test/tool\"\n";
+    fs::write(&path, content).unwrap();
+    install_tool(&home, "v1.0.0");
+    let receipt: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("pkgs/tool/v1.0.0/inro-receipt.json")).unwrap())
+            .unwrap();
+    assert_eq!(
+        receipt["remote"],
+        serde_json::json!({"github": {"repo": "test/tool", "asset": {}}})
+    );
+    let manifest: serde_json::Value =
+        serde_json::from_slice(&fs::read(home.join("manifest.json")).unwrap()).unwrap();
+    assert_eq!(manifest["packages"]["tool"]["versions"]["v1.0.0"]["remote"], receipt["remote"]);
+    assert_eq!(fs::read_link(bin_dir.join("tool")).unwrap(), home.join("pkgs/tool/v1.0.0/tool"));
+    assert_eq!(fs::read_to_string(&path).unwrap(), content);
+}
+
 #[cfg(unix)]
 #[test]
 fn install_commits_files_link_receipt_and_manifest() {
@@ -1368,11 +1411,8 @@ fn source_edit_opens_and_validates_the_default_local_registry() {
     let temp = tempfile::tempdir().unwrap();
     let home = temp.path().join("inro");
     let editor = temp.path().join("fake-editor");
-    fs::write(
-        &editor,
-        "#!/bin/sh\nprintf '[custom.remote.github]\\nrepo = \"test/custom\"\\n' > \"$1\"\n",
-    )
-    .unwrap();
+    fs::write(&editor, "#!/bin/sh\nprintf '[custom]\\nrepo = \"test/custom\"\\n' > \"$1\"\n")
+        .unwrap();
     let mut permissions = fs::metadata(&editor).unwrap().permissions();
     permissions.set_mode(0o755);
     fs::set_permissions(&editor, permissions).unwrap();
@@ -1383,7 +1423,7 @@ fn source_edit_opens_and_validates_the_default_local_registry() {
     assert_success(&output);
     assert_eq!(
         fs::read_to_string(home.join("registry.d/local.toml")).unwrap(),
-        "[custom.remote.github]\nrepo = \"test/custom\"\n"
+        "[custom]\nrepo = \"test/custom\"\n"
     );
 }
 

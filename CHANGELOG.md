@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Registry Shorthand**: Packages can declare `repo` and platform-specific `asset` selectors directly under the package table, with GitHub Releases as the default source. The explicit `remote.github` form remains supported. Both forms share registry precedence and automatic asset recovery; a single file cannot mix shorthand and explicit remote fields for the same package. Existing registry and installation records need no migration.
+
 ### Fixed
 
 - **Versioned Standalone Assets**: Platform matching now recognizes extensionless binaries with dotted version numbers, such as `opam-2.6.1-arm64-macos`, while continuing to exclude signatures, checksums, and unknown file extensions.

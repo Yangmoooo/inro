@@ -1,14 +1,16 @@
 # this package is just an example, DO NOT USE
 [example]
 
-# GitHub Releases is the primary package remote.
-[example.remote.github]
+# GitHub Releases is the default source for a package with repo.
+# Explicit alternatives: [example.remote.github] for repo and
+# [example.remote.github.asset] for selectors. Both forms remain supported;
+# use one form per package per file. Older inro releases need the explicit form.
 repo = "example/example"
 
 # platform-specific asset selectors
 # String selectors are minimal glob patterns matched against the full asset name
 # Array selectors are all-of tokens; every token must appear in the asset name
-[example.remote.github.asset]
+[example.asset]
 "linux-x86_64" = "example-*-x86_64-unknown-linux-musl.tar.gz"
 "windows-x86_64" = ["example", "x86_64", "windows", "msvc", "zip"]
 
@@ -37,16 +39,14 @@ name = "direct-example"
 ### packages
 
 [aria2]
-[aria2.remote.github]
 repo = "aria2/aria2"
-# [aria2.remote.github.asset]
+# [aria2.asset]
 # "linux-x86_64" = "aria2-*.tar.xz"
 # "windows-x86_64" = ["aria2", "win", "64bit", "zip"]
 [[aria2.bin]]
 name = "aria2c"
 
 [codex]
-[codex.remote.github]
 repo = "openai/codex"
 [[codex.bin]]
 [codex.bin.name]
@@ -64,21 +64,17 @@ repo = "openai/codex"
 "windows-x86_64" = "codex-command-runner"
 
 [eza]
-[eza.remote.github]
 repo = "eza-community/eza"
 
 [ripgrep]
-[ripgrep.remote.github]
 repo = "BurntSushi/ripgrep"
 [[ripgrep.bin]]
 name = "rg"
 
 [tokei]
-[tokei.remote.github]
 repo = "XAMPPRocky/tokei"
 
 [uv]
-[uv.remote.github]
 repo = "astral-sh/uv"
 [[uv.bin]]
 name = "uv"

@@ -152,6 +152,20 @@ the live file after the merged registry validates successfully. Inro uses `$VISU
 when set; the command must wait until editing finishes (for example, `code --wait`). Without either
 variable it falls back to `vi` on Linux/macOS, or `edit.exe` followed by `notepad.exe` on Windows.
 
+### Registry Packages
+
+GitHub Releases is the default source when a package declares `repo`:
+
+```toml
+[opam]
+repo = "ocaml/opam"
+```
+
+Package-level `repo` and `asset` are shorthand for `[opam.remote.github]` and
+`[opam.remote.github.asset]`. Both forms remain supported and can override each other across files;
+use one form per package within a single file. See [default.example.toml](default.example.toml) for
+binary links and direct downloads.
+
 ### Binary Links
 
 The package's `bin` list selects which installed executables are linked into `bin_dir`. Each `name`
@@ -201,10 +215,10 @@ includes it before retrying.
 GitHub packages can define platform-specific asset selectors when automatic asset discovery is ambiguous.
 
 ```toml
-[aria2.remote.github]
+[aria2]
 repo = "aria2/aria2"
 
-[aria2.remote.github.asset]
+[aria2.asset]
 "linux-x86_64" = "aria2-*.tar.xz"
 "windows-x86_64" = ["aria2", "win", "64bit", "zip"]
 ```
